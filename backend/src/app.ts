@@ -1,0 +1,48 @@
+import cors from 'cors';
+import express from 'express';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import {env} from './config/env';
+import {fail} from './utils/http';
+import {authRouter} from './modules/auth/routes';
+import {userRouter} from './modules/users/routes';
+import {vehicleRouter} from './modules/vehicles/routes';
+import {tripRouter} from './modules/trips/routes';
+import {attendanceRouter} from './modules/attendance/routes';
+import {maintenanceRouter} from './modules/maintenance/routes';
+import {fuelRouter} from './modules/fuel/routes';
+import {expenseRouter} from './modules/expenses/routes';
+import {dashboardRouter} from './modules/dashboard/routes';
+import {trackingRouter} from './modules/tracking/routes';
+import {analyticsRouter} from './modules/analytics/routes';
+import {aiRouter} from './modules/ai/routes';
+import {chatRouter} from './modules/chat/routes';
+import {ocrRouter} from './modules/ocr/routes';
+import {notificationRouter} from './modules/notifications/routes';
+
+export const app = express();
+
+app.use(helmet());
+app.use(cors({origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN}));
+app.use(express.json({limit: '5mb'}));
+app.use(express.urlencoded({extended: true}));
+app.use(morgan(env.NODE_ENV === 'test' ? 'tiny' : 'dev'));
+
+app.get('/health', (_req, res) => res.json({success: true, service: 'LogiSphere AI Backend'}));
+app.use('/api/auth', authRouter);
+app.use('/api/user', userRouter);
+app.use('/api/vehicle', vehicleRouter);
+app.use('/api/trip', tripRouter);
+app.use('/api/attendance', attendanceRouter);
+app.use('/api/maintenance', maintenanceRouter);
+app.use('/api/fuel', fuelRouter);
+app.use('/api/expenses', expenseRouter);
+app.use('/api/dashboard', dashboardRouter);
+app.use('/api/tracking', trackingRouter);
+app.use('/api/analytics', analyticsRouter);
+app.use('/api/ai', aiRouter);
+app.use('/api/chat', chatRouter);
+app.use('/api/ocr', ocrRouter);
+app.use('/api/notifications', notificationRouter);
+
+app.use((_req, res) => fail(res, 404, 'Route not found'));
