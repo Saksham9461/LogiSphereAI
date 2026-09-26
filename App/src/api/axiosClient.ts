@@ -1,6 +1,6 @@
 import axios from 'axios';
-import {BASE_URL} from './apiPath';
-import {tokenStorage} from '../services/storage/tokenStorage';
+import { BASE_URL } from './apiPath';
+import { tokenStorage } from '../services/storage/tokenStorage';
 
 const client = axios.create({
   baseURL: BASE_URL,
