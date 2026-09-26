@@ -31,6 +31,9 @@ export const GetAnalytics = `${BASE_URL}/api/analytics`;
 export const GetDashboardSummary = `${BASE_URL}/api/dashboard/summary`;
 export const UpdateTripStatus = `${BASE_URL}/api/trip`;
 export const GetNotifications = `${BASE_URL}/api/notifications`;
+export const LocationAutocomplete = `${BASE_URL}/api/v1/locations/autocomplete`;
+export const LocationDetails = `${BASE_URL}/api/v1/locations/details`;
+export const RouteRecommendation = `${BASE_URL}/api/ai/route-recommendation`;
 
 
 

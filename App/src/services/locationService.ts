@@ -1,4 +1,6 @@
-import { MAPTILER_API_KEY, GOOGLE_MAPS_API_KEY } from '../config/env';
+import client from '../api/axiosClient';
+import { LocationAutocomplete, LocationDetails } from '../api/apiPath';
+import { MAPTILER_API_KEY } from '../config/env';
 
 export type LocationResult = {
   address: string;
@@ -19,6 +21,19 @@ export const MOCK_ORGANIZATION = {
   geofenceRadius: 500,
 };
 
+let activeSessionToken: string | null = null;
+
+export function getOrCreateSessionToken(): string {
+  if (!activeSessionToken) {
+    activeSessionToken = `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  }
+  return activeSessionToken;
+}
+
+export function resetSessionToken(): void {
+  activeSessionToken = null;
+}
+
 export async function getCurrentLocation(): Promise<{ latitude: number; longitude: number }> {
   return {
     latitude: 23.2156,
@@ -26,7 +41,7 @@ export async function getCurrentLocation(): Promise<{ latitude: number; longitud
   };
 }
 
-// Popular logistics hubs & major cities for instant fallback geocoding
+// Popular logistics hubs & major cities for fallback geocoding
 export const PRESET_LOCATIONS: LocationResult[] = [
   {
     address: 'Gandhinagar Depot, Gandhinagar, Gujarat',
@@ -122,39 +137,36 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutM
 }
 
 /**
- * 1. PRIMARY: Google Places Autocomplete API
+ * 1. PRIMARY: Backend Google Places Autocomplete API Endpoint
  */
-async function searchGooglePlaces(query: string): Promise<LocationResult[]> {
-  if (!GOOGLE_MAPS_API_KEY) return [];
+async function searchBackendPlaces(query: string, userLocation?: { latitude: number; longitude: number }): Promise<LocationResult[]> {
+  const sessionToken = getOrCreateSessionToken();
+  const res = await client.post(LocationAutocomplete, {
+    query,
+    sessionToken,
+    latitude: userLocation?.latitude,
+    longitude: userLocation?.longitude,
+  });
 
-  const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(
-    query
-  )}&key=${GOOGLE_MAPS_API_KEY}&types=geocode|establishment`;
-
-  const res = await fetchWithTimeout(url, {}, 3500);
-  if (!res.ok) return [];
-
-  const data = await res.json();
-  if (data.status !== 'OK' || !Array.isArray(data.predictions)) {
-    return [];
+  if (res.data?.success && Array.isArray(res.data?.data) && res.data.data.length > 0) {
+    return res.data.data.map((item: any) => ({
+      address: item.address || item.title,
+      placeId: item.placeId,
+      latitude: item.latitude || 0,
+      longitude: item.longitude || 0,
+      mainText: item.title || item.address,
+      secondaryText: item.secondaryText || item.address,
+    }));
   }
-
-  return data.predictions.map((p: any) => ({
-    address: p.description,
-    placeId: p.place_id,
-    latitude: 0,
-    longitude: 0,
-    mainText: p.structured_formatting?.main_text || p.description,
-    secondaryText: p.structured_formatting?.secondary_text || '',
-  }));
+  return [];
 }
 
 /**
- * 2. REQUIRED AFTER SELECTION: Google Place Details API
+ * 2. REQUIRED AFTER SELECTION: Backend Google Place Details API Endpoint
  * Fetches exact latitude, longitude, formattedAddress, city, state for selected placeId
  */
 export async function getPlaceDetails(location: LocationResult): Promise<LocationResult> {
-  // If coordinates are already populated and valid, return immediately
+  // If coordinates are already populated and valid (non-zero), return immediately
   if (
     location.latitude !== 0 &&
     location.longitude !== 0 &&
@@ -163,50 +175,41 @@ export async function getPlaceDetails(location: LocationResult): Promise<Locatio
     return location;
   }
 
+  const pid = location.placeId;
   if (
-    GOOGLE_MAPS_API_KEY &&
-    location.placeId &&
-    !location.placeId.startsWith('preset-') &&
-    !location.placeId.startsWith('custom-') &&
-    !location.placeId.startsWith('maptiler-') &&
-    !location.placeId.startsWith('osm-')
+    pid &&
+    !pid.startsWith('preset-') &&
+    !pid.startsWith('custom-') &&
+    !pid.startsWith('maptiler-') &&
+    !pid.startsWith('osm-')
   ) {
     try {
-      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(
-        location.placeId
-      )}&fields=name,formatted_address,geometry,address_components&key=${GOOGLE_MAPS_API_KEY}`;
+      const sessionToken = getOrCreateSessionToken();
+      const res = await client.get(`${LocationDetails}/${encodeURIComponent(pid)}`, {
+        params: { sessionToken },
+      });
 
-      const res = await fetchWithTimeout(url, {}, 4000);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.status === 'OK' && data.result?.geometry?.location) {
-          const result = data.result;
-          let city = '';
-          let state = '';
-          if (Array.isArray(result.address_components)) {
-            for (const comp of result.address_components) {
-              if (comp.types.includes('locality')) city = comp.long_name;
-              if (comp.types.includes('administrative_area_level_1')) state = comp.long_name;
-            }
-          }
+      // Reset session token after Place Details finishes to prepare for next search session
+      resetSessionToken();
 
-          return {
-            ...location,
-            address: result.formatted_address || location.address,
-            name: result.name || location.mainText,
-            latitude: result.geometry.location.lat,
-            longitude: result.geometry.location.lng,
-            city,
-            state,
-          };
-        }
+      if (res.data?.success && res.data?.data) {
+        const d = res.data.data;
+        return {
+          ...location,
+          address: d.formattedAddress || d.name || location.address,
+          name: d.name || location.mainText,
+          latitude: Number(d.latitude) || 0,
+          longitude: Number(d.longitude) || 0,
+          placeId: d.placeId || pid,
+        };
       }
-    } catch (err) {
-      console.warn('[locationService] Google Place Details fetch error:', err);
+    } catch (err: any) {
+      console.warn('[locationService] Backend Place Details request error:', err?.message || err);
+      resetSessionToken();
     }
   }
 
-  // Fallback geocode if coordinates are missing
+  // Fallback geocode if coordinates are still 0
   if (location.latitude === 0 && location.longitude === 0) {
     return await geocodeAddressFallback(location);
   }
@@ -308,22 +311,23 @@ async function geocodeAddressFallback(location: LocationResult): Promise<Locatio
 /**
  * Main Location Autocomplete Search Function
  */
-export async function searchLocations(query: string): Promise<LocationResult[]> {
+export async function searchLocations(
+  query: string,
+  userLocation?: { latitude: number; longitude: number }
+): Promise<LocationResult[]> {
   const trimmed = query.trim();
   if (!trimmed || trimmed.length < 2) return [];
 
   const queryLower = trimmed.toLowerCase();
 
-  // 1. PRIMARY: Try Google Places Autocomplete API
-  if (GOOGLE_MAPS_API_KEY) {
-    try {
-      const googleResults = await searchGooglePlaces(trimmed);
-      if (googleResults.length > 0) {
-        return googleResults;
-      }
-    } catch (err) {
-      console.warn('[locationService] Google Places Autocomplete error:', err);
+  // 1. PRIMARY: Try Backend Google Places API (New) Endpoint
+  try {
+    const backendResults = await searchBackendPlaces(trimmed, userLocation);
+    if (backendResults.length > 0) {
+      return backendResults;
     }
+  } catch (err: any) {
+    console.warn('[locationService] Backend Google Places call skipped or failed, falling back:', err?.message || err);
   }
 
   // 2. FALLBACK: MapTiler Geocoding API
@@ -343,10 +347,11 @@ export async function searchLocations(query: string): Promise<LocationResult[]> 
   }
 
   // 4. FALLBACK: Local Hub Presets
-  const localMatches = PRESET_LOCATIONS.filter(p =>
-    p.address.toLowerCase().includes(queryLower) ||
-    (p.mainText && p.mainText.toLowerCase().includes(queryLower)) ||
-    (p.secondaryText && p.secondaryText.toLowerCase().includes(queryLower))
+  const localMatches = PRESET_LOCATIONS.filter(
+    p =>
+      p.address.toLowerCase().includes(queryLower) ||
+      (p.mainText && p.mainText.toLowerCase().includes(queryLower)) ||
+      (p.secondaryText && p.secondaryText.toLowerCase().includes(queryLower))
   );
 
   if (localMatches.length > 0) {

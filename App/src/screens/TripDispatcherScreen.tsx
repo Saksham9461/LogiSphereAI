@@ -28,6 +28,10 @@ import {
   CheckCircle2,
   XCircle,
   LocateFixed,
+  Sparkles,
+  Clock,
+  Route,
+  AlertCircle,
 } from 'lucide-react-native';
 import { rf } from '../theme/responsive';
 import { colors } from '../theme/colors';
@@ -37,7 +41,10 @@ import useDriverStore from '../store/DriverStore';
 import useAuthStore from '../store/AuthStore';
 import useNotificationStore from '../store/NotificationStore';
 import FleetMap from '../components/FleetMap';
+import client from '../api/axiosClient';
+import { RouteRecommendation } from '../api/apiPath';
 import { openGoogleMapsNavigation } from '../utils/navigationUtils';
+import { decodePolyline } from '../utils/polylineUtils';
 import { searchLocations, getPlaceDetails, LocationResult, PRESET_LOCATIONS } from '../services/locationService';
 
 // --- LIFECYCLE STATUS CONFIGURATION ---
@@ -147,6 +154,91 @@ export default function TripDispatcherScreen() {
   const [actionFuel, setActionFuel] = useState('0');
 
   const [mapModalTrip, setMapModalTrip] = useState<any | null>(null);
+
+  // AI Route Intelligence Modal State
+  const [routeModal, setRouteModal] = useState<{
+    visible: boolean;
+    trip: any;
+    loading: boolean;
+    error: string | null;
+    origin: { latitude: number; longitude: number } | null;
+    destination: { latitude: number; longitude: number } | null;
+    routes: Array<{
+      id: string;
+      distanceMeters: number;
+      durationSeconds: number;
+      trafficDelaySeconds: number;
+      label: string;
+      encodedPolyline: string;
+    }>;
+    recommendation: {
+      routeId: string;
+      reason: string;
+      confidence: string;
+      source: string;
+    } | null;
+    selectedRouteId: string | null;
+  }>({
+    visible: false,
+    trip: null,
+    loading: false,
+    error: null,
+    origin: null,
+    destination: null,
+    routes: [],
+    recommendation: null,
+    selectedRouteId: null,
+  });
+
+  const handleFetchRouteIntelligence = async (t: any) => {
+    const tID = t.tripID || t.tripid || t.id;
+    setRouteModal({
+      visible: true,
+      trip: t,
+      loading: true,
+      error: null,
+      origin: null,
+      destination: null,
+      routes: [],
+      recommendation: null,
+      selectedRouteId: null,
+    });
+
+    try {
+      const res = await client.post(RouteRecommendation, {
+        tripID: tID,
+      });
+
+      if (res.data?.success && res.data?.data) {
+        const data = res.data.data;
+        const recId = data.recommendation?.routeId || (data.routes?.[0]?.id ?? null);
+        setRouteModal({
+          visible: true,
+          trip: t,
+          loading: false,
+          error: null,
+          origin: data.origin,
+          destination: data.destination,
+          routes: data.routes || [],
+          recommendation: data.recommendation || null,
+          selectedRouteId: recId,
+        });
+      } else {
+        setRouteModal(prev => ({
+          ...prev,
+          loading: false,
+          error: res.data?.message || 'Route intelligence is temporarily unavailable',
+        }));
+      }
+    } catch (err: any) {
+      console.warn('[TripDispatcherScreen] Route intelligence fetch error:', err?.message || err);
+      setRouteModal(prev => ({
+        ...prev,
+        loading: false,
+        error: 'Route intelligence is temporarily unavailable. You can continue with standard navigation.',
+      }));
+    }
+  };
 
   const refreshAll = useCallback(async () => {
     await Promise.all([getTrips(), getVehicles(), getDrivers(), getNotifications()]);
@@ -631,13 +723,25 @@ export default function TripDispatcherScreen() {
 
                   {/* LIFECYCLE CONTROLS FOOTER */}
                   <View style={styles.tripCardFooter}>
-                    <Pressable
-                      style={styles.mapBtn}
-                      onPress={() => setMapModalTrip(t)}
-                    >
-                      <Map size={16} color={colors.blue} />
-                      <Text style={styles.mapBtnText}>Map</Text>
-                    </Pressable>
+                    <View style={{ flexDirection: 'row', gap: rf(6), alignItems: 'center' }}>
+                      <Pressable
+                        style={styles.mapBtn}
+                        onPress={() => setMapModalTrip(t)}
+                      >
+                        <Map size={16} color={colors.blue} />
+                        <Text style={styles.mapBtnText}>Map</Text>
+                      </Pressable>
+
+                      {['ACCEPTED', 'ASSIGNED', 'GOING_TO_PICKUP', 'ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROP', 'DISPATCHED'].includes(statusKey) && (
+                        <Pressable
+                          style={styles.aiRouteBtn}
+                          onPress={() => handleFetchRouteIntelligence(t)}
+                        >
+                          <Sparkles size={14} color="#1a1200" />
+                          <Text style={styles.aiRouteBtnText}>AI Route</Text>
+                        </Pressable>
+                      )}
+                    </View>
 
                     {/* MANAGER CONTROLS FOR PENDING_APPROVAL */}
                     {!isDriver && statusKey === 'PENDING_APPROVAL' && (
@@ -847,6 +951,155 @@ export default function TripDispatcherScreen() {
               onSelectTrip={() => {}}
               style={{ flex: 1, height: '100%' }}
             />
+          )}
+        </View>
+      </Modal>
+
+      {/* AI ROUTE INTELLIGENCE MODAL */}
+      <Modal visible={routeModal.visible} animationType="slide" transparent={false} onRequestClose={() => setRouteModal(prev => ({ ...prev, visible: false }))}>
+        <View style={{ flex: 1, backgroundColor: colors.bg }}>
+          {/* HEADER */}
+          <View style={styles.mapModalHeader}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: rf(8) }}>
+              <View style={{ width: rf(32), height: rf(32), borderRadius: rf(16), backgroundColor: 'rgba(245,158,11,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+                <Sparkles size={18} color={colors.amber} />
+              </View>
+              <View>
+                <Text style={styles.modalTitle}>AI Route Intelligence</Text>
+                <Text style={{ color: colors.textMuted, fontSize: rf(11) }}>
+                  Trip: {formatDisplayTripId(routeModal.trip?.tripID || routeModal.trip?.tripid)}
+                </Text>
+              </View>
+            </View>
+            <Pressable onPress={() => setRouteModal(prev => ({ ...prev, visible: false }))}>
+              <X size={24} color={colors.textPrimary} />
+            </Pressable>
+          </View>
+
+          {routeModal.loading ? (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: rf(12) }}>
+              <ActivityIndicator size="large" color={colors.amber} />
+              <Text style={{ color: colors.textPrimary, fontSize: rf(15), fontWeight: '700' }}>Analyzing Google Traffic & Routes...</Text>
+              <Text style={{ color: colors.textMuted, fontSize: rf(12) }}>Gemini AI is calculating the optimal path</Text>
+            </View>
+          ) : routeModal.error ? (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: rf(30), gap: rf(12) }}>
+              <AlertCircle size={48} color={colors.rose} />
+              <Text style={{ color: colors.textPrimary, fontSize: rf(16), fontWeight: '700', textAlign: 'center' }}>Route Analysis Unavailable</Text>
+              <Text style={{ color: colors.textMuted, fontSize: rf(13), textAlign: 'center' }}>{routeModal.error}</Text>
+              <Pressable style={styles.saveBtn} onPress={() => handleFetchRouteIntelligence(routeModal.trip)}>
+                <Text style={styles.saveBtnText}>Try Again</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: rf(30) }}>
+              {/* MAPLIBRE MAP WITH ROUTE POLYLINES */}
+              <FleetMap
+                trips={routeModal.trip ? [routeModal.trip] : []}
+                selectedTrip={routeModal.trip}
+                onSelectTrip={() => {}}
+                style={{ height: rf(260) }}
+                routeLines={routeModal.routes.map(r => ({
+                  id: r.id,
+                  coordinates: decodePolyline(r.encodedPolyline),
+                  isRecommended: r.id === routeModal.recommendation?.routeId,
+                  isSelected: r.id === routeModal.selectedRouteId,
+                }))}
+                selectedRouteId={routeModal.selectedRouteId || undefined}
+                recommendedRouteId={routeModal.recommendation?.routeId}
+                originCoords={routeModal.origin || undefined}
+                destCoords={routeModal.destination || undefined}
+              />
+
+              <View style={{ padding: rf(16), gap: rf(12) }}>
+                {/* GEMINI AI RECOMMENDATION BANNER */}
+                {routeModal.recommendation && (
+                  <View style={styles.aiRecommendationCard}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: rf(6) }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: rf(6) }}>
+                        <Sparkles size={16} color="#1a1200" />
+                        <Text style={styles.aiCardTagText}>★ AI RECOMMENDED ROUTE</Text>
+                      </View>
+                      <View style={styles.aiConfidenceBadge}>
+                        <Text style={styles.aiConfidenceText}>{routeModal.recommendation.confidence.toUpperCase()} CONFIDENCE</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.aiReasonText}>{routeModal.recommendation.reason}</Text>
+                  </View>
+                )}
+
+                <Text style={{ color: colors.textMuted, fontSize: rf(12), fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: rf(4) }}>
+                  Available Alternative Routes ({routeModal.routes.length})
+                </Text>
+
+                {/* ROUTE CARDS */}
+                {routeModal.routes.map(r => {
+                  const isSelected = r.id === routeModal.selectedRouteId;
+                  const isRec = r.id === routeModal.recommendation?.routeId;
+                  const distKm = (r.distanceMeters / 1000).toFixed(1);
+                  const durMin = Math.round(r.durationSeconds / 60);
+                  const durHours = Math.floor(durMin / 60);
+                  const durRemainderMin = durMin % 60;
+                  const durationFormatted = durHours > 0 ? `${durHours}h ${durRemainderMin}m` : `${durMin} min`;
+
+                  return (
+                    <Pressable
+                      key={r.id}
+                      style={[styles.routeOptionCard, isSelected && styles.routeOptionCardSelected]}
+                      onPress={() => setRouteModal(prev => ({ ...prev, selectedRouteId: r.id }))}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: rf(6) }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: rf(8) }}>
+                          <View style={[styles.radioCircle, isSelected && styles.radioCircleSelected]}>
+                            {isSelected && <View style={styles.radioInner} />}
+                          </View>
+                          <Text style={[styles.routeOptionLabel, isSelected && { color: colors.textPrimary }]}>{r.label}</Text>
+                        </View>
+                        {isRec && (
+                          <View style={styles.recommendedPill}>
+                            <Sparkles size={10} color="#1a1200" />
+                            <Text style={styles.recommendedPillText}>AI Pick</Text>
+                          </View>
+                        )}
+                      </View>
+
+                      <View style={{ flexDirection: 'row', gap: rf(16), marginLeft: rf(26), marginTop: rf(2) }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: rf(4) }}>
+                          <Clock size={14} color={isSelected ? colors.amber : colors.textMuted} />
+                          <Text style={styles.routeMetricText}>{durationFormatted}</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: rf(4) }}>
+                          <Route size={14} color={colors.textMuted} />
+                          <Text style={styles.routeMetricText}>{distKm} km</Text>
+                        </View>
+                        {r.trafficDelaySeconds > 0 && (
+                          <Text style={{ color: colors.rose, fontSize: rf(12), fontWeight: '600' }}>
+                            +{Math.round(r.trafficDelaySeconds / 60)}m delay
+                          </Text>
+                        )}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+
+                {/* START NAVIGATION BUTTON */}
+                <Pressable
+                  style={[styles.stepBtnPrimary, { marginTop: rf(12), height: rf(48) }]}
+                  onPress={() => {
+                    if (routeModal.trip) {
+                      const targetCoords = routeModal.destination || {
+                        latitude: Number(routeModal.trip.destinationLatitude ?? routeModal.trip.destinationlatitude ?? 23.0225),
+                        longitude: Number(routeModal.trip.destinationLongitude ?? routeModal.trip.destinationlongitude ?? 72.5714),
+                      };
+                      openGoogleMapsNavigation(routeModal.trip.destination || 'Destination', targetCoords);
+                    }
+                  }}
+                >
+                  <Navigation size={18} color="#1a1200" />
+                  <Text style={[styles.stepBtnPrimaryText, { fontSize: rf(15) }]}>Start Navigation</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
           )}
         </View>
       </Modal>
@@ -1265,4 +1518,68 @@ const styles = StyleSheet.create({
   notifMessage: { color: colors.textSecondary, fontSize: rf(12), marginTop: rf(2) },
   notifTime: { color: colors.textMuted, fontSize: rf(10), marginTop: rf(4) },
   unreadDot: { width: rf(8), height: rf(8), borderRadius: rf(4), backgroundColor: colors.amber },
+
+  // AI Route Intelligence Styles
+  aiRouteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: rf(4),
+    paddingHorizontal: rf(10),
+    paddingVertical: rf(6),
+    borderRadius: rf(8),
+    backgroundColor: colors.amber,
+  },
+  aiRouteBtnText: { color: '#1a1200', fontSize: rf(12), fontWeight: '700' },
+
+  aiRecommendationCard: {
+    backgroundColor: 'rgba(245,158,11,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.4)',
+    borderRadius: rf(12),
+    padding: rf(14),
+  },
+  aiCardTagText: { color: '#1a1200', fontSize: rf(11), fontWeight: '800', letterSpacing: 0.5 },
+  aiConfidenceBadge: {
+    backgroundColor: colors.amber,
+    paddingHorizontal: rf(8),
+    paddingVertical: rf(2),
+    borderRadius: rf(10),
+  },
+  aiConfidenceText: { color: '#1a1200', fontSize: rf(9), fontWeight: '800' },
+  aiReasonText: { color: colors.textPrimary, fontSize: rf(13), fontWeight: '600', marginTop: rf(4) },
+
+  routeOptionCard: {
+    backgroundColor: colors.panel,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: rf(12),
+    padding: rf(14),
+  },
+  routeOptionCardSelected: {
+    borderColor: colors.amber,
+    backgroundColor: 'rgba(245,158,11,0.06)',
+  },
+  routeOptionLabel: { color: colors.textMuted, fontSize: rf(14), fontWeight: '700' },
+  radioCircle: {
+    width: rf(18),
+    height: rf(18),
+    borderRadius: rf(9),
+    borderWidth: 2,
+    borderColor: colors.textMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioCircleSelected: { borderColor: colors.amber },
+  radioInner: { width: rf(10), height: rf(10), borderRadius: rf(5), backgroundColor: colors.amber },
+  recommendedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: rf(4),
+    backgroundColor: colors.amber,
+    paddingHorizontal: rf(8),
+    paddingVertical: rf(2),
+    borderRadius: rf(8),
+  },
+  recommendedPillText: { color: '#1a1200', fontSize: rf(10), fontWeight: '800' },
+  routeMetricText: { color: colors.textSecondary, fontSize: rf(13), fontWeight: '600' },
 });

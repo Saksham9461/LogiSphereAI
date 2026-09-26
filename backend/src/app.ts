@@ -19,6 +19,7 @@ import {aiRouter} from './modules/ai/routes';
 import {chatRouter} from './modules/chat/routes';
 import {ocrRouter} from './modules/ocr/routes';
 import {notificationRouter} from './modules/notifications/routes';
+import {locationRouter} from './modules/locations/routes';
 
 export const app = express();
 
@@ -44,5 +45,7 @@ app.use('/api/ai', aiRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/ocr', ocrRouter);
 app.use('/api/notifications', notificationRouter);
+app.use('/api/locations', locationRouter);
+app.use('/api/v1/locations', locationRouter);
 
 app.use((_req, res) => fail(res, 404, 'Route not found'));
