@@ -1,6 +1,14 @@
 import { Platform } from 'react-native';
 
-export const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5001' : 'http://localhost:5001';
+
+// export const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5001' : 'http://localhost:5001';
+const IS_PRODUCTION = !__DEV__;
+
+export const BASE_URL = IS_PRODUCTION
+  ? 'https://logisphereai.onrender.com'
+  : Platform.OS === 'android'
+    ? 'http://10.0.2.2:5001'
+    : 'http://localhost:5001';
 
 export const Login = `${BASE_URL}/api/auth/login`;
 export const requestemail = `${BASE_URL}/api/auth/request-reset-password`;
