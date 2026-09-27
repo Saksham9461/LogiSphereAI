@@ -52,49 +52,6 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; border: string }
 const STATUS_OPTIONS = ['All', 'Available', 'On Trip', 'In Shop', 'Retired'];
 const VEHICLE_TYPES = ['Van', 'Truck', 'Mini'];
 
-const MOCK_VEHICLES = [
-  {
-    vehicleID: 'v1',
-    registrationNumber: 'GJ01AB452',
-    name: 'VAN-05',
-    type: 'Van',
-    maxLoadCapacity: 500,
-    odometer: 74000,
-    acquisitionCost: 620000,
-    status: 'Available',
-  },
-  {
-    vehicleID: 'v2',
-    registrationNumber: 'GJ01AB998',
-    name: 'TRUCK-11',
-    type: 'Truck',
-    maxLoadCapacity: 5000,
-    odometer: 182000,
-    acquisitionCost: 2450000,
-    status: 'On Trip',
-  },
-  {
-    vehicleID: 'v3',
-    registrationNumber: 'GJ01AB1120',
-    name: 'MINI-03',
-    type: 'Mini',
-    maxLoadCapacity: 1000,
-    odometer: 66000,
-    acquisitionCost: 410000,
-    status: 'In Shop',
-  },
-  {
-    vehicleID: 'v4',
-    registrationNumber: 'GJ01AB008',
-    name: 'VAN-09',
-    type: 'Van',
-    maxLoadCapacity: 750,
-    odometer: 241900,
-    acquisitionCost: 590000,
-    status: 'Retired',
-  },
-];
-
 // --- COMPONENTS ---
 const FilterChip = ({ label, value, options, onChange }: any) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -230,13 +187,11 @@ export default function VehicleRegistryScreen() {
   }, [getVehicles]);
 
   const typeOptions = useMemo(() => {
-    const dataSource = vehicles.length > 0 ? vehicles : MOCK_VEHICLES;
-    return ['All', ...Array.from(new Set(dataSource.map((v: any) => v.type || 'Van')))];
+    return ['All', ...Array.from(new Set((vehicles || []).map((v: any) => v.type || 'Van')))];
   }, [vehicles]);
 
   const filteredVehicles = useMemo(() => {
-    const dataSource = vehicles.length > 0 ? vehicles : MOCK_VEHICLES;
-    return dataSource.filter((v: any) => {
+    return (vehicles || []).filter((v: any) => {
       const displayStatus = (v.status || '').replace(/_/g, ' ').replace(/\w\S*/g, (w: string) => (w.replace(/^\w/, (c) => c.toUpperCase())));
 
       const matchesType = typeFilter === 'All' || v.type === typeFilter;

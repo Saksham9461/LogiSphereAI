@@ -13,7 +13,9 @@ import {
 import { Sparkles, ArrowUp } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
-import { mockAiAssistantService, AIResponse } from '../services/mockAiAssistantService';
+import { AIResponse } from '../services/mockAiAssistantService';
+
+import client from '../api/axiosClient';
 
 interface Message {
   id: string;
@@ -48,7 +50,8 @@ export default function AIAssistantScreen() {
     setIsThinking(true);
 
     try {
-      const response = await mockAiAssistantService(text);
+      const res = await client.post('/api/ai/query', { query: text });
+      const response: AIResponse = res.data;
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         isUser: false,
@@ -58,11 +61,11 @@ export default function AIAssistantScreen() {
       
       setMessages((prev) => [...prev, aiMessage]);
       setSuggestions(INITIAL_SUGGESTIONS); // Always show all options
-    } catch (error) {
+    } catch (error: any) {
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         isUser: false,
-        text: 'Something went wrong while analyzing your fleet. Please try again.',
+        text: error.response?.data?.message || 'Something went wrong while analyzing your fleet. Please try again.',
       };
       setMessages((prev) => [...prev, errorMessage]);
       setSuggestions(INITIAL_SUGGESTIONS);

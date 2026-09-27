@@ -245,8 +245,11 @@ export default function TripDispatcherScreen() {
   }, [getTrips, getVehicles, getDrivers, getNotifications]);
 
   useEffect(() => {
+    if (user) {
+      useTripStore.getState().initRealtimeSubscription(user);
+    }
     refreshAll();
-  }, [refreshAll]);
+  }, [user, refreshAll]);
 
   // Debounced search for Pickup Location
   useEffect(() => {
@@ -723,9 +726,10 @@ export default function TripDispatcherScreen() {
 
                   {/* LIFECYCLE CONTROLS FOOTER */}
                   <View style={styles.tripCardFooter}>
-                    <View style={{ flexDirection: 'row', gap: rf(6), alignItems: 'center' }}>
+                    {/* ROW 1: UTILITY BUTTONS (MAP & AI ROUTE IN SINGLE ROW) */}
+                    <View style={styles.utilityButtonsRow}>
                       <Pressable
-                        style={styles.mapBtn}
+                        style={[styles.mapBtn, !['ACCEPTED', 'ASSIGNED', 'GOING_TO_PICKUP', 'ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROP', 'DISPATCHED'].includes(statusKey) && { width: '100%', flex: 0 }]}
                         onPress={() => setMapModalTrip(t)}
                       >
                         <Map size={16} color={colors.blue} />
@@ -737,17 +741,18 @@ export default function TripDispatcherScreen() {
                           style={styles.aiRouteBtn}
                           onPress={() => handleFetchRouteIntelligence(t)}
                         >
-                          <Sparkles size={14} color="#1a1200" />
+                          <Sparkles size={15} color="#1a1200" />
                           <Text style={styles.aiRouteBtnText}>AI Route</Text>
                         </Pressable>
                       )}
                     </View>
 
+                    {/* ROW 2: ACTION BUTTONS (NEXT ROW WITH FULL WIDTH) */}
                     {/* MANAGER CONTROLS FOR PENDING_APPROVAL */}
                     {!isDriver && statusKey === 'PENDING_APPROVAL' && (
-                      <View style={{ flexDirection: 'row', gap: rf(8) }}>
+                      <View style={{ flexDirection: 'row', gap: rf(10), width: '100%', marginTop: rf(8) }}>
                         <Pressable
-                          style={[styles.actionBtn, { backgroundColor: colors.rose, borderColor: colors.rose }]}
+                          style={[styles.actionBtn, { flex: 1, backgroundColor: colors.rose, borderColor: colors.rose, paddingVertical: rf(12), justifyContent: 'center' }]}
                           onPress={() => handleManagerReject(tID)}
                           disabled={isActionBusy}
                         >
@@ -755,7 +760,7 @@ export default function TripDispatcherScreen() {
                           <Text style={styles.actionBtnTextWhite}>Reject</Text>
                         </Pressable>
                         <Pressable
-                          style={[styles.actionBtn, { backgroundColor: colors.green, borderColor: colors.green }]}
+                          style={[styles.actionBtn, { flex: 1, backgroundColor: colors.green, borderColor: colors.green, paddingVertical: rf(12), justifyContent: 'center' }]}
                           onPress={() => handleManagerAccept(tID)}
                           disabled={isActionBusy}
                         >
@@ -765,88 +770,88 @@ export default function TripDispatcherScreen() {
                       </View>
                     )}
 
-                    {/* DRIVER STEP-BY-STEP CONTROLS */}
+                    {/* DRIVER STEP-BY-STEP CONTROLS (FULL WIDTH NEXT ROW) */}
                     {isDriver && (
-                      <View style={{ flex: 1, marginLeft: rf(8) }}>
+                      <View style={{ width: '100%', marginTop: rf(8) }}>
                         {(statusKey === 'ACCEPTED' || statusKey === 'ASSIGNED') && (
                           <Pressable
-                            style={styles.stepBtnPrimary}
+                            style={styles.stepBtnPrimaryFull}
                             onPress={() => handleGoToPickup(t)}
                             disabled={isActionBusy}
                           >
-                            <Navigation size={16} color="#1a1200" />
-                            <Text style={styles.stepBtnPrimaryText}>Go to Pickup</Text>
+                            <Navigation size={18} color="#1a1200" />
+                            <Text style={styles.stepBtnPrimaryTextFull}>Go to Pickup</Text>
                           </Pressable>
                         )}
 
                         {statusKey === 'GOING_TO_PICKUP' && (
                           <Pressable
-                            style={styles.stepBtnPrimary}
+                            style={styles.stepBtnPrimaryFull}
                             onPress={() => handleArrivedAtPickup(tID)}
                             disabled={isActionBusy}
                           >
-                            <Check size={16} color="#1a1200" />
-                            <Text style={styles.stepBtnPrimaryText}>I've Arrived</Text>
+                            <Check size={18} color="#1a1200" />
+                            <Text style={styles.stepBtnPrimaryTextFull}>I've Arrived</Text>
                           </Pressable>
                         )}
 
                         {statusKey === 'ARRIVED_AT_PICKUP' && (
                           <Pressable
-                            style={styles.stepBtnSuccess}
+                            style={styles.stepBtnSuccessFull}
                             onPress={() => handleConfirmPickupPrompt(tID)}
                             disabled={isActionBusy}
                           >
-                            <PackageCheck size={16} color="#fff" />
-                            <Text style={styles.actionBtnTextWhite}>Confirm Item Picked</Text>
+                            <PackageCheck size={18} color="#fff" />
+                            <Text style={styles.actionBtnTextWhiteFull}>Confirm Item Picked</Text>
                           </Pressable>
                         )}
 
                         {statusKey === 'PICKED_UP' && (
                           <Pressable
-                            style={styles.stepBtnPrimary}
+                            style={styles.stepBtnPrimaryFull}
                             onPress={() => handleGoToDrop(t)}
                             disabled={isActionBusy}
                           >
-                            <Navigation size={16} color="#1a1200" />
-                            <Text style={styles.stepBtnPrimaryText}>Go to Drop Location</Text>
+                            <Navigation size={18} color="#1a1200" />
+                            <Text style={styles.stepBtnPrimaryTextFull}>Go to Drop Location</Text>
                           </Pressable>
                         )}
 
                         {statusKey === 'IN_TRANSIT' && (
                           <Pressable
-                            style={styles.stepBtnPrimary}
+                            style={styles.stepBtnPrimaryFull}
                             onPress={() => handleArrivedAtDrop(tID)}
                             disabled={isActionBusy}
                           >
-                            <Check size={16} color="#1a1200" />
-                            <Text style={styles.stepBtnPrimaryText}>I've Arrived</Text>
+                            <Check size={18} color="#1a1200" />
+                            <Text style={styles.stepBtnPrimaryTextFull}>I've Arrived</Text>
                           </Pressable>
                         )}
 
                         {statusKey === 'ARRIVED_AT_DROP' && (
                           <Pressable
-                            style={styles.stepBtnSuccess}
+                            style={styles.stepBtnSuccessFull}
                             onPress={() => handleConfirmDeliveryPrompt(tID)}
                             disabled={isActionBusy}
                           >
-                            <CheckCircle2 size={16} color="#fff" />
-                            <Text style={styles.actionBtnTextWhite}>Confirm Delivery</Text>
+                            <CheckCircle2 size={18} color="#fff" />
+                            <Text style={styles.actionBtnTextWhiteFull}>Confirm Delivery</Text>
                           </Pressable>
                         )}
 
                         {(statusKey === 'DELIVERED' || statusKey === 'COMPLETED') && (
-                          <View style={styles.completedBanner}>
-                            <CheckCircle2 size={16} color={colors.green} />
-                            <Text style={styles.completedBannerText}>Trip Completed</Text>
+                          <View style={styles.completedBannerFull}>
+                            <CheckCircle2 size={18} color={colors.green} />
+                            <Text style={styles.completedBannerTextFull}>Trip Completed</Text>
                           </View>
                         )}
                       </View>
                     )}
 
-                    {/* MANAGER CANCEL FOR ACTIVE TRIPS */}
+                    {/* MANAGER CANCEL FOR ACTIVE TRIPS (FULL WIDTH NEXT ROW) */}
                     {!isDriver && ['ACCEPTED', 'ASSIGNED', 'GOING_TO_PICKUP', 'ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROP'].includes(statusKey) && (
                       <Pressable
-                        style={[styles.actionBtn, { backgroundColor: 'rgba(251,113,133,0.1)', borderColor: colors.rose }]}
+                        style={styles.managerCancelBtnFull}
                         onPress={() => {
                           setActionOdo(String(t.startingOdometer ?? '0'));
                           setActionFuel('0');
@@ -854,7 +859,7 @@ export default function TripDispatcherScreen() {
                         }}
                       >
                         <X size={16} color={colors.rose} />
-                        <Text style={{ color: colors.rose, fontSize: rf(13), fontWeight: '700' }}>Cancel</Text>
+                        <Text style={styles.managerCancelTextFull}>Cancel Trip</Text>
                       </Pressable>
                     )}
                   </View>
@@ -911,20 +916,29 @@ export default function TripDispatcherScreen() {
               </Pressable>
             </View>
             <ScrollView contentContainerStyle={{ gap: rf(10), paddingBottom: rf(20) }}>
-              {notifications.map((n) => (
-                <Pressable
-                  key={n.id}
-                  style={[styles.notifCard, !n.read && styles.notifCardUnread]}
-                  onPress={() => markAsRead(n.id)}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.notifTitle}>{n.title}</Text>
-                    <Text style={styles.notifMessage}>{n.message}</Text>
-                    <Text style={styles.notifTime}>{new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                  </View>
-                  {!n.read && <View style={styles.unreadDot} />}
-                </Pressable>
-              ))}
+              {notifications.map((n: any) => {
+                const msgText = n.message || n.body || '';
+                const rawDate = n.createdAt || n.createdat || n.created_at;
+                const dateObj = rawDate ? new Date(rawDate) : new Date();
+                const formattedTime = !isNaN(dateObj.getTime())
+                  ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : 'Just now';
+
+                return (
+                  <Pressable
+                    key={n.id}
+                    style={[styles.notifCard, !n.read && styles.notifCardUnread]}
+                    onPress={() => markAsRead(n.id)}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.notifTitle}>{n.title}</Text>
+                      {!!msgText && <Text style={styles.notifMessage}>{msgText}</Text>}
+                      <Text style={styles.notifTime}>{formattedTime}</Text>
+                    </View>
+                    {!n.read && <View style={styles.unreadDot} />}
+                  </Pressable>
+                );
+              })}
               {notifications.length === 0 && (
                 <Text style={{ color: colors.textMuted, textAlign: 'center', marginVertical: rf(20) }}>
                   No notifications yet.
@@ -1371,7 +1385,7 @@ export default function TripDispatcherScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
+  screen: { flex: 1, backgroundColor: colors.bg, paddingBottom:rf(100) },
   container: { paddingHorizontal: rf(16), paddingVertical: rf(24), paddingBottom: rf(40), flexGrow: 1 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: rf(16) },
   pageTitle: { color: colors.textPrimary, fontSize: rf(24), fontWeight: '800', letterSpacing: -0.5 },
@@ -1441,11 +1455,12 @@ const styles = StyleSheet.create({
   tripMetaRow: { flexDirection: 'row', gap: rf(16), marginTop: rf(8) },
   tripMetaText: { color: colors.textMuted, fontSize: rf(12) },
 
-  tripCardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.borderSoft, paddingTop: rf(12) },
-  mapBtn: { flexDirection: 'row', alignItems: 'center', gap: rf(4), paddingHorizontal: rf(10), paddingVertical: rf(6), borderRadius: rf(8), backgroundColor: 'rgba(56,189,248,0.1)', borderWidth: 1, borderColor: 'rgba(56,189,248,0.3)' },
-  mapBtnText: { color: colors.blue, fontSize: rf(12), fontWeight: '700' },
+  tripCardFooter: { flexDirection: 'column', gap: rf(8), borderTopWidth: 1, borderTopColor: colors.borderSoft, paddingTop: rf(12) },
+  utilityButtonsRow: { flexDirection: 'row', gap: rf(8), width: '100%', alignItems: 'center' },
+  mapBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: rf(6), paddingHorizontal: rf(12), paddingVertical: rf(9), borderRadius: rf(10), backgroundColor: 'rgba(56,189,248,0.12)', borderWidth: 1, borderColor: 'rgba(56,189,248,0.35)' },
+  mapBtnText: { color: colors.blue, fontSize: rf(13), fontWeight: '700' },
 
-  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: rf(4), paddingHorizontal: rf(12), paddingVertical: rf(8), borderRadius: rf(8), borderWidth: 1 },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: rf(6), paddingHorizontal: rf(12), paddingVertical: rf(8), borderRadius: rf(10), borderWidth: 1 },
   actionBtnTextWhite: { color: '#fff', fontSize: rf(13), fontWeight: '700' },
 
   stepBtnPrimary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: rf(6), backgroundColor: colors.amber, paddingVertical: rf(10), paddingHorizontal: rf(14), borderRadius: rf(10) },
@@ -1455,6 +1470,16 @@ const styles = StyleSheet.create({
 
   completedBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: rf(6), backgroundColor: 'rgba(74,222,128,0.12)', borderWidth: 1, borderColor: colors.green, paddingVertical: rf(8), borderRadius: rf(8) },
   completedBannerText: { color: colors.green, fontSize: rf(13), fontWeight: '700' },
+
+  // Full width button styles for Row 2
+  stepBtnPrimaryFull: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: rf(8), backgroundColor: colors.amber, paddingVertical: rf(12), borderRadius: rf(12) },
+  stepBtnPrimaryTextFull: { color: '#1a1200', fontSize: rf(14), fontWeight: '800' },
+  stepBtnSuccessFull: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: rf(8), backgroundColor: colors.green, paddingVertical: rf(12), borderRadius: rf(12) },
+  actionBtnTextWhiteFull: { color: '#fff', fontSize: rf(14), fontWeight: '800' },
+  completedBannerFull: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: rf(8), backgroundColor: 'rgba(74,222,128,0.12)', borderWidth: 1, borderColor: colors.green, paddingVertical: rf(10), borderRadius: rf(10) },
+  completedBannerTextFull: { color: colors.green, fontSize: rf(14), fontWeight: '800' },
+  managerCancelBtnFull: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: rf(6), backgroundColor: 'rgba(251,113,133,0.1)', borderWidth: 1, borderColor: colors.rose, paddingVertical: rf(11), borderRadius: rf(10), marginTop: rf(4) },
+  managerCancelTextFull: { color: colors.rose, fontSize: rf(13), fontWeight: '700' },
 
   emptyState: { padding: rf(40), alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderRadius: rf(16), borderWidth: 1, borderColor: colors.borderSoft, borderStyle: 'dashed', marginTop: rf(8) },
   emptyStateIconWrapper: { width: rf(64), height: rf(64), borderRadius: rf(32), backgroundColor: colors.panel, alignItems: 'center', justifyContent: 'center', marginBottom: rf(16), borderWidth: 1, borderColor: colors.borderSoft },
@@ -1521,15 +1546,17 @@ const styles = StyleSheet.create({
 
   // AI Route Intelligence Styles
   aiRouteBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: rf(4),
-    paddingHorizontal: rf(10),
-    paddingVertical: rf(6),
-    borderRadius: rf(8),
+    justifyContent: 'center',
+    gap: rf(6),
+    paddingHorizontal: rf(12),
+    paddingVertical: rf(9),
+    borderRadius: rf(10),
     backgroundColor: colors.amber,
   },
-  aiRouteBtnText: { color: '#1a1200', fontSize: rf(12), fontWeight: '700' },
+  aiRouteBtnText: { color: '#1a1200', fontSize: rf(13), fontWeight: '800' },
 
   aiRecommendationCard: {
     backgroundColor: 'rgba(245,158,11,0.12)',

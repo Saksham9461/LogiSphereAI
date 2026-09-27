@@ -7,12 +7,6 @@ import FleetMap from '../components/FleetMap';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
 
-// Mock data to fallback on if no actual DISPATCHED trips are available in store
-const FALLBACK_TRIPS = [
-  { tripID: 'TRP-1001', source: 'Warehouse A', destination: 'Port City', status: 'DISPATCHED', vehicleID: 'V-001', driverID: 'D-001' },
-  { tripID: 'TRP-1002', source: 'HQ', destination: 'Distribution Hub', status: 'DISPATCHED', vehicleID: 'V-002', driverID: 'D-002' },
-];
-
 export default function LiveTrackingScreen() {
   const insets = useSafeAreaInsets();
   const { trips, getTrips } = useTripStore();
@@ -23,13 +17,12 @@ export default function LiveTrackingScreen() {
     getTrips();
   }, []);
 
-  // Filter for active trips
-  let activeTrips = trips.filter((t: any) => t.status === 'DISPATCHED');
-  
-  // If there are no dispatched trips in the store, use mock fallback to demonstrate the feature
-  if (activeTrips.length === 0) {
-    activeTrips = FALLBACK_TRIPS;
-  }
+  // Filter for active trips from backend
+  const activeTrips = (trips || []).filter((t: any) =>
+    ['DISPATCHED', 'IN_TRANSIT', 'GOING_TO_PICKUP', 'ARRIVED_AT_PICKUP', 'PICKED_UP', 'ARRIVED_AT_DROP', 'ACCEPTED', 'ASSIGNED'].includes(
+      String(t.status || '').toUpperCase()
+    )
+  );
 
   const renderTripCard = ({ item }: { item: any }) => {
     const isSelected = selectedTrip?.tripID === item.tripID;

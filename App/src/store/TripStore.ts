@@ -1,20 +1,22 @@
 import { create } from 'zustand';
 import axios from '../api/axiosClient';
-import { GetTrips, RegisterTrip, UpdateTripStatus, CancelTrip, CompleteTrip } from '../api/apiPath';
+import { GetTrips, RegisterTrip, UpdateTripStatus } from '../api/apiPath';
+import { subscribeToTripRealtime, unsubscribeFromTripRealtime, normalizeTrip } from '../services/tripRealtimeService';
 
 const extractList = (data: any) => {
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.serviceResult)) return data.serviceResult;
-  if (Array.isArray(data?.data)) return data.data;
-  if (Array.isArray(data?.trips)) return data.trips;
+  if (Array.isArray(data)) return data.map(normalizeTrip);
+  if (Array.isArray(data?.serviceResult)) return data.serviceResult.map(normalizeTrip);
+  if (Array.isArray(data?.data)) return data.data.map(normalizeTrip);
+  if (Array.isArray(data?.trips)) return data.trips.map(normalizeTrip);
   return [];
 };
 
 const extractItem = (data: any) => {
   if (!data) return null;
-  if (data?.serviceResult && !Array.isArray(data.serviceResult)) return data.serviceResult;
-  if (data?.data && !Array.isArray(data.data)) return data.data;
-  return data;
+  let raw = data;
+  if (data?.serviceResult && !Array.isArray(data.serviceResult)) raw = data.serviceResult;
+  else if (data?.data && !Array.isArray(data.data)) raw = data.data;
+  return normalizeTrip(raw);
 };
 
 const useTripStore = create<any>((set, get) => ({
@@ -22,18 +24,100 @@ const useTripStore = create<any>((set, get) => ({
   trips: [],
   trip: null,
   error: null,
+  currentUser: null,
+
+  initRealtimeSubscription: (user: any) => {
+    if (!user) return;
+    set({ currentUser: user });
+    const currentUserId = String(user.id || user.userId || user.driverID || '');
+    const userRole = String(user.role || '');
+
+    subscribeToTripRealtime(user, (eventType, newRow, oldRow) => {
+      const tripId = String(newRow.tripID || newRow.tripid || newRow.id || oldRow.tripID || oldRow.tripid || oldRow.id || '');
+      if (!tripId) return;
+
+      const normNew = normalizeTrip(newRow);
+      const normOld = normalizeTrip(oldRow);
+
+      if (eventType === 'INSERT') {
+        set((state: any) => {
+          const exists = state.trips.some(
+            (t: any) => String(t.tripID || t.tripid || t.id) === tripId
+          );
+          if (exists) {
+            return {
+              trips: state.trips.map((t: any) =>
+                String(t.tripID || t.tripid || t.id) === tripId ? { ...t, ...normNew } : t
+              ),
+            };
+          }
+          return { trips: [normNew, ...state.trips] };
+        });
+      } else if (eventType === 'UPDATE') {
+        set((state: any) => {
+          const existingIndex = state.trips.findIndex(
+            (t: any) => String(t.tripID || t.tripid || t.id) === tripId
+          );
+
+          const newDriverId = String(normNew.driverID || '');
+          const oldDriverId = String(normOld.driverID || '');
+          const isDriver = userRole === 'ROLE_DRIVER';
+
+          // Reassignment AWAY check for driver
+          if (isDriver && newDriverId !== currentUserId && (existingIndex !== -1 || oldDriverId === currentUserId)) {
+            console.log(`[Trip Realtime] Trip ${tripId} reassigned away from driver ${currentUserId}. Removing from local state.`);
+            return {
+              trips: state.trips.filter(
+                (t: any) => String(t.tripID || t.tripid || t.id) !== tripId
+              ),
+            };
+          }
+
+          if (existingIndex !== -1) {
+            const updatedTrips = [...state.trips];
+            updatedTrips[existingIndex] = { ...updatedTrips[existingIndex], ...normNew };
+            return { trips: updatedTrips };
+          } else if (!isDriver || newDriverId === currentUserId) {
+            return { trips: [normNew, ...state.trips] };
+          }
+
+          return state;
+        });
+      } else if (eventType === 'DELETE') {
+        set((state: any) => ({
+          trips: state.trips.filter(
+            (t: any) => String(t.tripID || t.tripid || t.id) !== tripId
+          ),
+        }));
+      }
+    });
+  },
+
+  unsubscribeRealtime: () => {
+    unsubscribeFromTripRealtime();
+    set({ currentUser: null });
+  },
 
   registerTrip: async (payload: any) => {
     try {
+      console.log('[Trip] Creating trip...');
       set({ loading: true, error: null });
       const tripPayload = { status: 'PENDING_APPROVAL', ...payload };
       const response = await axios.post(RegisterTrip, tripPayload);
       const data = extractItem(response.data);
-      set((state: any) => ({
-        loading: false,
-        trip: data,
-        trips: [data, ...state.trips].filter(Boolean),
-      }));
+      const tripId = data?.tripID || data?.tripid || data?.id || 'unknown';
+      console.log(`[Trip] Trip created: ${tripId}`);
+      set((state: any) => {
+        const exists = state.trips.some(
+          (t: any) => String(t.tripID || t.tripid || t.id) === String(tripId)
+        );
+        if (exists) return { loading: false, trip: data };
+        return {
+          loading: false,
+          trip: data,
+          trips: [data, ...state.trips].filter(Boolean),
+        };
+      });
       return { success: true, data };
     } catch (error: any) {
       const message = error.response?.data?.message || 'Trip creation failed';
@@ -67,7 +151,7 @@ const useTripStore = create<any>((set, get) => ({
       set((state: any) => ({
         loading: false,
         trips: state.trips.map((trip: any) =>
-          String(trip.tripID || trip.tripid || trip.id) === String(tripID) ? data : trip
+          String(trip.tripID || trip.tripid || trip.id) === String(tripID) ? { ...trip, ...data } : trip
         ),
       }));
       return { success: true, data };

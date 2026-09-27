@@ -40,6 +40,11 @@ async function findTrip(tripID: string) {
 // POST Create Trip (Status defaults to PENDING_APPROVAL)
 tripRouter.post('/create', optionalAuth, async (req, res) => {
   try {
+    console.log('\n==================================================');
+    console.log('[Trip API] POST /api/trip/create REQUEST PAYLOAD:');
+    console.log(JSON.stringify(req.body, null, 2));
+    console.log('==================================================\n');
+
     const {
       vehicleID,
       driverID,
@@ -102,10 +107,15 @@ tripRouter.post('/create', optionalAuth, async (req, res) => {
     };
 
     const trip = await db.insert('trips', tripData);
-    // Vehicle and driver remain AVAILABLE until Manager ACCEPTS the trip.
+
+    console.log('\n==================================================');
+    console.log('[Trip API] POST /api/trip/create RESPONSE (201 Created):');
+    console.log(JSON.stringify(trip, null, 2));
+    console.log('==================================================\n');
 
     return res.status(201).json(trip);
   } catch (error: any) {
+    console.error('[Trip API ERROR] POST /api/trip/create failed:', error);
     return fail(res, 500, error.message || 'Failed to create trip');
   }
 });
@@ -181,16 +191,20 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
 
     // Driver notification
     if (driverID) {
-      await db.insert('notifications', {
-        id: db.makeId('notif-'),
-        userId: driverID,
-        role: 'ROLE_DRIVER',
-        title: 'New trip assigned',
-        message: `Pickup: ${trip.source} | Drop: ${trip.destination}`,
-        tripId: trip.tripID || tripID,
-        createdAt: new Date().toISOString(),
-        read: false,
-      });
+      try {
+        await db.insert('notifications', {
+          id: db.makeId('notif-'),
+          userId: driverID,
+          role: 'ROLE_DRIVER',
+          title: 'New trip assigned',
+          body: `Pickup: ${trip.source} | Drop: ${trip.destination}`,
+          tripId: trip.tripID || tripID,
+          createdAt: new Date().toISOString(),
+          read: false,
+        });
+      } catch (nErr) {
+        console.warn('[Notification Error] Driver notification creation failed (non-blocking):', nErr);
+      }
     }
   } else if (targetStatus === 'DELIVERED' || targetStatus === 'COMPLETED') {
     const finalOdometer = req.body?.finalOdometer !== undefined ? Number(req.body.finalOdometer) : trip.finalOdometer;
@@ -198,19 +212,33 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
     if (finalOdometer) patchVehicle.odometer = finalOdometer;
 
     if (vehicleID) await db.update('vehicles', {vehicleID}, patchVehicle);
-    if (driverID) await db.update('users', {id: driverID}, {status: 'AVAILABLE'});
+    if (driverID) {
+      try {
+        let driverUser = await db.find('users', {id: driverID});
+        if (!driverUser) driverUser = await db.find('users', {id: driverID.toLowerCase()});
+        const currentTrips = Number(driverUser?.trips ?? 0);
+        await db.update('users', {id: driverID}, {status: 'AVAILABLE', trips: currentTrips + 1});
+      } catch (dErr) {
+        console.error('[Trip Complete Error] Driver trip count update failed:', dErr);
+        await db.update('users', {id: driverID}, {status: 'AVAILABLE'});
+      }
+    }
 
     // Manager notification
-    await db.insert('notifications', {
-      id: db.makeId('notif-'),
-      userId: trip.createdById || 'usr-manager',
-      role: 'ROLE_MANAGER',
-      title: 'Trip Delivered',
-      message: `Trip #${trip.tripID || tripID} has been successfully delivered.`,
-      tripId: trip.tripID || tripID,
-      createdAt: new Date().toISOString(),
-      read: false,
-    });
+    try {
+      await db.insert('notifications', {
+        id: db.makeId('notif-'),
+        userId: trip.createdById || 'usr-manager',
+        role: 'ROLE_MANAGER',
+        title: 'Trip Delivered',
+        body: `Trip #${trip.tripID || tripID} has been successfully delivered.`,
+        tripId: trip.tripID || tripID,
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+    } catch (nErr) {
+      console.warn('[Notification Error] Manager notification creation failed (non-blocking):', nErr);
+    }
   } else if (targetStatus === 'REJECTED' || targetStatus === 'CANCELLED') {
     if (vehicleID) await db.update('vehicles', {vehicleID}, {status: 'AVAILABLE'});
     if (driverID) await db.update('users', {id: driverID}, {status: 'AVAILABLE'});

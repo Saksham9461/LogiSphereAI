@@ -42,6 +42,11 @@ export const GetNotifications = `${BASE_URL}/api/notifications`;
 export const LocationAutocomplete = `${BASE_URL}/api/v1/locations/autocomplete`;
 export const LocationDetails = `${BASE_URL}/api/v1/locations/details`;
 export const RouteRecommendation = `${BASE_URL}/api/ai/route-recommendation`;
+export const ClockIn = `${BASE_URL}/api/attendance/clock-in`;
+export const ClockOut = `${BASE_URL}/api/attendance/clock-out`;
+export const GetAttendanceStatus = `${BASE_URL}/api/attendance/status`;
+export const GetAttendanceHistory = `${BASE_URL}/api/attendance/history`;
+
 
 
 

@@ -28,8 +28,10 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import ClockInWidget from '../components/ClockInWidget';
 import AttendanceHistory from '../components/AttendanceHistory';
+import { fetchAttendanceStatus } from '../services/attendanceService';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
+import useAuthStore from '../store/AuthStore';
 import useDashboardStore from '../store/DashboardStore';
 import useTripStore from '../store/TripStore';
 import useVehicleStore from '../store/VehicleStore';
@@ -142,6 +144,7 @@ const TripCard = ({ trip }: any) => {
 };
 
 export default function DashboardScreen() {
+  const user = useAuthStore(state => state.user);
   const { stats, vehicleStatus, fetchDashboardSummary, loading: loadingSummary, error: summaryError } = useDashboardStore();
   const { trips, getTrips, loading: loadingTrips, error: tripsError } = useTripStore();
   const { vehicles, getVehicles } = useVehicleStore();
@@ -152,6 +155,12 @@ export default function DashboardScreen() {
   const [statusFilter, setStatusFilter] = useState('All');
   const [refreshing, setRefreshing] = useState(false);
 
+  React.useEffect(() => {
+    if (user) {
+      useTripStore.getState().initRealtimeSubscription(user);
+    }
+  }, [user]);
+
   // Fetch data on screen focus
   useFocusEffect(
     useCallback(() => {
@@ -159,6 +168,7 @@ export default function DashboardScreen() {
       getTrips();
       getVehicles();
       if (fetchDrivers) fetchDrivers();
+      fetchAttendanceStatus();
     }, [fetchDashboardSummary, getTrips, getVehicles, fetchDrivers])
   );
 
@@ -169,6 +179,7 @@ export default function DashboardScreen() {
       getTrips(),
       getVehicles(),
       fetchDrivers ? fetchDrivers() : Promise.resolve(),
+      fetchAttendanceStatus(),
     ]);
     setRefreshing(false);
   };
@@ -190,9 +201,17 @@ export default function DashboardScreen() {
 
       const rawStatus = String(t.status || 'DRAFT').toUpperCase();
       let statusDisplay = 'Draft';
-      if (rawStatus === 'DISPATCHED' || rawStatus === 'ON_TRIP' || rawStatus === 'ON TRIP') statusDisplay = 'On Trip';
-      else if (rawStatus === 'COMPLETED') statusDisplay = 'Completed';
-      else if (rawStatus === 'CANCELLED') statusDisplay = 'Cancelled';
+      if (['DELIVERED', 'COMPLETED'].includes(rawStatus)) {
+        statusDisplay = 'Completed';
+      } else if (['ON_TRIP', 'ON TRIP', 'DISPATCHED', 'ACCEPTED', 'ASSIGNED', 'GOING_TO_PICKUP', 'ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROP'].includes(rawStatus)) {
+        statusDisplay = 'On Trip';
+      } else if (['PENDING_APPROVAL', 'PENDING'].includes(rawStatus)) {
+        statusDisplay = 'Dispatched';
+      } else if (['REJECTED'].includes(rawStatus)) {
+        statusDisplay = 'Cancelled';
+      } else if (['CANCELLED'].includes(rawStatus)) {
+        statusDisplay = 'Cancelled';
+      }
 
       return {
         id: tripId,
@@ -200,7 +219,7 @@ export default function DashboardScreen() {
         driver: driverName,
         status: statusDisplay,
         rawStatus,
-        eta: t.eta || (rawStatus === 'COMPLETED' ? '--' : 'En route'),
+        eta: t.eta || (['DELIVERED', 'COMPLETED', 'CANCELLED', 'REJECTED'].includes(rawStatus) ? '--' : 'En route'),
         source: t.source || '',
         destination: t.destination || '',
         type: matchedVeh?.type ? (matchedVeh.type.charAt(0).toUpperCase() + matchedVeh.type.slice(1).toLowerCase()) : (t.type || 'Van'),

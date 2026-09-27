@@ -12,10 +12,10 @@ export const normalizeAnalytics = (data: any) => {
   const fuelEfficiency = Number(rawKpis.fuelEfficiency ?? 0);
   const fleetUtilization = Number(rawKpis.fleetUtilization ?? 0);
   const operationalCost = Number(rawKpis.operationalCost ?? 0);
-  const vehicleROI = Number(rawKpis.vehicleROI ?? 14.2);
+  const vehicleROI = Number(rawKpis.vehicleROI ?? 0);
 
   const kpis = [
-    { label: 'Fuel Efficiency', value: `${fuelEfficiency > 0 ? fuelEfficiency : 8.4} km/l`, accent: colors.blue },
+    { label: 'Fuel Efficiency', value: `${fuelEfficiency} km/l`, accent: colors.blue },
     { label: 'Fleet Utilization', value: `${fleetUtilization}%`, accent: colors.green },
     { label: 'Operational Cost', value: operationalCost.toLocaleString('en-IN'), accent: colors.amber },
     { label: 'Vehicle ROI', value: `${vehicleROI}%`, accent: colors.green },

@@ -22,6 +22,23 @@ type NotificationState = {
   markAsRead: (id: string) => Promise<void>;
 };
 
+export const normalizeNotification = (n: any): NotificationItem => {
+  const rawDate = n?.createdAt || n?.createdat || n?.created_at;
+  const dateObj = rawDate ? new Date(rawDate) : new Date();
+  const validDate = !isNaN(dateObj.getTime()) ? dateObj.toISOString() : new Date().toISOString();
+
+  return {
+    id: String(n?.id || Math.random()),
+    userId: n?.userId || n?.userid,
+    role: n?.role,
+    title: String(n?.title || 'Notification'),
+    message: String(n?.message || n?.body || ''),
+    tripId: n?.tripId || n?.tripid,
+    createdAt: validDate,
+    read: Boolean(n?.read),
+  };
+};
+
 const useNotificationStore = create<NotificationState>((set, get) => ({
   loading: false,
   notifications: [],
@@ -32,12 +49,13 @@ const useNotificationStore = create<NotificationState>((set, get) => ({
     try {
       set({ loading: true, error: null });
       const response = await axios.get(GetNotifications);
-      const list: NotificationItem[] = Array.isArray(response.data)
+      const rawList: any[] = Array.isArray(response.data)
         ? response.data
         : Array.isArray(response.data?.data)
         ? response.data.data
         : [];
       
+      const list: NotificationItem[] = rawList.map(normalizeNotification);
       const unread = list.filter(n => !n.read).length;
       set({ loading: false, notifications: list, unreadCount: unread, error: null });
     } catch (error: any) {

@@ -3,6 +3,8 @@ import client from '../api/axiosClient';
 import {ChangePassword, Login, Signup, requestemail, resetPassword} from '../api/apiPath';
 import {tokenStorage} from '../services/storage/tokenStorage';
 
+import useTripStore from './TripStore';
+
 type AuthState = {
   loading: boolean;
   user: any | null;
@@ -40,6 +42,9 @@ const useAuthStore = create<AuthState>(set => ({
   hydrate: async () => {
     const [token, user] = await Promise.all([tokenStorage.getToken(), tokenStorage.getUser()]);
     set({token, user});
+    if (user) {
+      useTripStore.getState().initRealtimeSubscription(user);
+    }
   },
 
   login: async (email, password, role) => {
@@ -62,6 +67,7 @@ const useAuthStore = create<AuthState>(set => ({
       }
       if (userData) {
         await tokenStorage.setUser(userData);
+        useTripStore.getState().initRealtimeSubscription(userData);
       }
 
       set({loading: false, user: userData, token: userToken, error: null});
@@ -81,6 +87,7 @@ const useAuthStore = create<AuthState>(set => ({
   },
 
   logout: async () => {
+    useTripStore.getState().unsubscribeRealtime();
     await tokenStorage.clearSession();
     set({user: null, token: null, error: null});
   },

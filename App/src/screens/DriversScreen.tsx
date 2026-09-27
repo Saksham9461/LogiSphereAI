@@ -32,6 +32,7 @@ import {
 import { rf } from '../theme/responsive';
 import { colors } from '../theme/colors';
 import useDriverStore from '../store/DriverStore';
+import useTripStore from '../store/TripStore';
 import DriverVoiceRegistrationModal from '../components/DriverVoiceRegistration/DriverVoiceRegistrationModal';
 
 // --- CONSTANTS ---
@@ -70,13 +71,42 @@ function isExpired(expiry: string) {
   return endOfMonth < new Date();
 }
 
+const countCompletedTripsForDriver = (driver: any, allTrips: any[]) => {
+  if (!driver) return 0;
+  const driverID = String(driver.id || driver.driverID || driver.userID || '').toLowerCase();
+  const driverEmail = String(driver.email || '').toLowerCase();
+  const driverName = String(driver.name || '').toLowerCase();
+
+  const completedCountFromStore = Array.isArray(allTrips)
+    ? allTrips.filter((t: any) => {
+        const tDriverID = String(t.driverID || t.driverid || t.driver?.id || t.driver?.userID || '').toLowerCase();
+        const tDriverEmail = String(t.driverEmail || t.driver?.email || '').toLowerCase();
+        const tDriverName = String(t.driverName || t.driver?.name || '').toLowerCase();
+
+        const matchesDriver =
+          (driverID && tDriverID === driverID) ||
+          (driverEmail && tDriverEmail === driverEmail) ||
+          (driverName && tDriverName === driverName);
+
+        const status = String(t.status || '').toUpperCase();
+        const isCompleted = status === 'DELIVERED' || status === 'COMPLETED';
+
+        return matchesDriver && isCompleted;
+      }).length
+    : 0;
+
+  return Math.max(Number(driver?.trips ?? 0), completedCountFromStore);
+};
+
 // --- COMPONENTS ---
 const DriverCard = ({
   driver,
+  trips = [],
   onEdit,
   onDelete,
 }: {
   driver: any;
+  trips?: any[];
   onEdit: (driver: any) => void;
   onDelete: (id: string) => void;
 }) => {
@@ -87,6 +117,7 @@ const DriverCard = ({
 
   const style = STATUS_STYLES[displayStatus] || STATUS_STYLES.Available;
   const expired = isExpired(driver.licenseExpiryDate);
+  const completedTripsCount = countCompletedTripsForDriver(driver, trips);
 
   return (
     <View style={styles.driverCard}>
@@ -146,7 +177,7 @@ const DriverCard = ({
       <View style={styles.driverCardFooter}>
         <View style={styles.footerItem}>
           <Text style={styles.footerLabel}>Trips</Text>
-          <Text style={styles.footerValue}>{driver.trips ?? '-'}</Text>
+          <Text style={styles.footerValue}>{completedTripsCount}</Text>
         </View>
         <View style={styles.footerItem}>
           <Text style={styles.footerLabel}>Safety</Text>
@@ -159,6 +190,7 @@ const DriverCard = ({
 
 export default function DriversScreen() {
   const { drivers, fetchDrivers, registerDriver, updateDriver, deleteDriver, loading, error } = useDriverStore();
+  const { trips, getTrips } = useTripStore();
 
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -170,7 +202,7 @@ export default function DriversScreen() {
   const [formLicense, setFormLicense] = useState('');
   const [formExpiry, setFormExpiry] = useState('');
   const [formContact, setFormContact] = useState('');
-  const [formTrips, setFormTrips] = useState('');
+  const [formTrips, setFormTrips] = useState('0');
   const [formSafety, setFormSafety] = useState('100');
   const [formStatus, setFormStatus] = useState('Available');
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
@@ -186,7 +218,8 @@ export default function DriversScreen() {
 
   useEffect(() => {
     fetchDrivers();
-  }, [fetchDrivers]);
+    getTrips();
+  }, [fetchDrivers, getTrips]);
 
   const filteredDrivers = useMemo(() => {
     return (drivers || []).filter((d: any) => {
@@ -208,7 +241,7 @@ export default function DriversScreen() {
     setFormLicense('');
     setFormExpiry('');
     setFormContact('');
-    setFormTrips('');
+    setFormTrips('0');
     setFormSafety('100');
     setFormStatus('Available');
     setShowModal(true);
@@ -221,7 +254,8 @@ export default function DriversScreen() {
     setFormLicense(driver.licenseNo || '');
     setFormExpiry(driver.licenseExpiryDate || '');
     setFormContact(driver.phoneNo || '');
-    setFormTrips(driver.trips !== undefined ? String(driver.trips) : '0');
+    const computedTrips = countCompletedTripsForDriver(driver, trips);
+    setFormTrips(String(computedTrips));
     setFormSafety(driver.safetyScore !== undefined ? String(driver.safetyScore) : '100');
     const rawStatus = driver.status || driver.driverStatus || 'Available';
     const displayStatus = rawStatus
@@ -371,6 +405,7 @@ export default function DriversScreen() {
               <DriverCard
                 key={driver.id || driver.driverID || driver.userID || driver.email}
                 driver={driver}
+                trips={trips}
                 onEdit={openEditModal}
                 onDelete={handleDelete}
               />
@@ -456,7 +491,16 @@ export default function DriversScreen() {
               <View style={styles.formRow}>
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Trips Compl.</Text>
-                  <TextInput style={styles.formInput} value={formTrips} onChangeText={setFormTrips} placeholder="0" placeholderTextColor={colors.textMuted} keyboardType="numeric" />
+                  <TextInput
+                    style={[
+                      styles.formInput,
+                      { color: colors.textPrimary, opacity: 1, backgroundColor: colors.panel },
+                    ]}
+                    value={formTrips}
+                    placeholder="0"
+                    placeholderTextColor={colors.textMuted}
+                    editable={false}
+                  />
                 </View>
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Safety (%)</Text>

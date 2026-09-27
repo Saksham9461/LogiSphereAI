@@ -1,20 +1,26 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, Modal } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Modal, Alert } from 'react-native';
 import { MapPin, CheckCircle, AlertTriangle, LogOut } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
 import { useAttendanceStore } from '../store/AttendanceStore';
-import { handleClockIn, handleClockOut } from '../services/attendanceService';
+import { handleClockIn, handleClockOut, fetchAttendanceStatus } from '../services/attendanceService';
 import MapPreview from './MapPreview';
 
 export default function ClockInWidget() {
-  const { status, clockInTime, distanceFromOffice } = useAttendanceStore();
+  const { status, clockInTime, distanceFromOffice, loading, fetchStatus } = useAttendanceStore();
   
   const [modalVisible, setModalVisible] = useState(false);
   const [modalType, setModalType] = useState<'SUCCESS' | 'ERROR'>('SUCCESS');
   const [lastCheckData, setLastCheckData] = useState<any>(null);
+  const [serverErrorMessage, setServerErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
 
   const onClockInPress = async () => {
+    setServerErrorMessage(null);
     const result = await handleClockIn();
     
     setLastCheckData(result.data);
@@ -23,17 +29,23 @@ export default function ClockInWidget() {
       setModalType('SUCCESS');
       setModalVisible(true);
     } else {
+      if (result.error && typeof result.error === 'string' && result.error !== 'OUTSIDE_GEOFENCE') {
+        setServerErrorMessage(result.error);
+      }
       setModalType('ERROR');
       setModalVisible(true);
     }
   };
 
   const onClockOutPress = async () => {
-    await handleClockOut();
+    const result = await handleClockOut();
+    if (!result.success && result.message) {
+      Alert.alert('Clock Out Failed', result.message);
+    }
   };
 
   const isClockedIn = status === 'CLOCKED_IN';
-  const isChecking = status === 'CHECKING_LOCATION';
+  const isChecking = status === 'CHECKING_LOCATION' || loading;
 
   return (
     <View style={styles.card}>
@@ -42,7 +54,6 @@ export default function ClockInWidget() {
           <MapPin color={colors.amber} size={20} />
           <Text style={styles.title}>Attendance</Text>
         </View>
-        
       </View>
 
       <View style={styles.content}>
@@ -52,8 +63,10 @@ export default function ClockInWidget() {
               <CheckCircle color={colors.success} size={16} />
               <Text style={styles.statusTextSuccess}>● Inside Authorized Area</Text>
             </View>
-            <Text style={styles.distanceText}>{distanceFromOffice} m from office</Text>
-            <Text style={styles.timeText}>Clocked In: {clockInTime}</Text>
+            {distanceFromOffice !== null && distanceFromOffice !== undefined ? (
+              <Text style={styles.distanceText}>{distanceFromOffice} m from office</Text>
+            ) : null}
+            <Text style={styles.timeText}>Clocked In: {clockInTime || 'Active Session'}</Text>
           </View>
         ) : (
           <View style={styles.statusBox}>
@@ -75,7 +88,7 @@ export default function ClockInWidget() {
           {isChecking ? (
             <>
               <ActivityIndicator color="#1a1200" style={{ marginRight: rf(8) }} />
-              <Text style={styles.actionBtnText}>FETCHING GPS...</Text>
+              <Text style={styles.actionBtnText}>PROCESSING...</Text>
             </>
           ) : (
             <Text style={styles.actionBtnText}>CLOCK IN</Text>
@@ -83,13 +96,19 @@ export default function ClockInWidget() {
         </Pressable>
       ) : (
         <Pressable 
-          style={[styles.actionBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]} 
+          style={[styles.actionBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }, loading && { opacity: 0.7 }]} 
           onPress={onClockOutPress}
+          disabled={loading}
         >
-          <LogOut color={colors.error} size={16} style={{ marginRight: rf(8) }} />
+          {loading ? (
+            <ActivityIndicator color={colors.error} style={{ marginRight: rf(8) }} />
+          ) : (
+            <LogOut color={colors.error} size={16} style={{ marginRight: rf(8) }} />
+          )}
           <Text style={[styles.actionBtnText, { color: colors.error }]}>CLOCK OUT</Text>
         </Pressable>
       )}
+
 
       {/* Result Modal */}
       <Modal visible={modalVisible} transparent={true} animationType="slide">
@@ -131,8 +150,8 @@ export default function ClockInWidget() {
                 <View style={styles.iconCircleError}>
                   <AlertTriangle color={colors.error} size={32} />
                 </View>
-                <Text style={styles.modalTitle}>Location Not Allowed</Text>
-                <Text style={styles.modalSubtitle}>You are not within the authorized attendance location.</Text>
+                <Text style={styles.modalTitle}>{serverErrorMessage ? 'Clock In Rejected' : 'Location Not Allowed'}</Text>
+                <Text style={styles.modalSubtitle}>{serverErrorMessage || 'You are not within the authorized attendance location.'}</Text>
                 
                 {lastCheckData && (
                   <MapPreview 

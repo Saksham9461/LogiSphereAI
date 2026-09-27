@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef } from 'react';
 import { View, StyleSheet, Dimensions, Text } from 'react-native';
 import { Map, Camera, Marker, GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
 import { MAPTILER_API_KEY } from '../config/env';
-import { MockVehicle, MOCK_VEHICLES } from '../data/mockVehicles';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
 import { Truck, MapPin } from 'lucide-react-native';
@@ -30,7 +29,7 @@ interface FleetMapProps {
 }
 
 export default function FleetMap({
-  trips,
+  trips = [],
   selectedTrip,
   onSelectTrip,
   style,
@@ -41,29 +40,22 @@ export default function FleetMap({
   destCoords,
 }: FleetMapProps) {
   const cameraRef = useRef<any>(null);
-  const [vehicles, setVehicles] = useState<MockVehicle[]>(MOCK_VEHICLES);
 
-  // Mock movement simulation loop
-  useEffect(() => {
-    if (vehicles.length === 0) return;
-
-    const intervalId = setInterval(() => {
-      setVehicles(prevVehicles =>
-        prevVehicles.map(vehicle => {
-          const latOffset = (Math.random() - 0.5) * 0.0005;
-          const lngOffset = (Math.random() - 0.5) * 0.0005;
-
-          return {
-            ...vehicle,
-            latitude: vehicle.latitude + latOffset,
-            longitude: vehicle.longitude + lngOffset,
-          };
-        })
-      );
-    }, 3000);
-
-    return () => clearInterval(intervalId);
-  }, []);
+  const realMapVehicles = (trips || []).map((t: any) => {
+    const sLat = Number(t.sourceLatitude ?? t.sourcelatitude ?? 23.0225);
+    const sLng = Number(t.sourceLongitude ?? t.sourcelongitude ?? 72.5714);
+    return {
+      tripID: String(t.tripID || t.tripid || t.id),
+      vehicleID: String(t.vehicleID || t.vehicleid || t.vehicle || 'Vehicle'),
+      driverID: String(t.driverID || t.driverid || t.driver || 'Driver'),
+      source: String(t.source || ''),
+      destination: String(t.destination || ''),
+      status: String(t.status || ''),
+      latitude: sLat,
+      longitude: sLng,
+      speed: Number(t.speed ?? 0),
+    };
+  });
 
   // Update camera when a trip or route is selected
   useEffect(() => {
@@ -78,7 +70,7 @@ export default function FleetMap({
         duration: 1000,
       });
     } else if (selectedTrip && cameraRef.current) {
-      const targetVehicle = vehicles.find(v => v.tripID === selectedTrip.tripID);
+      const targetVehicle = realMapVehicles.find(v => v.tripID === String(selectedTrip.tripID || selectedTrip.id));
       if (targetVehicle) {
         cameraRef.current.flyTo({
           center: [targetVehicle.longitude, targetVehicle.latitude],
@@ -87,16 +79,16 @@ export default function FleetMap({
         });
       }
     }
-  }, [selectedTrip, vehicles, originCoords, destCoords]);
+  }, [selectedTrip, realMapVehicles, originCoords, destCoords]);
 
   const styleURL = `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_API_KEY}`;
 
-  const lons = vehicles.map(v => v.longitude);
-  const lats = vehicles.map(v => v.latitude);
-  const minLon = Math.min(...lons) || 72.5;
-  const maxLon = Math.max(...lons) || 72.6;
-  const minLat = Math.min(...lats) || 23.0;
-  const maxLat = Math.max(...lats) || 23.1;
+  const lons = realMapVehicles.map(v => v.longitude);
+  const lats = realMapVehicles.map(v => v.latitude);
+  const minLon = lons.length > 0 ? Math.min(...lons) : 72.5;
+  const maxLon = lons.length > 0 ? Math.max(...lons) : 72.6;
+  const minLat = lats.length > 0 ? Math.min(...lats) : 23.0;
+  const maxLat = lats.length > 0 ? Math.max(...lats) : 23.1;
 
   // Separate route lines into selected and unselected for proper z-index rendering
   const unselectedRoutes = routeLines.filter(r => r.id !== selectedRouteId);
@@ -121,8 +113,8 @@ export default function FleetMap({
               : selectedTrip
               ? {
                   center: [
-                    vehicles.find(v => v.tripID === selectedTrip.tripID)?.longitude || 72.5714,
-                    vehicles.find(v => v.tripID === selectedTrip.tripID)?.latitude || 23.0225,
+                    realMapVehicles.find(v => v.tripID === String(selectedTrip.tripID || selectedTrip.id))?.longitude || 72.5714,
+                    realMapVehicles.find(v => v.tripID === String(selectedTrip.tripID || selectedTrip.id))?.latitude || 23.0225,
                   ],
                   zoom: 14,
                 }
@@ -204,8 +196,8 @@ export default function FleetMap({
         )}
 
         {/* 4. VEHICLE MARKERS */}
-        {vehicles.map(vehicle => {
-          const isSelected = selectedTrip?.tripID === vehicle.tripID;
+        {realMapVehicles.map(vehicle => {
+          const isSelected = String(selectedTrip?.tripID || selectedTrip?.id) === vehicle.tripID;
 
           return (
             <Marker

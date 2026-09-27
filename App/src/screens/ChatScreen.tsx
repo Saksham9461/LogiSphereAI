@@ -1,40 +1,56 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, Pressable, TextInput, FlatList, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, Text, StyleSheet, Pressable, TextInput, FlatList, KeyboardAvoidingView, Platform, Keyboard, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, Send } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
-
-// Mock Data
-const MOCK_MESSAGES = [
-  { id: '1', text: 'Hey team, TRP-1004 is delayed due to heavy traffic on I-95.', sender: 'other', timestamp: '10:30 AM', name: 'John Doe' },
-  { id: '2', text: 'Noted. Please keep us updated if the ETA changes by more than 15 minutes.', sender: 'me', timestamp: '10:32 AM', name: 'Me' },
-  { id: '3', text: 'Will do. Current ETA is now 11:45 AM.', sender: 'other', timestamp: '10:35 AM', name: 'John Doe' },
-  { id: '4', text: 'Has the maintenance team checked the engine issue on VAN-02?', sender: 'me', timestamp: '11:00 AM', name: 'Me' },
-  { id: '5', text: 'Yes, they replaced the spark plugs. It should be ready for dispatch by 1:00 PM.', sender: 'other', timestamp: '11:05 AM', name: 'Sarah Smith' },
-  { id: '6', text: 'Perfect. I will assign it to the afternoon route.', sender: 'me', timestamp: '11:10 AM', name: 'Me' },
-];
+import client from '../api/axiosClient';
+import useAuthStore from '../store/AuthStore';
 
 export default function ChatScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
-  const [messages, setMessages] = useState(MOCK_MESSAGES);
+  const user = useAuthStore(state => state.user);
+  const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
+  const [loading, setLoading] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
-  const handleSend = () => {
-    if (inputText.trim() === '') return;
-    
-    const newMessage = {
-      id: Date.now().toString(),
-      text: inputText.trim(),
-      sender: 'me',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      name: 'Me',
-    };
-    
-    setMessages([...messages, newMessage]);
+  const fetchMessages = async () => {
+    try {
+      setLoading(true);
+      const res = await client.get('/api/chat/messages');
+      if (Array.isArray(res.data)) {
+        setMessages(res.data);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch chat messages:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMessages();
+  }, []);
+
+  const handleSend = async () => {
+    const text = inputText.trim();
+    if (!text) return;
+
     setInputText('');
     Keyboard.dismiss();
+
+    try {
+      const res = await client.post('/api/chat/messages', {
+        text,
+        senderName: user?.name || 'User',
+      });
+      if (res.data) {
+        setMessages(prev => [...prev, res.data]);
+      }
+    } catch (err) {
+      console.warn('Failed to send chat message:', err);
+    }
   };
 
   const renderMessage = ({ item }: any) => {
