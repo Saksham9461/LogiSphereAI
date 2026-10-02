@@ -56,6 +56,10 @@
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>LogiSphere AI requires microphone access for voice driver registration.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>LogiSphere AI requires speech recognition to transcribe driver details.</string>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
 </dict>

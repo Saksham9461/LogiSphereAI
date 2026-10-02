@@ -5,18 +5,27 @@
 
 const NUMBER_WORDS: Record<string, string> = {
   zero: '0',
+  oh: '0',
+  nil: '0',
+  nought: '0',
   one: '1',
+  won: '1',
   two: '2',
+  to: '2',
+  too: '2',
   three: '3',
+  tree: '3',
   four: '4',
+  for: '4',
+  fore: '4',
   five: '5',
   six: '6',
   seven: '7',
   eight: '8',
+  ate: '8',
   nine: '9',
-  oh: '0',
-  double: '', // handled specially
-  triple: '', // handled specially
+  niner: '9',
+  ten: '10',
 };
 
 const MONTH_NAMES: Record<string, string> = {
@@ -50,20 +59,31 @@ const MONTH_NAMES: Record<string, string> = {
  * Converts spoken words containing numbers into digits.
  * e.g. "nine eight seven" -> "987"
  * e.g. "twenty twenty eight" -> "2028"
+ * e.g. "12 slash 2028" -> "12 / 2028"
  */
 export const wordsToDigits = (input: string): string => {
   if (!input) return '';
   let text = input.toLowerCase().trim();
 
-  // Replace common spoken compound numbers
-  text = text.replace(/twenty twenty eight/g, '2028');
-  text = text.replace(/twenty twenty nine/g, '2029');
-  text = text.replace(/twenty thirty/g, '2030');
-  text = text.replace(/twenty twenty five/g, '2025');
-  text = text.replace(/twenty twenty six/g, '2026');
-  text = text.replace(/twenty twenty seven/g, '2027');
+  // Normalize spoken symbols
+  text = text.replace(/\bslash\b/g, '/');
+  text = text.replace(/\bdash\b/g, '-');
+  text = text.replace(/\bhyphen\b/g, '-');
 
-  const words = text.split(/[\s-]+/);
+  // Replace common spoken compound years
+  text = text.replace(/\btwenty twenty five\b/g, '2025');
+  text = text.replace(/\btwenty twenty six\b/g, '2026');
+  text = text.replace(/\btwenty twenty seven\b/g, '2027');
+  text = text.replace(/\btwenty twenty eight\b/g, '2028');
+  text = text.replace(/\btwenty twenty nine\b/g, '2029');
+  text = text.replace(/\btwenty thirty\b/g, '2030');
+  text = text.replace(/\btwenty thirty one\b/g, '2031');
+  text = text.replace(/\btwenty thirty two\b/g, '2032');
+  text = text.replace(/\btwenty thirty three\b/g, '2033');
+  text = text.replace(/\btwenty thirty four\b/g, '2034');
+  text = text.replace(/\btwenty thirty five\b/g, '2035');
+
+  const words = text.split(/[\s,]+/);
   const result: string[] = [];
 
   for (let i = 0; i < words.length; i++) {
@@ -89,7 +109,7 @@ export const wordsToDigits = (input: string): string => {
 
 /**
  * Normalizes Driver Name
- * e.g. "rahul patel" -> "Rahul Patel"
+ * e.g. "rahul sharma" -> "Rahul Sharma"
  */
 export const normalizeName = (input: string): string => {
   if (!input) return '';
@@ -103,23 +123,26 @@ export const normalizeName = (input: string): string => {
 };
 
 /**
- * Normalizes Driving License Number
+ * Normalizes Driving Licence Number
  * e.g. "DL zero one twenty twenty eight one two three four five six seven" -> "DL-01-2028-1234567"
- * e.g. "d l 1 4 2 0 2 3 0 0 1 2 3" -> "DL-14202300123"
+ * e.g. "D L 0 1 2 0 2 8 1 2 3 4 5 6 7" -> "DL-01-2028-1234567"
+ * e.g. "R J 1 4 A B 1 2 3 4 5 6" -> "RJ14AB123456"
  */
 export const normalizeLicenseNumber = (input: string): string => {
   if (!input) return '';
   let processed = wordsToDigits(input).toUpperCase();
 
+  // Combine space-separated state code initials (e.g. "D L" -> "DL", "R J" -> "RJ", "M H" -> "MH")
+  processed = processed.replace(/\b([A-Z])\s+([A-Z])\b/g, '$1$2');
+
   // Extract letters and numbers
   const clean = processed.replace(/[^A-Z0-9]/g, '');
   if (!clean) return input.trim().toUpperCase();
 
-  // Common pattern DL prefix handling
+  // Standard Indian DL formatting (DL-01-2028-1234567)
   if (clean.startsWith('DL')) {
     const rest = clean.slice(2);
     if (rest.length === 13) {
-      // Format: DL-01-2028-1234567 (2 digits state code, 4 digits year, 7 digits seq)
       return `DL-${rest.slice(0, 2)}-${rest.slice(2, 6)}-${rest.slice(6)}`;
     } else if (rest.length > 5) {
       return `DL-${rest}`;
@@ -127,26 +150,28 @@ export const normalizeLicenseNumber = (input: string): string => {
     return `DL-${rest}`;
   }
 
-  // General uppercase cleanup
+  // Generic licence format preservation
   return clean;
 };
 
 /**
  * Normalizes Phone Contact Number
  * e.g. "nine eight seven six five four three two one zero" -> "9876543210"
+ * e.g. "9 8 7 6 5 4 3 2 1 0" -> "9876543210"
  */
 export const normalizePhone = (input: string): string => {
   if (!input) return '';
   const converted = wordsToDigits(input);
   const digits = converted.replace(/\D/g, '');
-  return digits.slice(-10); // Take 10 digits
+  return digits.length >= 10 ? digits.slice(-10) : digits;
 };
 
 /**
  * Normalizes License Expiry Date to MM/YYYY format
- * e.g. "December twenty twenty eight" -> "12/2028"
+ * e.g. "December 2028" -> "12/2028"
  * e.g. "12 2028" -> "12/2028"
- * e.g. "12/2028" -> "12/2028"
+ * e.g. "December twenty twenty eight" -> "12/2028"
+ * e.g. "12 slash 2028" -> "12/2028"
  */
 export const normalizeExpiry = (input: string): string => {
   if (!input) return '';
@@ -157,15 +182,16 @@ export const normalizeExpiry = (input: string): string => {
 
   // Check for month names
   for (const [name, num] of Object.entries(MONTH_NAMES)) {
-    if (text.includes(name)) {
+    if (new RegExp(`\\b${name}\\b`, 'i').test(text)) {
       monthStr = num;
-      text = text.replace(name, '').trim();
+      text = text.replace(new RegExp(`\\b${name}\\b`, 'gi'), '').trim();
       break;
     }
   }
 
   // Convert remaining words to digits
-  const digitsOnly = wordsToDigits(text).replace(/\D/g, '');
+  const convertedText = wordsToDigits(text);
+  const digitsOnly = convertedText.replace(/\D/g, '');
 
   if (!monthStr) {
     if (digitsOnly.length === 6) {
@@ -177,7 +203,7 @@ export const normalizeExpiry = (input: string): string => {
       monthStr = digitsOnly.slice(0, 2);
       yearStr = '20' + digitsOnly.slice(2);
     } else {
-      const parts = input.split(/[\/\s-]+/);
+      const parts = convertedText.split(/[\/\s-]+/);
       if (parts.length >= 2) {
         const m = parts[0].padStart(2, '0');
         const y = parts[1].length === 2 ? '20' + parts[1] : parts[1];

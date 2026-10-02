@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Modal,
   View,
@@ -10,7 +10,7 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { Mic, MicOff, X, AlertTriangle, PenTool, RefreshCw, Square } from 'lucide-react-native';
+import { Mic, X, AlertTriangle, PenTool, RefreshCw, Square } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { rf } from '../../theme/responsive';
 import {
@@ -26,7 +26,6 @@ import { VoiceListeningIndicator } from './VoiceListeningIndicator';
 import { VoiceQuestion } from './VoiceQuestion';
 import { VoiceResultCard } from './VoiceResultCard';
 import { DriverReview } from './DriverReview';
-import useAuthStore from '../../store/AuthStore';
 import useDriverStore from '../../store/DriverStore';
 
 interface DriverVoiceRegistrationModalProps {
@@ -64,6 +63,8 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
 
   const fields = DEFAULT_DRIVER_VOICE_FIELDS;
   const currentField = fields[currentFieldIndex];
+  const fieldIndexRef = useRef(currentFieldIndex);
+  fieldIndexRef.current = currentFieldIndex;
 
   // Reset session state when modal opens
   useEffect(() => {
@@ -86,6 +87,7 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
       });
     } else {
       speechService.cancel();
+      speechService.destroy();
       setStepState('IDLE');
     }
   }, [visible]);
@@ -94,15 +96,15 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
   useEffect(() => {
     return () => {
       speechService.cancel();
+      speechService.destroy();
     };
   }, []);
 
   /**
-   * Start Listening Session
-   * STRICT: No auto-fill, no default strings, no hardcoded timers
+   * Start Listening Session for specific field index
    */
-  const handleStartListening = async () => {
-    if (stepState === 'LISTENING' || stepState === 'PROCESSING') return;
+  const handleStartListeningForIndex = async (indexToListen: number) => {
+    const activeFieldKey = fields[indexToListen].key;
 
     setStepState('REQUESTING_PERMISSION');
     setValidationError('');
@@ -114,21 +116,28 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
     await speechService.startListening({
       onStart: () => {
         setStepState('LISTENING');
+        setValidationError('');
       },
       onPartialResult: (partialText: string) => {
-        setPartialSpeechText(partialText);
+        const trimmed = (partialText || '').trim();
+        if (trimmed.length > 0) {
+          setValidationError(''); // Clear any old errors on speech detection
+          setPartialSpeechText(trimmed);
+          setRawSpeechText(trimmed);
+          const parsed = normalizeFieldValue(activeFieldKey, trimmed);
+          setNormalizedValue(parsed);
+        }
       },
       onResult: (finalText: string) => {
         const trimmed = (finalText || '').trim();
         if (trimmed.length > 0) {
-          setStepState('PROCESSING');
+          setValidationError('');
           setRawSpeechText(trimmed);
-          const parsed = normalizeFieldValue(currentField.key, trimmed);
+          const parsed = normalizeFieldValue(activeFieldKey, trimmed);
           setNormalizedValue(parsed);
+        }
+        if (!speechService.getShouldKeepListening()) {
           setStepState('SHOWING_RESULT');
-        } else {
-          setStepState('ERROR');
-          setValidationError('No speech detected. Please try again.');
         }
       },
       onError: (code, message) => {
@@ -139,32 +148,35 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
             'Microphone permission is required for voice registration. You can allow it in Settings or enter details manually.',
             [
               { text: 'Enter Manually', onPress: () => onSwitchToManual(formData) },
-              { text: 'Try Again', onPress: handleStartListening },
+              { text: 'Try Again', onPress: () => handleStartListeningForIndex(fieldIndexRef.current) },
             ]
           );
         } else {
-          // NO_SPEECH_DETECTED or other speech errors
-          setStepState('ERROR');
-          setValidationError('No speech detected. Would you like to try again?');
+          // NEVER transition to ERROR screen if speech was already detected or continuous listening is active!
+          if (!speechService.getShouldKeepListening() && !rawSpeechText && !normalizedValue) {
+            setStepState('ERROR');
+            setValidationError('No speech detected. Would you like to try again?');
+          }
         }
       },
-      onEnd: () => {
-        // Will transition via onResult or onError
-      },
+      onEnd: () => {},
     });
+  };
+
+  const handleStartListening = () => {
+    handleStartListeningForIndex(currentFieldIndex);
   };
 
   /**
    * User-Controlled Stop Listening
    */
   const handleStopListening = () => {
-    if (stepState === 'LISTENING') {
-      speechService.stopListening();
-    }
+    speechService.stopListening();
+    setStepState('SHOWING_RESULT');
   };
 
   /**
-   * Only called when user EXPLICITLY presses [ Confirm ] button
+   * Called when user presses [ Confirm ] button for current field
    */
   const handleConfirmFieldValue = (finalValue: string) => {
     const valResult = validateDriverField(currentField.key, finalValue);
@@ -173,7 +185,6 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
       return;
     }
 
-    // Save field value into form state ONLY on explicit user confirmation
     const updatedForm = {
       ...formData,
       [currentField.key]: finalValue,
@@ -182,14 +193,20 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
 
     // Move to next field or complete
     if (currentFieldIndex < fields.length - 1) {
-      setCurrentFieldIndex(prev => prev + 1);
+      const nextIndex = currentFieldIndex + 1;
+      setCurrentFieldIndex(nextIndex);
       setPartialSpeechText('');
       setRawSpeechText('');
       setNormalizedValue('');
       setValidationError('');
       setIsEditingInline(false);
-      setStepState('READY');
+
+      // Auto-restart continuous listening for the next field!
+      setTimeout(() => {
+        handleStartListeningForIndex(nextIndex);
+      }, 300);
     } else {
+      speechService.stopListening();
       setStepState('COMPLETED');
     }
   };
@@ -206,7 +223,6 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
 
     setStepState('SAVING');
 
-    // Parse expiry date for ISO standard matching backend signup contract
     let licenseExpiryDate = formData.licenseExpiry;
     try {
       const parts = formData.licenseExpiry.split('/');
@@ -326,14 +342,14 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
                     isListening={stepState === 'LISTENING'}
                     statusText={
                       stepState === 'LISTENING'
-                        ? 'Listening...'
+                        ? 'Listening continuously...'
                         : stepState === 'PROCESSING'
                         ? 'Processing voice input...'
                         : stepState === 'REQUESTING_PERMISSION'
                         ? 'Activating microphone...'
                         : 'Tap button to answer'
                     }
-                    subText={stepState === 'LISTENING' ? 'Speak clearly now' : 'LogiSphere Speech Recognition'}
+                    subText={stepState === 'LISTENING' ? 'Speak clearly now (Mic active)' : 'LogiSphere Speech Recognition'}
                     partialTranscript={partialSpeechText}
                   />
 
@@ -353,8 +369,8 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
                 </View>
               ) : null}
 
-              {/* SPEECH RESULT CARD (RETRY / EDIT / CONFIRM) */}
-              {stepState === 'SHOWING_RESULT' ? (
+              {/* SPEECH RESULT CARD (LIVE / REVIEW / EDIT / CONFIRM) */}
+              {(normalizedValue || rawSpeechText || stepState === 'SHOWING_RESULT') && stepState !== 'ERROR' ? (
                 <VoiceResultCard
                   rawSpeech={rawSpeechText}
                   normalizedValue={normalizedValue}
@@ -368,8 +384,8 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
                 />
               ) : null}
 
-              {/* NO SPEECH DETECTED / ERROR STATE */}
-              {stepState === 'ERROR' ? (
+              {/* NO SPEECH DETECTED / ERROR STATE (ONLY IF NO SPEECH WAS CAPTURED AT ALL AND USER IS NOT LISTENING) */}
+              {stepState === 'ERROR' && !normalizedValue && !rawSpeechText ? (
                 <View style={styles.errorBox}>
                   <AlertTriangle size={rf(24)} color={colors.rose} />
                   <Text style={styles.errorBoxTitle}>No Speech Detected</Text>
@@ -471,8 +487,8 @@ const styles = StyleSheet.create({
   centerContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: rf(16),
-    gap: rf(16),
+    marginVertical: rf(12),
+    gap: rf(12),
   },
   speakButton: {
     flexDirection: 'row',
@@ -576,7 +592,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: rf(6),
     paddingVertical: rf(12),
-    marginTop: rf(12),
+    marginTop: rf(8),
   },
   manualFallbackText: {
     color: colors.textMuted,
