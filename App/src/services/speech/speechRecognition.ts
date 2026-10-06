@@ -192,6 +192,10 @@ export class NativeSpeechService {
     this.callbacks.onPartialResult?.(this.accumulatedTranscript);
   }
 
+  public clearCallbacks(): void {
+    this.callbacks = {};
+  }
+
   public getBestTranscript(): string {
     return (this.accumulatedTranscript || this.currentTranscript || '').trim();
   }

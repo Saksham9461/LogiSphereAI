@@ -12,7 +12,10 @@ type Table =
   | 'expense_records'
   | 'chat_messages'
   | 'tracking_locations'
-  | 'notifications';
+  | 'notifications'
+  | 'conversations'
+  | 'conversation_participants'
+  | 'messages';
 
 const now = () => new Date().toISOString();
 
@@ -27,36 +30,57 @@ const memory: Record<Table, any[]> = {
   chat_messages: [],
   tracking_locations: [],
   notifications: [],
+  conversations: [],
+  conversation_participants: [],
+  messages: [],
+};
+
+const withTimeout = <T>(promise: PromiseLike<T>, ms = 3000): Promise<T> => {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Supabase request timeout')), ms)),
+  ]);
 };
 
 export const db = {
   async list(table: Table, filter?: Record<string, any>) {
+    const entries = Object.entries(filter ?? {});
+    const norm = (s: string) => s.replace(/_/g, '').toLowerCase();
+    const getMemoryRows = () => memory[table].filter(row =>
+      entries.every(([k, v]) => {
+        const targetNormKey = norm(k);
+        const matchPropKey = Object.keys(row).find(rk => norm(rk) === targetNormKey);
+        if (!matchPropKey) return false;
+        const val = row[matchPropKey];
+        return val === v || String(val) === String(v);
+      })
+    );
+
     if (supabase) {
       try {
         let q = supabase.from(table).select('*');
         for (const [k, v] of Object.entries(filter ?? {})) {
           q = q.eq(k, v);
         }
-        const { data, error } = await q;
-        if (!error && data) return data;
-
-        let qLower = supabase.from(table).select('*');
-        for (const [k, v] of Object.entries(filter ?? {})) {
-          qLower = qLower.eq(k.toLowerCase(), v);
+        const { data, error } = await withTimeout(q);
+        let supaData = !error && data ? data : [];
+        if (supaData.length === 0) {
+          let qLower = supabase.from(table).select('*');
+          for (const [k, v] of Object.entries(filter ?? {})) {
+            qLower = qLower.eq(k.toLowerCase(), v);
+          }
+          const resLower = await withTimeout(qLower);
+          if (!resLower.error && resLower.data) supaData = resLower.data;
         }
-        const resLower = await qLower;
-        if (!resLower.error && resLower.data) return resLower.data;
 
-        return [];
+        const memRows = getMemoryRows();
+        const combined = [...memRows, ...supaData];
+        if (combined.length > 0) return combined;
       } catch (err) {
         console.error(`[db.list] Error querying Supabase for table ${table}:`, err);
-        return [];
       }
     }
-    const entries = Object.entries(filter ?? {});
-    return memory[table].filter(row =>
-      entries.every(([k, v]) => row[k] === v || row[k.toLowerCase()] === v || row[k] === String(v))
-    );
+    return getMemoryRows();
   },
 
   async find(table: Table, filter: Record<string, any>) {
@@ -160,6 +184,30 @@ export const db = {
           if (data.fuelConsumed !== undefined || data.fuelconsumed !== undefined) {
             insertPayload.fuelconsumed = Number(data.fuelConsumed ?? data.fuelconsumed);
           }
+        } else if (table === 'conversations') {
+          insertPayload = {
+            id: data.id || `conv-${Date.now()}`,
+            created_at: data.created_at || data.createdAt || now(),
+            updated_at: data.updated_at || data.updatedAt || now(),
+          };
+        } else if (table === 'conversation_participants') {
+          insertPayload = {
+            conversation_id: data.conversation_id || data.conversationId,
+            user_id: data.user_id || data.userId,
+            joined_at: data.joined_at || data.joinedAt || now(),
+          };
+        } else if (table === 'messages') {
+          insertPayload = {
+            id: data.id || `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+            conversation_id: data.conversation_id || data.conversationId,
+            sender_id: data.sender_id || data.senderId,
+            receiver_id: data.receiver_id || data.receiverId,
+            message: data.message || data.text || '',
+            message_type: data.message_type || data.messageType || 'TEXT',
+            created_at: data.created_at || data.createdAt || now(),
+            delivered_at: data.delivered_at || data.deliveredAt || null,
+            read_at: data.read_at || data.readAt || null,
+          };
         }
 
         console.log(`\n--------------------------------------------------`);
@@ -167,19 +215,15 @@ export const db = {
         console.log(`[DB Insert] Supabase Insert Payload:`, JSON.stringify(insertPayload, null, 2));
 
         let { data: created, error } = await supabase.from(table).insert(insertPayload).select('*').single();
-        if (error) {
-          console.error(`[DB Insert ERROR] Table "${table}":`, error);
-          throw error;
-        }
-        if (created) {
+        if (!error && created) {
           console.log(`[DB Insert SUCCESS] Saved to Supabase table "${table}":`, JSON.stringify(created, null, 2));
           console.log(`--------------------------------------------------\n`);
+          memory[table].unshift(created);
           return created;
         }
-        throw new Error(`Insert failed for table ${table}`);
+        console.warn(`[DB Insert Warning] Table "${table}" Supabase insert failed (${error?.message}). Falling back to memory store.`);
       } catch (err) {
-        console.error(`[DB Insert Exception] Table "${table}":`, err);
-        throw err;
+        console.warn(`[DB Insert Exception] Table "${table}":`, err);
       }
     }
     console.log(`[DB Insert Memory] Fallback to in-memory for table "${table}":`, JSON.stringify(row, null, 2));
@@ -190,7 +234,7 @@ export const db = {
   async update(table: Table, key: Record<string, any>, patch: any) {
     if (supabase) {
       try {
-        const timeField = table === 'users' ? 'updatedAt' : 'updatedat';
+        const timeField = (table === 'users') ? 'updatedAt' : (table === 'conversations' || table === 'messages' || table === 'conversation_participants' ? 'updated_at' : 'updatedat');
         let cleanPatch: Record<string, any> = { ...patch, [timeField]: now() };
         if (table === 'attendance_records') {
           cleanPatch = {};
@@ -211,10 +255,28 @@ export const db = {
           if (patch.vehicleID || patch.vehicleid) cleanPatch.vehicleid = patch.vehicleID || patch.vehicleid;
           if (patch.driverID || patch.driverid) cleanPatch.driverid = patch.driverID || patch.driverid;
           cleanPatch[timeField] = now();
+        } else if (table === 'messages') {
+          cleanPatch = {};
+          if (patch.delivered_at !== undefined || patch.deliveredAt !== undefined) {
+            cleanPatch.delivered_at = patch.delivered_at ?? patch.deliveredAt;
+          }
+          if (patch.read_at !== undefined || patch.readAt !== undefined) {
+            cleanPatch.read_at = patch.read_at ?? patch.readAt;
+          }
         }
 
         console.log(`\n--------------------------------------------------`);
         console.log(`[DB Update] Table: "${table}" | Key:`, JSON.stringify(key), '| Patch:', JSON.stringify(cleanPatch));
+
+        const norm = (s: string) => s.replace(/_/g, '').toLowerCase();
+        const memRow = memory[table].find(r =>
+          Object.entries(key).every(([k, v]) => {
+            const targetNormKey = norm(k);
+            const matchPropKey = Object.keys(r).find(rk => norm(rk) === targetNormKey);
+            return matchPropKey && (r[matchPropKey] === v || String(r[matchPropKey]) === String(v));
+          })
+        );
+        if (memRow) Object.assign(memRow, patch, { updatedAt: now(), updatedat: now() });
 
         let q = supabase.from(table).update(cleanPatch).select('*');
         for (const [k, v] of Object.entries(key)) q = q.eq(k.toLowerCase(), v);
@@ -233,7 +295,7 @@ export const db = {
           console.log(`--------------------------------------------------\n`);
           return resLower.data[0];
         }
-
+        if (memRow) return memRow;
         return null;
       } catch (err) {
         console.error(`[DB Update ERROR] Supabase update error for table ${table}:`, err);
@@ -247,6 +309,17 @@ export const db = {
   },
 
   async remove(table: Table, key: Record<string, any>) {
+    const norm = (s: string) => s.replace(/_/g, '').toLowerCase();
+    memory[table] = memory[table].filter(row =>
+      !Object.entries(key).every(([k, v]) => {
+        const targetNormKey = norm(k);
+        const matchPropKey = Object.keys(row).find(rk => norm(rk) === targetNormKey);
+        if (!matchPropKey) return false;
+        const val = row[matchPropKey];
+        return val === v || String(val) === String(v);
+      })
+    );
+
     if (supabase) {
       try {
         let q = supabase.from(table).delete();
@@ -258,15 +331,37 @@ export const db = {
         for (const [k, v] of Object.entries(key)) qLower = qLower.eq(k.toLowerCase(), v);
         const resLower = await qLower;
         if (!resLower.error) return true;
-
-        throw error;
       } catch (err) {
         console.error(`[db.remove] Supabase delete error for table ${table}:`, err);
-        throw err;
       }
     }
-    memory[table] = memory[table].filter(row => !Object.entries(key).every(([k, v]) => row[k] === v));
     return true;
+  },
+
+  async deleteMessagesOlderThan(cutoffIso: string): Promise<number> {
+    let deletedCount = 0;
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .delete()
+          .lt('created_at', cutoffIso)
+          .select('id');
+
+        if (!error && data) {
+          deletedCount = data.length;
+        }
+      } catch (err) {
+        console.warn('[deleteMessagesOlderThan] Supabase cleanup error:', err);
+      }
+    }
+    const initialCount = memory.messages.length;
+    memory.messages = memory.messages.filter(m => {
+      const created = m.created_at || m.createdAt;
+      return created && new Date(created).getTime() >= new Date(cutoffIso).getTime();
+    });
+    const memoryDeleted = initialCount - memory.messages.length;
+    return Math.max(deletedCount, memoryDeleted);
   },
 
   makeId: id,

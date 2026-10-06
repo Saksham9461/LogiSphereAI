@@ -148,17 +148,115 @@ userRouter.put('/update', optionalAuth, async (req, res) => {
 
 userRouter.delete('/delete', optionalAuth, async (req, res) => {
   try {
-    const id = String(req.query.id ?? req.body?.id ?? '');
-    if (!id) return fail(res, 400, 'User ID is required');
+    if (req.user && req.user.role === 'ROLE_DRIVER') {
+      return fail(res, 403, 'Drivers are not authorized to delete driver records');
+    }
 
-    const existing = await db.find('users', {id});
-    if (!existing) return fail(res, 404, 'User not found');
+    const id = String(req.query.id ?? req.body?.id ?? req.body?.driverID ?? '');
+    const forceConfirm = req.query.confirm === 'true' || req.body?.confirm === true;
+    if (!id) return fail(res, 400, 'Driver / User ID is required');
 
-    await db.remove('users', {id});
-    return res.json({success: true, message: 'User deleted successfully'});
+    const existing = await db.find('users', { id });
+    if (!existing) return fail(res, 404, 'Driver not found');
+
+    const driverIdLower = id.toLowerCase();
+    const driverEmailLower = String(existing.email || '').toLowerCase();
+    const driverNameLower = String(existing.name || '').toLowerCase();
+
+    // 1. Check active trips
+    const allTrips = await db.list('trips');
+    const activeStatuses = new Set([
+      'ACCEPTED',
+      'ASSIGNED',
+      'GOING_TO_PICKUP',
+      'ARRIVED_AT_PICKUP',
+      'PICKED_UP',
+      'IN_TRANSIT',
+      'ARRIVED_AT_DROP',
+      'DISPATCHED',
+      'PENDING_APPROVAL',
+    ]);
+
+    const activeTrip = (allTrips || []).find((t: any) => {
+      const tDriverID = String(t.driverID || t.driverid || t.driver?.id || t.driver?.userID || '').toLowerCase();
+      const tDriverEmail = String(t.driverEmail || t.driver?.email || '').toLowerCase();
+      const tDriverName = String(t.driverName || t.driver?.name || '').toLowerCase();
+      const matchesDriver =
+        (tDriverID && tDriverID === driverIdLower) ||
+        (tDriverEmail && tDriverEmail === driverEmailLower) ||
+        (tDriverName && tDriverName === driverNameLower);
+
+      const statusKey = String(t.status || '').trim().toUpperCase();
+      return matchesDriver && activeStatuses.has(statusKey);
+    });
+
+    if (activeTrip) {
+      return res.status(409).json({
+        success: false,
+        message: 'Driver cannot be deleted because the driver is currently assigned to an active trip.',
+        activeTripID: activeTrip.tripID || activeTrip.tripid,
+      });
+    }
+
+    // 2. Check driver status
+    const currentStatus = String(existing.status || existing.driverStatus || '').toUpperCase().replace(/\s+/g, '_');
+    if (currentStatus === 'ON_TRIP') {
+      return res.status(409).json({
+        success: false,
+        message: 'Driver cannot be deleted because the driver status is ON_TRIP.',
+      });
+    }
+
+    // 3. Check active attendance session (clocked in without clockout)
+    const allAttendance = await db.list('attendance_records');
+    const activeAttendance = (allAttendance || []).find((a: any) => {
+      const aUserId = String(a.userId || a.userid || '').toLowerCase();
+      const isDriver = aUserId === driverIdLower;
+      const isClockedIn = !a.clockOutTime && !a.clockouttime;
+      return isDriver && isClockedIn;
+    });
+
+    if (activeAttendance) {
+      return res.status(409).json({
+        success: false,
+        message: 'Driver cannot be deleted because the driver has an active clock-in session. Please clock out the driver first.',
+      });
+    }
+
+    // 4. Check historical completed records
+    const completedTrips = (allTrips || []).filter((t: any) => {
+      const tDriverID = String(t.driverID || t.driverid || t.driver?.id || t.driver?.userID || '').toLowerCase();
+      const tDriverEmail = String(t.driverEmail || t.driver?.email || '').toLowerCase();
+      const tDriverName = String(t.driverName || t.driver?.name || '').toLowerCase();
+      const matchesDriver =
+        (tDriverID && tDriverID === driverIdLower) ||
+        (tDriverEmail && tDriverEmail === driverEmailLower) ||
+        (tDriverName && tDriverName === driverNameLower);
+
+      const statusKey = String(t.status || '').trim().toUpperCase();
+      return matchesDriver && (statusKey === 'DELIVERED' || statusKey === 'COMPLETED' || statusKey === 'REJECTED' || statusKey === 'CANCELLED');
+    });
+
+    if (completedTrips.length > 0 && !forceConfirm) {
+      return res.status(409).json({
+        success: false,
+        requiresConfirmation: true,
+        historicalTripsCount: completedTrips.length,
+        message: `This driver has ${completedTrips.length} historical trip record(s). Permanently deleting the driver will remove the driver record from Supabase PostgreSQL and set driver assignment to null on historical records. Do you want to continue?`,
+      });
+    }
+
+    // PERMANENT HARD DELETE FROM SUPABASE POSTGRESQL
+    await db.remove('users', { id });
+
+    return res.json({
+      success: true,
+      message: 'Driver permanently deleted from database',
+      id,
+    });
   } catch (error: any) {
-    console.error('Error deleting user:', error?.message || error);
-    return fail(res, 500, error?.message || 'Failed to delete user');
+    console.error('Error deleting driver:', error?.message || error);
+    return fail(res, 500, error?.message || 'Failed to delete driver');
   }
 });
 

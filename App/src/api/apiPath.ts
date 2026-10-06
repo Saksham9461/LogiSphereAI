@@ -10,6 +10,13 @@ export const BASE_URL = IS_PRODUCTION
     ? 'http://10.0.2.2:5001'
     : 'http://localhost:5001';
 
+export const WS_URL = BASE_URL.replace(/^http/, 'ws');
+
+export const GetChatUsers = `${BASE_URL}/api/chat/users`;
+export const GetConversations = `${BASE_URL}/api/chat/conversations`;
+export const CreateConversation = `${BASE_URL}/api/chat/conversations`;
+export const GetMessages = (conversationId: string) => `${BASE_URL}/api/chat/conversations/${conversationId}/messages`;
+
 export const Login = `${BASE_URL}/api/auth/login`;
 export const requestemail = `${BASE_URL}/api/auth/request-reset-password`;
 export const resetPassword = `${BASE_URL}/api/auth/reset-password`;

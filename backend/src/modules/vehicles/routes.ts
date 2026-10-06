@@ -174,13 +174,101 @@ vehicleRouter.put('/update/', async (req, res) => {
   }
 });
 
-vehicleRouter.delete('/delete/', async (req, res) => {
+vehicleRouter.delete('/delete/', optionalAuth, async (req, res) => {
   try {
-    const id = String(req.query.id ?? '');
+    if (req.user && req.user.role === 'ROLE_DRIVER') {
+      return fail(res, 403, 'Drivers are not authorized to delete vehicles');
+    }
+
+    const id = String(req.query.id ?? req.body?.id ?? req.body?.vehicleID ?? req.body?.vehicleid ?? '');
+    const forceConfirm = req.query.confirm === 'true' || req.body?.confirm === true;
     if (!id) return fail(res, 400, 'Vehicle ID is required');
-    await db.remove('vehicles', {vehicleid: id});
-    return res.json({success: true, message: 'Vehicle deleted successfully'});
+
+    const existing = await db.find('vehicles', { vehicleid: id });
+    if (!existing) return fail(res, 404, 'Vehicle not found');
+
+    const vehicleIdLower = id.toLowerCase();
+
+    // 1. Check active trips
+    const allTrips = await db.list('trips');
+    const activeStatuses = new Set([
+      'ACCEPTED',
+      'ASSIGNED',
+      'GOING_TO_PICKUP',
+      'ARRIVED_AT_PICKUP',
+      'PICKED_UP',
+      'IN_TRANSIT',
+      'ARRIVED_AT_DROP',
+      'DISPATCHED',
+      'PENDING_APPROVAL',
+    ]);
+
+    const activeTrip = (allTrips || []).find((t: any) => {
+      const tVehID = String(t.vehicleID || t.vehicleid || '').toLowerCase();
+      const statusKey = String(t.status || '').trim().toUpperCase();
+      return tVehID === vehicleIdLower && activeStatuses.has(statusKey);
+    });
+
+    if (activeTrip) {
+      return res.status(409).json({
+        success: false,
+        message: 'Vehicle cannot be deleted because it is currently assigned to an active trip.',
+        activeTripID: activeTrip.tripID || activeTrip.tripid,
+      });
+    }
+
+    // 2. Check vehicle status
+    const currentStatus = String(existing.status || '').toUpperCase().replace(/\s+/g, '_');
+    if (currentStatus === 'ON_TRIP') {
+      return res.status(409).json({
+        success: false,
+        message: 'Vehicle cannot be deleted because it is currently on a trip.',
+      });
+    }
+    if (currentStatus === 'IN_SHOP' || currentStatus === 'MAINTENANCE') {
+      return res.status(409).json({
+        success: false,
+        message: 'Vehicle cannot be deleted because it is currently undergoing maintenance in shop.',
+      });
+    }
+
+    // 3. Check historical records (maintenance, fuel, expenses, completed trips)
+    const [allMaint, allFuel, allExpenses] = await Promise.all([
+      db.list('maintenance_records'),
+      db.list('fuel_logs'),
+      db.list('expense_records'),
+    ]);
+
+    const maintCount = (allMaint || []).filter((m: any) => String(m.vehicleID || m.vehicleid || '').toLowerCase() === vehicleIdLower).length;
+    const fuelCount = (allFuel || []).filter((f: any) => String(f.vehicleID || f.vehicleid || '').toLowerCase() === vehicleIdLower).length;
+    const expenseCount = (allExpenses || []).filter((e: any) => String(e.vehicleID || e.vehicleid || '').toLowerCase() === vehicleIdLower).length;
+    const completedTripsCount = (allTrips || []).filter((t: any) => {
+      const tVehID = String(t.vehicleID || t.vehicleid || '').toLowerCase();
+      const statusKey = String(t.status || '').trim().toUpperCase();
+      return tVehID === vehicleIdLower && (statusKey === 'DELIVERED' || statusKey === 'COMPLETED' || statusKey === 'REJECTED' || statusKey === 'CANCELLED');
+    }).length;
+
+    const totalHistoricalRecords = maintCount + fuelCount + expenseCount + completedTripsCount;
+
+    if (totalHistoricalRecords > 0 && !forceConfirm) {
+      return res.status(409).json({
+        success: false,
+        requiresConfirmation: true,
+        historicalRecordsCount: totalHistoricalRecords,
+        message: `Vehicle has ${totalHistoricalRecords} historical record(s) (${maintCount} maintenance, ${fuelCount} fuel, ${completedTripsCount} completed trips). Permanently deleting the vehicle will also remove associated maintenance/fuel logs. Do you want to continue?`,
+      });
+    }
+
+    // PERMANENT HARD DELETE FROM SUPABASE POSTGRESQL
+    await db.remove('vehicles', { vehicleid: id });
+
+    return res.json({
+      success: true,
+      message: 'Vehicle permanently deleted from database',
+      id,
+    });
   } catch (error: any) {
+    console.error('Error deleting vehicle:', error?.message || error);
     return fail(res, 500, error?.message || 'Failed to delete vehicle');
   }
 });

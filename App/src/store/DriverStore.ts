@@ -86,10 +86,10 @@ const useDriverStore = create<any>((set, get) => ({
     }
   },
 
-  deleteDriver: async (id: string) => {
+  deleteDriver: async (id: string, confirm?: boolean) => {
     try {
-      set({loading: true, error: null});
-      await axios.delete(DeleteDriver, {params: {id}});
+      set({ loading: true, error: null });
+      const response = await axios.delete(DeleteDriver, { params: { id, confirm } });
       set((state: any) => ({
         loading: false,
         drivers: state.drivers.filter((driver: any) =>
@@ -97,11 +97,18 @@ const useDriverStore = create<any>((set, get) => ({
         ),
         error: null,
       }));
-      return {success: true};
+      return { success: true, message: response.data?.message };
     } catch (error: any) {
       const message = error.response?.data?.message || 'Failed to delete driver';
-      set({loading: false, error: message});
-      return {success: false, message};
+      const requiresConfirmation = Boolean(error.response?.data?.requiresConfirmation);
+      const historicalTripsCount = error.response?.data?.historicalTripsCount;
+      set({ loading: false, error: message });
+      return {
+        success: false,
+        message,
+        requiresConfirmation,
+        historicalTripsCount,
+      };
     }
   },
 

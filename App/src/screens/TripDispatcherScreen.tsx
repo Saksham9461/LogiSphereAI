@@ -65,6 +65,17 @@ const TRIP_STATUS: Record<string, { label: string; color: string; bg: string; bo
   DISPATCHED: { label: 'Dispatched', color: colors.blue, bg: 'rgba(56,189,248,0.16)', border: 'rgba(56,189,248,0.45)' },
 };
 
+const AI_ROUTE_STATUSES = new Set([
+  'ACCEPTED',
+  'ASSIGNED',
+  'GOING_TO_PICKUP',
+  'ARRIVED_AT_PICKUP',
+  'PICKED_UP',
+  'IN_TRANSIT',
+  'ARRIVED_AT_DROP',
+  'DISPATCHED',
+]);
+
 // --- HELPER TO FORMAT DISPLAY TRIP ID ---
 function formatDisplayTripId(id: string): string {
   if (!id) return '#TRP-1000';
@@ -684,7 +695,10 @@ export default function TripDispatcherScreen() {
               const tID = t.tripID || t.tripid || t.id;
               const vLabel = vehicleLabel(t.vehicleID || t.vehicleid);
               const dLabel = driverLabel(t.driverID || t.driverid);
-              const statusKey = String(t.status || 'PENDING_APPROVAL').toUpperCase();
+              const statusKey = String(t.status ?? 'PENDING_APPROVAL')
+                .trim()
+                .toUpperCase();
+              const canShowAIRoute = AI_ROUTE_STATUSES.has(statusKey);
               const s = TRIP_STATUS[statusKey] || TRIP_STATUS.PENDING_APPROVAL;
               const isActionBusy = actionLoadingId === tID;
 
@@ -727,16 +741,24 @@ export default function TripDispatcherScreen() {
                   {/* LIFECYCLE CONTROLS FOOTER */}
                   <View style={styles.tripCardFooter}>
                     {/* ROW 1: UTILITY BUTTONS (MAP & AI ROUTE IN SINGLE ROW) */}
-                    <View style={styles.utilityButtonsRow}>
+                    <View
+                      style={[
+                        styles.utilityButtonsRow,
+                        !canShowAIRoute && styles.utilityButtonsRowSingle,
+                      ]}
+                    >
                       <Pressable
-                        style={[styles.mapBtn, !['ACCEPTED', 'ASSIGNED', 'GOING_TO_PICKUP', 'ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROP', 'DISPATCHED'].includes(statusKey) && { width: '100%', flex: 0 }]}
+                        style={[
+                          styles.mapBtn,
+                          !canShowAIRoute && styles.mapBtnFullWidth,
+                        ]}
                         onPress={() => setMapModalTrip(t)}
                       >
                         <Map size={16} color={colors.blue} />
                         <Text style={styles.mapBtnText}>Map</Text>
                       </Pressable>
 
-                      {['ACCEPTED', 'ASSIGNED', 'GOING_TO_PICKUP', 'ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROP', 'DISPATCHED'].includes(statusKey) && (
+                      {canShowAIRoute && (
                         <Pressable
                           style={styles.aiRouteBtn}
                           onPress={() => handleFetchRouteIntelligence(t)}
@@ -750,7 +772,7 @@ export default function TripDispatcherScreen() {
                     {/* ROW 2: ACTION BUTTONS (NEXT ROW WITH FULL WIDTH) */}
                     {/* MANAGER CONTROLS FOR PENDING_APPROVAL */}
                     {!isDriver && statusKey === 'PENDING_APPROVAL' && (
-                      <View style={{ flexDirection: 'row', gap: rf(10), width: '100%', marginTop: rf(8) }}>
+                      <View style={{ flexDirection: 'row', gap: rf(10), width: '100%' }}>
                         <Pressable
                           style={[styles.actionBtn, { flex: 1, backgroundColor: colors.rose, borderColor: colors.rose, paddingVertical: rf(12), justifyContent: 'center' }]}
                           onPress={() => handleManagerReject(tID)}
@@ -772,7 +794,7 @@ export default function TripDispatcherScreen() {
 
                     {/* DRIVER STEP-BY-STEP CONTROLS (FULL WIDTH NEXT ROW) */}
                     {isDriver && (
-                      <View style={{ width: '100%', marginTop: rf(8) }}>
+                      <View style={{ width: '100%' }}>
                         {(statusKey === 'ACCEPTED' || statusKey === 'ASSIGNED') && (
                           <Pressable
                             style={styles.stepBtnPrimaryFull}
@@ -962,7 +984,7 @@ export default function TripDispatcherScreen() {
             <FleetMap
               trips={[mapModalTrip]}
               selectedTrip={mapModalTrip}
-              onSelectTrip={() => {}}
+              onSelectTrip={() => { }}
               style={{ flex: 1, height: '100%' }}
             />
           )}
@@ -1001,7 +1023,7 @@ export default function TripDispatcherScreen() {
               <AlertCircle size={48} color={colors.rose} />
               <Text style={{ color: colors.textPrimary, fontSize: rf(16), fontWeight: '700', textAlign: 'center' }}>Route Analysis Unavailable</Text>
               <Text style={{ color: colors.textMuted, fontSize: rf(13), textAlign: 'center' }}>{routeModal.error}</Text>
-              <Pressable style={styles.saveBtn} onPress={() => handleFetchRouteIntelligence(routeModal.trip)}>
+              <Pressable style={styles.routeRetryBtn} onPress={() => handleFetchRouteIntelligence(routeModal.trip)}>
                 <Text style={styles.saveBtnText}>Try Again</Text>
               </Pressable>
             </View>
@@ -1011,7 +1033,7 @@ export default function TripDispatcherScreen() {
               <FleetMap
                 trips={routeModal.trip ? [routeModal.trip] : []}
                 selectedTrip={routeModal.trip}
-                onSelectTrip={() => {}}
+                onSelectTrip={() => { }}
                 style={{ height: rf(260) }}
                 routeLines={routeModal.routes.map(r => ({
                   id: r.id,
@@ -1385,19 +1407,19 @@ export default function TripDispatcherScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg, paddingBottom:rf(100) },
+  screen: { flex: 1, backgroundColor: colors.bg, paddingBottom: rf(100) },
   container: { paddingHorizontal: rf(16), paddingVertical: rf(24), paddingBottom: rf(40), flexGrow: 1 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: rf(16) },
   pageTitle: { color: colors.textPrimary, fontSize: rf(24), fontWeight: '800', letterSpacing: -0.5 },
   pageSubtitle: { color: colors.textMuted, fontSize: rf(13), marginTop: rf(2) },
-  
+
   iconBtn: { width: rf(40), height: rf(40), borderRadius: rf(20), backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   badge: { position: 'absolute', top: -2, right: -2, backgroundColor: colors.rose, borderRadius: rf(9), width: rf(18), height: rf(18), alignItems: 'center', justifyContent: 'center' },
   badgeText: { color: '#fff', fontSize: rf(10), fontWeight: '800' },
 
   addButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.amber, paddingHorizontal: rf(14), paddingVertical: rf(8), borderRadius: rf(8), gap: rf(6) },
   addButtonText: { color: '#1a1200', fontSize: rf(14), fontWeight: '700' },
-  
+
   searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: rf(12), paddingHorizontal: rf(16), height: rf(48), marginBottom: rf(16), gap: rf(10) },
   searchInput: { flex: 1, color: colors.textPrimary, fontSize: rf(14), height: '100%' },
 
@@ -1439,9 +1461,17 @@ const styles = StyleSheet.create({
     color: '#1a1200',
     fontWeight: '800',
   },
-  
+
   listContainer: { gap: rf(12) },
-  tripCard: { backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.border, borderRadius: rf(16), padding: rf(16) },
+  tripCard: {
+    backgroundColor: colors.panel,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: rf(16),
+    padding: rf(16),
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   tripCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: rf(12) },
   tripIDText: { color: colors.textPrimary, fontSize: rf(15), fontWeight: '800' },
   tripAssignText: { color: colors.textMuted, fontSize: rf(12), marginTop: rf(2) },
@@ -1455,9 +1485,51 @@ const styles = StyleSheet.create({
   tripMetaRow: { flexDirection: 'row', gap: rf(16), marginTop: rf(8) },
   tripMetaText: { color: colors.textMuted, fontSize: rf(12) },
 
-  tripCardFooter: { flexDirection: 'column', gap: rf(8), borderTopWidth: 1, borderTopColor: colors.borderSoft, paddingTop: rf(12) },
-  utilityButtonsRow: { flexDirection: 'row', gap: rf(8), width: '100%', alignItems: 'center' },
-  mapBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: rf(6), paddingHorizontal: rf(12), paddingVertical: rf(9), borderRadius: rf(10), backgroundColor: 'rgba(56,189,248,0.12)', borderWidth: 1, borderColor: 'rgba(56,189,248,0.35)' },
+  tripCardFooter: {
+    flexDirection: 'column',
+    gap: rf(8),
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSoft,
+    paddingTop: rf(12),
+    flexGrow: 0,
+    flexShrink: 0,
+    minHeight: 0,
+  },
+  utilityButtonsRow: {
+    flexDirection: 'row',
+    gap: rf(8),
+    width: '100%',
+    alignItems: 'center',
+    flexGrow: 0,
+    flexShrink: 0,
+    minHeight: 0,
+  },
+  utilityButtonsRowSingle: {
+    width: '100%',
+    flexGrow: 0,
+    flexShrink: 0,
+    minHeight: 0,
+  },
+  mapBtn: {
+    flex: 1,
+    minWidth: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: rf(6),
+    paddingHorizontal: rf(12),
+    paddingVertical: rf(9),
+    borderRadius: rf(10),
+    backgroundColor: 'rgba(56,189,248,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(56,189,248,0.35)',
+  },
+  mapBtnFullWidth: {
+    flex: 0,
+    width: '100%',
+  },
   mapBtnText: { color: colors.blue, fontSize: rf(13), fontWeight: '700' },
 
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: rf(6), paddingHorizontal: rf(12), paddingVertical: rf(8), borderRadius: rf(10), borderWidth: 1 },
@@ -1478,7 +1550,18 @@ const styles = StyleSheet.create({
   actionBtnTextWhiteFull: { color: '#fff', fontSize: rf(14), fontWeight: '800' },
   completedBannerFull: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: rf(8), backgroundColor: 'rgba(74,222,128,0.12)', borderWidth: 1, borderColor: colors.green, paddingVertical: rf(10), borderRadius: rf(10) },
   completedBannerTextFull: { color: colors.green, fontSize: rf(14), fontWeight: '800' },
-  managerCancelBtnFull: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: rf(6), backgroundColor: 'rgba(251,113,133,0.1)', borderWidth: 1, borderColor: colors.rose, paddingVertical: rf(11), borderRadius: rf(10), marginTop: rf(4) },
+  managerCancelBtnFull: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: rf(6),
+    backgroundColor: 'rgba(251,113,133,0.1)',
+    borderWidth: 1,
+    borderColor: colors.rose,
+    paddingVertical: rf(11),
+    borderRadius: rf(10),
+  },
   managerCancelTextFull: { color: colors.rose, fontSize: rf(13), fontWeight: '700' },
 
   emptyState: { padding: rf(40), alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderRadius: rf(16), borderWidth: 1, borderColor: colors.borderSoft, borderStyle: 'dashed', marginTop: rf(8) },
@@ -1499,14 +1582,14 @@ const styles = StyleSheet.create({
   formGroup: { flex: 1, gap: rf(6) },
   formLabel: { color: colors.textMuted, fontSize: rf(11), textTransform: 'uppercase', fontWeight: '700' },
   formInput: { backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.border, borderRadius: rf(8), paddingHorizontal: rf(12), height: rf(44), color: colors.textPrimary, fontSize: rf(14) },
-  
+
   // Search Box Autocomplete Styles
   searchBoxInputWrapper: { flexDirection: 'row', alignItems: 'center', gap: rf(8), backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.border, borderRadius: rf(8), paddingHorizontal: rf(12), height: rf(44) },
   searchBoxInput: { flex: 1, color: colors.textPrimary, fontSize: rf(13), height: '100%' },
   locationBadgeSuccess: { flexDirection: 'row', alignItems: 'center', gap: rf(4), backgroundColor: 'rgba(74,222,128,0.1)', paddingHorizontal: rf(6), paddingVertical: rf(2), borderRadius: rf(6) },
   locationBadgeText: { color: colors.green, fontSize: rf(10), fontWeight: '700' },
   locationWarningText: { color: colors.rose, fontSize: rf(10), fontWeight: '600' },
-  
+
   suggestionsContainer: { backgroundColor: colors.panel, borderRadius: rf(8), borderWidth: 1, borderColor: colors.border, marginTop: rf(4), overflow: 'hidden' },
   suggestionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: rf(8), padding: rf(10), borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
   suggestionTitle: { color: colors.textPrimary, fontSize: rf(13), fontWeight: '600' },
@@ -1547,6 +1630,9 @@ const styles = StyleSheet.create({
   // AI Route Intelligence Styles
   aiRouteBtn: {
     flex: 1,
+    minWidth: 0,
+    flexGrow: 1,
+    flexShrink: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1609,4 +1695,17 @@ const styles = StyleSheet.create({
   },
   recommendedPillText: { color: '#1a1200', fontSize: rf(10), fontWeight: '800' },
   routeMetricText: { color: colors.textSecondary, fontSize: rf(13), fontWeight: '600' },
+  routeRetryBtn: {
+    alignSelf: 'center',
+    flex: 0,
+    flexGrow: 0,
+    flexShrink: 0,
+    height: rf(44),
+    minHeight: 0,
+    paddingHorizontal: rf(24),
+    backgroundColor: colors.amber,
+    borderRadius: rf(10),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

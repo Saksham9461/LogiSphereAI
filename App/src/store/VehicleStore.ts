@@ -56,19 +56,27 @@ const useVehicleStore = create<any>(set => ({
     }
   },
 
-  deleteVehicle: async (id: string) => {
+  deleteVehicle: async (id: string, confirm?: boolean) => {
     try {
-      set({loading: true, error: null});
-      await axios.delete(DeleteVehicle, {params: {id}});
+      set({ loading: true, error: null });
+      const response = await axios.delete(DeleteVehicle, { params: { id, confirm } });
       set((state: any) => ({
         loading: false,
         vehicles: state.vehicles.filter((vehicle: any) => vehicle.vehicleID !== id),
+        error: null,
       }));
-      return {success: true};
+      return { success: true, message: response.data?.message };
     } catch (error: any) {
       const message = error.response?.data?.message || 'Failed to delete vehicle';
-      set({loading: false, error: message});
-      return {success: false, message};
+      const requiresConfirmation = Boolean(error.response?.data?.requiresConfirmation);
+      const historicalRecordsCount = error.response?.data?.historicalRecordsCount;
+      set({ loading: false, error: message });
+      return {
+        success: false,
+        message,
+        requiresConfirmation,
+        historicalRecordsCount,
+      };
     }
   },
 

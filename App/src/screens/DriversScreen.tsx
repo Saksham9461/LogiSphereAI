@@ -108,7 +108,7 @@ const DriverCard = ({
   driver: any;
   trips?: any[];
   onEdit: (driver: any) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string, name?: string) => void;
 }) => {
   const driverID = driver.id || driver.driverID || driver.userID;
   const displayStatus = (driver.status || driver.driverStatus || 'Available')
@@ -136,16 +136,7 @@ const DriverCard = ({
             </Pressable>
             <Pressable
               style={styles.iconButton}
-              onPress={() => {
-                Alert.alert(
-                  'Delete Driver',
-                  `Are you sure you want to delete driver ${driver.name || 'this record'}?`,
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Delete', style: 'destructive', onPress: () => onDelete(driverID) },
-                  ]
-                );
-              }}
+              onPress={() => onDelete(driverID, driver.name)}
             >
               <Trash2 size={15} color={colors.rose} />
             </Pressable>
@@ -273,10 +264,14 @@ export default function DriversScreen() {
   const handleSwitchToManual = (prefilledData?: any) => {
     setShowVoiceModal(false);
     if (prefilledData) {
-      if (prefilledData.name) setFormName(prefilledData.name);
-      if (prefilledData.licenseNumber) setFormLicense(prefilledData.licenseNumber);
-      if (prefilledData.licenseExpiry) setFormExpiry(prefilledData.licenseExpiry);
-      if (prefilledData.contact) setFormContact(prefilledData.contact);
+      setFormName(prefilledData.name || '');
+      setFormLicense(prefilledData.licenseNumber || '');
+      setFormExpiry(prefilledData.licenseExpiry || '');
+      setFormContact(prefilledData.contact || '');
+      setFormEmail('');
+      setFormTrips('0');
+      setFormSafety('100');
+      setFormStatus('Available');
     }
     setShowModal(true);
   };
@@ -347,13 +342,52 @@ export default function DriversScreen() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDelete = async (driverID: string) => {
-    const result = await deleteDriver(driverID);
-    if (result.success) {
-      await fetchDrivers();
-    } else {
-      Alert.alert('Error', result.message || 'Failed to delete driver');
-    }
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const confirmAndDeleteDriver = (driverID: string, driverName?: string, forceConfirm: boolean = false) => {
+    Alert.alert(
+      forceConfirm ? 'Delete Driver Permanently' : 'Delete Driver',
+      forceConfirm
+        ? `Driver ${driverName || ''} has historical trip records. Permanently deleting this driver will remove the driver record from Supabase PostgreSQL. Do you want to continue?`
+        : `Are you sure you want to permanently delete driver ${driverName || 'this record'} from the database? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: forceConfirm ? 'Delete Permanently' : 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            if (deletingId) return;
+            setDeletingId(driverID);
+            const result = await deleteDriver(driverID, forceConfirm);
+            setDeletingId(null);
+
+            if (result.success) {
+              await fetchDrivers();
+              Alert.alert('Success', result.message || 'Driver permanently deleted.');
+            } else if (result.requiresConfirmation) {
+              Alert.alert(
+                'Historical Records Warning',
+                result.message || 'This driver has historical records. Permanently delete?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Delete Permanently',
+                    style: 'destructive',
+                    onPress: () => confirmAndDeleteDriver(driverID, driverName, true),
+                  },
+                ]
+              );
+            } else {
+              Alert.alert('Cannot Delete Driver', result.message || 'Failed to delete driver');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDelete = (driverID: string, name?: string) => {
+    confirmAndDeleteDriver(driverID, name, false);
   };
 
   return (

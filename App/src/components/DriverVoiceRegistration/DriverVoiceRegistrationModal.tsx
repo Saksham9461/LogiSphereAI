@@ -63,8 +63,14 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
 
   const fields = DEFAULT_DRIVER_VOICE_FIELDS;
   const currentField = fields[currentFieldIndex];
+
   const fieldIndexRef = useRef(currentFieldIndex);
   fieldIndexRef.current = currentFieldIndex;
+
+  const stepStateRef = useRef<VoiceStepState>(stepState);
+  stepStateRef.current = stepState;
+
+  const isConfirmingRef = useRef(false);
 
   // Reset session state when modal opens
   useEffect(() => {
@@ -76,6 +82,7 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
       setNormalizedValue('');
       setValidationError('');
       setIsEditingInline(false);
+      isConfirmingRef.current = false;
       setFormData({
         name: '',
         licenseNumber: '',
@@ -115,10 +122,14 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
 
     await speechService.startListening({
       onStart: () => {
+        if (stepStateRef.current === 'COMPLETED' || stepStateRef.current === 'SAVING') return;
         setStepState('LISTENING');
         setValidationError('');
       },
       onPartialResult: (partialText: string) => {
+        if (stepStateRef.current === 'COMPLETED' || stepStateRef.current === 'SAVING') return;
+        if (fieldIndexRef.current !== indexToListen) return;
+
         const trimmed = (partialText || '').trim();
         if (trimmed.length > 0) {
           setValidationError(''); // Clear any old errors on speech detection
@@ -129,6 +140,9 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
         }
       },
       onResult: (finalText: string) => {
+        if (stepStateRef.current === 'COMPLETED' || stepStateRef.current === 'SAVING') return;
+        if (fieldIndexRef.current !== indexToListen) return;
+
         const trimmed = (finalText || '').trim();
         if (trimmed.length > 0) {
           setValidationError('');
@@ -136,11 +150,14 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
           const parsed = normalizeFieldValue(activeFieldKey, trimmed);
           setNormalizedValue(parsed);
         }
-        if (!speechService.getShouldKeepListening()) {
+        if (!speechService.getShouldKeepListening() && stepStateRef.current === 'LISTENING') {
           setStepState('SHOWING_RESULT');
         }
       },
       onError: (code, message) => {
+        if (stepStateRef.current === 'COMPLETED' || stepStateRef.current === 'SAVING') return;
+        if (fieldIndexRef.current !== indexToListen) return;
+
         if (code === 'PERMISSION_DENIED') {
           setStepState('ERROR');
           Alert.alert(
@@ -153,7 +170,7 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
           );
         } else {
           // NEVER transition to ERROR screen if speech was already detected or continuous listening is active!
-          if (!speechService.getShouldKeepListening() && !rawSpeechText && !normalizedValue) {
+          if (!speechService.getShouldKeepListening() && !rawSpeechText && !normalizedValue && stepStateRef.current === 'LISTENING') {
             setStepState('ERROR');
             setValidationError('No speech detected. Would you like to try again?');
           }
@@ -179,96 +196,58 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
    * Called when user presses [ Confirm ] button for current field
    */
   const handleConfirmFieldValue = (finalValue: string) => {
-    const valResult = validateDriverField(currentField.key, finalValue);
-    if (!valResult.isValid) {
-      setValidationError(valResult.error || 'Invalid value');
-      return;
-    }
+    if (isConfirmingRef.current) return;
+    isConfirmingRef.current = true;
 
-    const updatedForm = {
-      ...formData,
-      [currentField.key]: finalValue,
-    };
-    setFormData(updatedForm);
+    try {
+      const valResult = validateDriverField(currentField.key, finalValue);
+      if (!valResult.isValid) {
+        setValidationError(valResult.error || 'Invalid value');
+        isConfirmingRef.current = false;
+        return;
+      }
 
-    // Move to next field or complete
-    if (currentFieldIndex < fields.length - 1) {
-      const nextIndex = currentFieldIndex + 1;
-      setCurrentFieldIndex(nextIndex);
-      setPartialSpeechText('');
-      setRawSpeechText('');
-      setNormalizedValue('');
-      setValidationError('');
-      setIsEditingInline(false);
+      const updatedForm = {
+        ...formData,
+        [currentField.key]: finalValue,
+      };
+      setFormData(updatedForm);
 
-      // Auto-restart continuous listening for the next field!
-      setTimeout(() => {
-        handleStartListeningForIndex(nextIndex);
-      }, 300);
-    } else {
-      speechService.stopListening();
-      setStepState('COMPLETED');
+      // Move to next field or complete
+      if (currentFieldIndex < fields.length - 1) {
+        const nextIndex = currentFieldIndex + 1;
+        setCurrentFieldIndex(nextIndex);
+        setPartialSpeechText('');
+        setRawSpeechText('');
+        setNormalizedValue('');
+        setValidationError('');
+        setIsEditingInline(false);
+
+        // Cancel previous speech session before starting next field
+        speechService.cancel();
+
+        setTimeout(() => {
+          handleStartListeningForIndex(nextIndex);
+          isConfirmingRef.current = false;
+        }, 300);
+      } else {
+        // Final field (Mobile Number) confirmed! Cancel speech service so no dangling callbacks fire
+        speechService.cancel();
+        setStepState('COMPLETED');
+        isConfirmingRef.current = false;
+      }
+    } catch (e) {
+      isConfirmingRef.current = false;
     }
   };
 
   /**
-   * Save Driver to Backend API
+   * Confirm details on final review screen and pass 4 values to Driver Registration bottomsheet
    */
   const handleSaveDriverToBackend = async () => {
-    const fullVal = validateFullDriverForm(formData);
-    if (!fullVal.isValid) {
-      Alert.alert('Validation Error', fullVal.error);
-      return;
-    }
-
-    setStepState('SAVING');
-
-    let licenseExpiryDate = formData.licenseExpiry;
-    try {
-      const parts = formData.licenseExpiry.split('/');
-      if (parts.length === 2) {
-        const month = Number(parts[0]);
-        const year = Number(parts[1]);
-        if (!isNaN(month) && !isNaN(year)) {
-          licenseExpiryDate = new Date(year, month - 1, 1).toISOString();
-        }
-      }
-    } catch (e) {
-      // Keep string if parse fails
-    }
-
-    const payload = {
-      name: formData.name,
-      email: `${formData.name.toLowerCase().replace(/\s+/g, '')}@fleet.com`,
-      phoneNo: formData.contact,
-      licenseNo: formData.licenseNumber,
-      licenseExpiryDate,
-      role: 'ROLE_DRIVER',
-      driverStatus: formData.status.toUpperCase().replace(/\s+/g, '_'),
-      safetyScore: formData.safetyScore ?? 100,
-      trips: formData.tripsCompleted ?? 0,
-      driverID: null,
-    };
-
-    console.log('🚀 Saving Driver via Voice Payload:', payload);
-    const result = await registerDriver(payload);
-
-    if (result.success) {
-      await fetchDrivers();
-      onClose();
-      if (result.credentials?.temporaryPassword && onDriverCreated) {
-        onDriverCreated({
-          name: formData.name,
-          email: result.credentials.email || payload.email,
-          temporaryPassword: result.credentials.temporaryPassword,
-        });
-      } else {
-        Alert.alert('Success', `Driver "${formData.name}" registered successfully via Voice!`);
-      }
-    } else {
-      setStepState('COMPLETED');
-      Alert.alert('Registration Error', result.message || 'Failed to register driver.');
-    }
+    speechService.cancel();
+    speechService.destroy();
+    onSwitchToManual(formData);
   };
 
   const handleUpdateFieldInReview = (key: keyof DriverVoiceFormData, val: any) => {

@@ -115,16 +115,7 @@ const VehicleCard = ({ vehicle, onEdit, onDelete }: any) => {
           <Pressable style={styles.iconButton} onPress={() => onEdit(vehicle)}>
             <Edit2 size={16} color={colors.textMuted} />
           </Pressable>
-          <Pressable style={styles.iconButton} onPress={() => {
-            Alert.alert(
-              'Delete Vehicle',
-              `Are you sure you want to delete ${regNo}?`,
-              [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Delete', style: 'destructive', onPress: () => onDelete(vehicle.vehicleID) },
-              ]
-            );
-          }}>
+          <Pressable style={styles.iconButton} onPress={() => onDelete(vehicle.vehicleID || vehicle.id, regNo)}>
             <Trash2 size={16} color={colors.rose} />
           </Pressable>
         </View>
@@ -288,13 +279,52 @@ export default function VehicleRegistryScreen() {
     }
   };
 
-  const handleDelete = async (vehicleID: string) => {
-    const result = await deleteVehicle(vehicleID);
-    if (result.success) {
-      await getVehicles();
-    } else {
-      Alert.alert('Error', result.message || 'Failed to delete vehicle');
-    }
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const confirmAndDeleteVehicle = (vehicleID: string, regNo?: string, forceConfirm: boolean = false) => {
+    Alert.alert(
+      forceConfirm ? 'Delete Vehicle Permanently' : 'Delete Vehicle',
+      forceConfirm
+        ? `Vehicle ${regNo || ''} has historical records (maintenance/fuel/trips). Permanently deleting this vehicle will remove the vehicle record from Supabase PostgreSQL and associated logs. Do you want to continue?`
+        : `Are you sure you want to permanently delete vehicle ${regNo || 'this record'} from the database? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: forceConfirm ? 'Delete Permanently' : 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            if (deletingId) return;
+            setDeletingId(vehicleID);
+            const result = await deleteVehicle(vehicleID, forceConfirm);
+            setDeletingId(null);
+
+            if (result.success) {
+              await getVehicles();
+              Alert.alert('Success', result.message || 'Vehicle permanently deleted.');
+            } else if (result.requiresConfirmation) {
+              Alert.alert(
+                'Historical Records Warning',
+                result.message || 'This vehicle has historical records. Permanently delete?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Delete Permanently',
+                    style: 'destructive',
+                    onPress: () => confirmAndDeleteVehicle(vehicleID, regNo, true),
+                  },
+                ]
+              );
+            } else {
+              Alert.alert('Cannot Delete Vehicle', result.message || 'Failed to delete vehicle');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDelete = (vehicleID: string, regNo?: string) => {
+    confirmAndDeleteVehicle(vehicleID, regNo, false);
   };
 
   return (
