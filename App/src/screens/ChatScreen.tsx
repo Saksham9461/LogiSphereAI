@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Modal,
   ScrollView,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, Send, MessageSquare, Check, CheckCheck, User, Circle, Plus, RefreshCw } from 'lucide-react-native';
@@ -35,9 +36,11 @@ export default function ChatScreen({ navigation }: any) {
     onlineUserIds,
     typingStates,
     loading,
+    loadingMessages,
     initSocket,
     fetchConversations,
     fetchRosterUsers,
+    fetchMessages,
     selectConversation,
     startConversationWithUser,
     sendMessage,
@@ -49,16 +52,50 @@ export default function ChatScreen({ navigation }: any) {
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<any>(null);
 
+  // Handle active message list for current open conversation
+  const currentMessages = activeConversationId ? messages[activeConversationId] || [] : [];
+  const isTyping = activeConversationId ? Boolean(typingStates[activeConversationId]) : false;
+  const isParticipantOnline = activeParticipant ? onlineUserIds.has(activeParticipant.id) : false;
+
+  const scrollToBottom = (animated = true) => {
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated });
+    }, 60);
+  };
+
   useEffect(() => {
     initSocket();
     fetchConversations();
     fetchRosterUsers();
   }, []);
 
-  // Handle active message list for current open conversation
-  const currentMessages = activeConversationId ? messages[activeConversationId] || [] : [];
-  const isTyping = activeConversationId ? Boolean(typingStates[activeConversationId]) : false;
-  const isParticipantOnline = activeParticipant ? onlineUserIds.has(activeParticipant.id) : false;
+  useEffect(() => {
+    if (activeConversationId && currentMessages.length > 0) {
+      scrollToBottom(true);
+    }
+  }, [activeConversationId, currentMessages.length]);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        scrollToBottom(true);
+      }
+    );
+    return () => showSub.remove();
+  }, []);
+
+  useEffect(() => {
+    const parent = navigation.getParent();
+    if (activeConversationId) {
+      parent?.setOptions({ headerShown: false });
+    } else {
+      parent?.setOptions({ headerShown: true });
+    }
+    return () => {
+      parent?.setOptions({ headerShown: true });
+    };
+  }, [navigation, activeConversationId]);
 
   const handleTextChange = (text: string) => {
     setInputText(text);
@@ -131,7 +168,16 @@ export default function ChatScreen({ navigation }: any) {
   return (
     <View style={styles.safeArea}>
       {/* App Header */}
-      <View style={[styles.headerRow, { paddingTop: Math.max(insets.top, rf(12)) }]}>
+      <View
+        style={[
+          styles.headerRow,
+          {
+            paddingTop: activeConversationId
+              ? Math.max(insets.top, rf(8)) + rf(2)
+              : rf(8),
+          },
+        ]}
+      >
         <View style={styles.headerLeft}>
           {activeConversationId ? (
             <Pressable
@@ -141,13 +187,13 @@ export default function ChatScreen({ navigation }: any) {
               <ChevronLeft color={colors.textPrimary} size={24} />
             </Pressable>
           ) : (
-            <MessageSquare color={colors.amber} size={26} style={{ marginRight: rf(8) }} />
+            <MessageSquare color={colors.amber} size={24} style={{ marginRight: rf(8) }} />
           )}
 
           {activeParticipant ? (
             <View style={styles.participantHeaderInfo}>
               <View style={styles.participantNameRow}>
-                <Text style={styles.headerParticipantName} numberOfLines={1}>
+                <Text style={styles.headerParticipantName}>
                   {activeParticipant.name}
                 </Text>
                 <View
@@ -157,7 +203,7 @@ export default function ChatScreen({ navigation }: any) {
                   ]}
                 />
               </View>
-              <Text style={styles.headerParticipantRole}>
+              <Text style={styles.headerParticipantRole} numberOfLines={1}>
                 {isTyping
                   ? 'typing...'
                   : isParticipantOnline
@@ -171,11 +217,24 @@ export default function ChatScreen({ navigation }: any) {
         </View>
 
         <View style={styles.headerRightActions}>
-          <Pressable style={styles.iconBtn} onPress={() => fetchConversations()}>
-            <RefreshCw color={colors.textMuted} size={20} />
+          <Pressable
+            style={styles.iconBtn}
+            onPress={() => {
+              if (activeConversationId) {
+                fetchMessages(activeConversationId);
+              } else {
+                fetchConversations();
+              }
+            }}
+          >
+            {loading || loadingMessages ? (
+              <ActivityIndicator size="small" color={colors.amber} />
+            ) : (
+              <RefreshCw color={colors.textMuted} size={18} />
+            )}
           </Pressable>
           <Pressable style={styles.newChatBtn} onPress={() => setShowRosterModal(true)}>
-            <Plus color="#FFFFFF" size={18} />
+            <Plus color="#FFFFFF" size={16} />
             <Text style={styles.newChatBtnText}>New Chat</Text>
           </Pressable>
         </View>
@@ -202,6 +261,7 @@ export default function ChatScreen({ navigation }: any) {
           {loading && conversations.length === 0 ? (
             <View style={styles.centerContainer}>
               <ActivityIndicator size="large" color={colors.amber} />
+              <Text style={styles.loadingMessagesText}>Loading conversations...</Text>
             </View>
           ) : conversations.length === 0 ? (
             <View style={styles.emptyContainer}>
@@ -219,6 +279,14 @@ export default function ChatScreen({ navigation }: any) {
               data={conversations}
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.convListContent}
+              refreshControl={
+                <RefreshControl
+                  refreshing={loading}
+                  onRefresh={() => fetchConversations()}
+                  tintColor={colors.amber}
+                  colors={[colors.amber]}
+                />
+              }
               renderItem={({ item }) => {
                 const isOnline = onlineUserIds.has(item.participant.id);
                 const lastTime = formatLocalMessageTime(item.lastMessage?.createdAt);
@@ -251,7 +319,9 @@ export default function ChatScreen({ navigation }: any) {
                         </Text>
                         {item.unreadCount > 0 && (
                           <View style={styles.unreadBadge}>
-                            <Text style={styles.unreadBadgeText}>{item.unreadCount}</Text>
+                            <Text style={styles.unreadBadgeText}>
+                              {item.unreadCount > 99 ? '99+' : item.unreadCount}
+                            </Text>
                           </View>
                         )}
                       </View>
@@ -269,26 +339,45 @@ export default function ChatScreen({ navigation }: any) {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
         >
-          <FlatList
-            ref={flatListRef}
-            data={currentMessages}
-            keyExtractor={(item) => item.id}
-            renderItem={renderMessage}
-            contentContainerStyle={styles.messageListContent}
-            showsVerticalScrollIndicator={false}
-            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-            onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
-            ListEmptyComponent={
-              <View style={styles.emptyMessagesContainer}>
-                <Text style={styles.emptyMessagesText}>
-                  Send a message to start conversation.
-                </Text>
-                <Text style={styles.emptyMessagesSub}>
-                  Messages are persisted in Supabase and auto-deleted after 24 hours.
-                </Text>
-              </View>
-            }
-          />
+          {loadingMessages && currentMessages.length === 0 ? (
+            <View style={styles.centerContainer}>
+              <ActivityIndicator size="large" color={colors.amber} />
+              <Text style={styles.loadingMessagesText}>Loading messages...</Text>
+            </View>
+          ) : (
+            <FlatList
+              ref={flatListRef}
+              data={currentMessages}
+              keyExtractor={(item) => item.id}
+              renderItem={renderMessage}
+              contentContainerStyle={styles.messageListContent}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={loadingMessages}
+                  onRefresh={() => {
+                    if (activeConversationId) {
+                      fetchMessages(activeConversationId);
+                    }
+                  }}
+                  tintColor={colors.amber}
+                  colors={[colors.amber]}
+                />
+              }
+              onContentSizeChange={() => scrollToBottom(true)}
+              onLayout={() => scrollToBottom(false)}
+              ListEmptyComponent={
+                <View style={styles.emptyMessagesContainer}>
+                  <Text style={styles.emptyMessagesText}>
+                    Send a message to start conversation.
+                  </Text>
+                  <Text style={styles.emptyMessagesSub}>
+                    Messages are persisted in Supabase and auto-deleted after 24 hours.
+                  </Text>
+                </View>
+              }
+            />
+          )}
 
           {isTyping && (
             <View style={styles.typingIndicatorBar}>
@@ -297,7 +386,7 @@ export default function ChatScreen({ navigation }: any) {
           )}
 
           {/* Bottom Input Field */}
-          <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 16) + 70 }]}>
+          <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, rf(10)) }]}>
             <TextInput
               style={styles.textInput}
               placeholder="Type a message..."
@@ -374,12 +463,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: rf(16),
-    paddingBottom: rf(14),
+    paddingHorizontal: rf(14),
+    paddingBottom: rf(8),
     backgroundColor: colors.panel,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSoft,
-    elevation: 3,
+    elevation: 2,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -392,22 +481,26 @@ const styles = StyleSheet.create({
   },
   pageTitle: {
     color: colors.textPrimary,
-    fontSize: rf(24),
-    fontWeight: '800',
+    fontSize: rf(20),
+    fontWeight: '700',
     letterSpacing: -0.5,
   },
   participantHeaderInfo: {
     flexDirection: 'column',
+    flex: 1,
+    marginRight: rf(8),
   },
   participantNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: rf(6),
   },
   headerParticipantName: {
     color: colors.textPrimary,
-    fontSize: rf(18),
+    fontSize: rf(16),
     fontWeight: '700',
-    marginRight: rf(6),
+    flexShrink: 1,
   },
   onlineDot: {
     width: rf(8),
@@ -479,6 +572,12 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  loadingMessagesText: {
+    marginTop: rf(12),
+    fontSize: rf(14),
+    color: colors.textMuted,
+    fontWeight: '500',
   },
   emptyContainer: {
     flex: 1,
@@ -580,8 +679,11 @@ const styles = StyleSheet.create({
   unreadBadge: {
     backgroundColor: colors.amber,
     borderRadius: rf(10),
-    paddingHorizontal: rf(8),
+    paddingHorizontal: rf(7),
     paddingVertical: rf(2),
+    minWidth: rf(20),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   unreadBadgeText: {
     color: '#FFFFFF',
@@ -589,7 +691,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   messageListContent: {
-    padding: rf(16),
+    paddingHorizontal: rf(16),
+    paddingTop: rf(16),
+    paddingBottom: rf(28),
     gap: rf(10),
   },
   messageWrapper: {
@@ -685,11 +789,12 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    padding: rf(14),
+    paddingHorizontal: rf(12),
+    paddingTop: rf(8),
     backgroundColor: colors.panel,
     borderTopWidth: 1,
     borderTopColor: colors.borderSoft,
-    gap: rf(10),
+    gap: rf(8),
   },
   textInput: {
     flex: 1,
@@ -697,18 +802,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: rf(20),
-    paddingHorizontal: rf(16),
-    paddingTop: rf(10),
-    paddingBottom: rf(10),
-    minHeight: rf(44),
-    maxHeight: rf(100),
+    paddingHorizontal: rf(14),
+    paddingTop: rf(8),
+    paddingBottom: rf(8),
+    minHeight: rf(40),
+    maxHeight: rf(90),
     color: colors.textPrimary,
     fontSize: rf(14),
   },
   sendBtn: {
-    width: rf(44),
-    height: rf(44),
-    borderRadius: rf(22),
+    width: rf(40),
+    height: rf(40),
+    borderRadius: rf(20),
     backgroundColor: colors.amber,
     alignItems: 'center',
     justifyContent: 'center',

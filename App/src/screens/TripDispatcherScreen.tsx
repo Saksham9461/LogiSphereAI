@@ -35,9 +35,11 @@ import {
 } from 'lucide-react-native';
 import { rf } from '../theme/responsive';
 import { colors } from '../theme/colors';
+import { useFocusEffect } from '@react-navigation/native';
 import useTripStore from '../store/TripStore';
 import useVehicleStore from '../store/VehicleStore';
 import useDriverStore from '../store/DriverStore';
+import useMaintenanceStore from '../store/MaintenanceStore';
 import useAuthStore from '../store/AuthStore';
 import useNotificationStore from '../store/NotificationStore';
 import FleetMap from '../components/FleetMap';
@@ -121,6 +123,7 @@ export default function TripDispatcherScreen() {
   const { vehicles, getVehicles } = useVehicleStore();
   const { drivers, getDrivers } = useDriverStore();
   const { notifications, unreadCount, getNotifications, markAsRead } = useNotificationStore();
+  const { maintenanceRecords, fetchMaintenance } = useMaintenanceStore();
 
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'ALL' | 'PENDING' | 'ACTIVE' | 'COMPLETED'>('ALL');
@@ -252,8 +255,14 @@ export default function TripDispatcherScreen() {
   };
 
   const refreshAll = useCallback(async () => {
-    await Promise.all([getTrips(), getVehicles(), getDrivers(), getNotifications()]);
-  }, [getTrips, getVehicles, getDrivers, getNotifications]);
+    await Promise.all([getTrips(), getVehicles(), getDrivers(), getNotifications(), fetchMaintenance()]);
+  }, [getTrips, getVehicles, getDrivers, getNotifications, fetchMaintenance]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshAll();
+    }, [refreshAll])
+  );
 
   useEffect(() => {
     if (user) {
@@ -353,7 +362,23 @@ export default function TripDispatcherScreen() {
     }));
   }, [drivers]);
 
-  const availableVehicles = useMemo(() => normalizedVehicles.filter((v: any) => v.status === 'AVAILABLE'), [normalizedVehicles]);
+  const availableVehicles = useMemo(() => {
+    const inShopVehicleIds = new Set<string>();
+    (maintenanceRecords || []).forEach((m: any) => {
+      if (m.status === 'Active' || m.rawStatus === 'ACTIVE') {
+        if (m.vehicleID) inShopVehicleIds.add(String(m.vehicleID).toLowerCase());
+        if (m.vehicle) inShopVehicleIds.add(String(m.vehicle).toLowerCase());
+      }
+    });
+
+    return normalizedVehicles.filter((v: any) => {
+      const vIdLower = String(v.vehicleID).toLowerCase();
+      const vNameLower = String(v.name).toLowerCase();
+      if (v.status !== 'AVAILABLE') return false;
+      if (inShopVehicleIds.has(vIdLower) || inShopVehicleIds.has(vNameLower)) return false;
+      return true;
+    });
+  }, [normalizedVehicles, maintenanceRecords]);
   const availableDrivers = useMemo(() => normalizedDrivers.filter((d: any) => d.status === 'AVAILABLE'), [normalizedDrivers]);
 
   useEffect(() => {

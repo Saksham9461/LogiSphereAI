@@ -20,10 +20,13 @@ import {
   X,
   MessageSquare,
   Sparkles,
+  FileText,
+  UserPlus,
 } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
 import { useAttendanceStore } from '../store/AttendanceStore';
+import useChatStore from '../store/ChatStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
@@ -51,6 +54,11 @@ const getIcon = (routeName: string, color: string, size: number) => {
       return <Map color={color} size={size} />;
     case 'AIAssistant':
       return <Sparkles color={color} size={size} />;
+    case 'AttendanceReport':
+      return <FileText color={color} size={size} />;
+    case 'Register':
+    case 'Signup':
+      return <UserPlus color={color} size={size} />;
     default:
       return <LayoutDashboard color={color} size={size} />;
   }
@@ -78,6 +86,11 @@ const getLabel = (routeName: string) => {
       return 'Tracking';
     case 'AIAssistant':
       return 'AI Assistant';
+    case 'AttendanceReport':
+      return 'Attendance';
+    case 'Register':
+    case 'Signup':
+      return 'Register';
     default:
       return routeName;
   }
@@ -142,6 +155,12 @@ export default function CustomTabBar({ state, descriptors, navigation }: any) {
       navigation.navigate(route.name);
     }
   };
+
+  const activeConversationId = useChatStore((s) => s.activeConversationId);
+  const currentRouteName = state.routes[state.index]?.name;
+  if (currentRouteName === 'Chat' && activeConversationId) {
+    return null;
+  }
 
   return (
     <View style={styles.wrapper} pointerEvents="box-none">

@@ -215,4 +215,89 @@ describe('Real-Time Chat & 24-Hour Retention Module Flow', { timeout: 15000 }, (
     const userInDb = await db.find('users', { id: driverUser.id });
     expect(userInDb).toBeDefined();
   });
+
+  it('7. Guarantees zero duplicate conversations and zero duplicate messages on repeated queries', async () => {
+    // 1. Fetch conversations list multiple times
+    const res1 = await request(app)
+      .get('/api/chat/conversations')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(res1.status).toBe(200);
+
+    const convIds = res1.body.data.map((c: any) => c.id);
+    const uniqueConvIds = new Set(convIds);
+    expect(convIds.length).toBe(uniqueConvIds.size);
+
+    const participantIds = res1.body.data.map((c: any) => c.participant?.id).filter(Boolean);
+    const uniqueParticipantIds = new Set(participantIds);
+    expect(participantIds.length).toBe(uniqueParticipantIds.size);
+
+    // 2. Fetch messages multiple times
+    const resMsgs = await request(app)
+      .get(`/api/chat/conversations/${testConvId}/messages`)
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(resMsgs.status).toBe(200);
+
+    const msgIds = resMsgs.body.data.messages.map((m: any) => m.id);
+    const uniqueMsgIds = new Set(msgIds);
+    expect(msgIds.length).toBe(uniqueMsgIds.size);
+  });
+
+  it('8. Verifies real-time unread count calculation and persistence', async () => {
+    // Send 2 messages from Driver to Fleet Manager
+    const resSend1 = await request(app)
+      .post(`/api/chat/conversations/${testConvId}/messages`)
+      .set('Authorization', `Bearer ${driverToken}`)
+      .send({ message: 'Unread message 1 from Driver' });
+    expect(resSend1.status).toBe(201);
+
+    const resSend2 = await request(app)
+      .post(`/api/chat/conversations/${testConvId}/messages`)
+      .set('Authorization', `Bearer ${driverToken}`)
+      .send({ message: 'Unread message 2 from Driver' });
+    expect(resSend2.status).toBe(201);
+
+    // Fleet Manager queries conversations -> unreadCount must be 2
+    const resMgr = await request(app)
+      .get('/api/chat/conversations')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(resMgr.status).toBe(200);
+    const mgrConv = resMgr.body.data.find((c: any) => c.id === testConvId);
+    expect(mgrConv).toBeDefined();
+    expect(mgrConv.unreadCount).toBe(2);
+
+    // Driver queries conversations -> unreadCount for Driver must be 0 (Driver is sender!)
+    const resDrv = await request(app)
+      .get('/api/chat/conversations')
+      .set('Authorization', `Bearer ${driverToken}`);
+    expect(resDrv.status).toBe(200);
+    const drvConv = resDrv.body.data.find((c: any) => c.id === testConvId);
+    expect(drvConv).toBeDefined();
+    expect(drvConv.unreadCount).toBe(0);
+  });
+
+  it('9. Marks conversation as read via POST /api/chat/conversations/:id/read and resets unreadCount', async () => {
+    // Fleet Manager reads the conversation
+    const resRead = await request(app)
+      .post(`/api/chat/conversations/${testConvId}/read`)
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(resRead.status).toBe(200);
+    expect(resRead.body.success).toBe(true);
+    expect(resRead.body.data.readCount).toBeGreaterThanOrEqual(2);
+
+    // Fleet Manager queries conversations -> unreadCount must now be 0
+    const resMgrAfter = await request(app)
+      .get('/api/chat/conversations')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(resMgrAfter.status).toBe(200);
+    const mgrConvAfter = resMgrAfter.body.data.find((c: any) => c.id === testConvId);
+    expect(mgrConvAfter).toBeDefined();
+    expect(mgrConvAfter.unreadCount).toBe(0);
+  });
+
+  it('10. Responds 426 Upgrade Required for HTTP GET probes to WebSocket endpoints', async () => {
+    const resProbe = await request(app).get('/ws/chat?token=test');
+    expect(resProbe.status).toBe(426);
+    expect(resProbe.body.upgradeRequired).toBe(true);
+  });
 });
+

@@ -2,6 +2,7 @@ import http from 'http';
 import { env } from './config/env';
 import { initChatWebSocket } from './modules/chat/websocket';
 import { startChatCleanupJob } from './modules/chat/cleanup';
+import { initAutoClockOutJob } from './modules/attendance/autoClockOut';
 
 process.on('unhandledRejection', (reason) => {
   console.error('\n❌ UNHANDLED PROMISE REJECTION:');
@@ -23,6 +24,9 @@ async function startServer() {
 
   // Start 24-hour chat retention automatic cleanup job
   startChatCleanupJob();
+
+  // Start attendance auto clock-out scheduled job & reconciliation
+  initAutoClockOutJob();
 
   server.listen(env.PORT, '0.0.0.0', () => {
     console.log(

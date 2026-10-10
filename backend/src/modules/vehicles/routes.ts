@@ -32,8 +32,27 @@ function fromDbVehicle(row: any) {
 
 vehicleRouter.get('/', async (_req, res) => {
   try {
-    const rawVehicles = await db.list('vehicles');
-    const vehicles = (rawVehicles || []).map(fromDbVehicle);
+    const [rawVehicles, allMaint] = await Promise.all([
+      db.list('vehicles'),
+      db.list('maintenance_records'),
+    ]);
+
+    const activeMaintVehIds = new Set<string>();
+    for (const m of allMaint || []) {
+      const s = String(m.status || '').toUpperCase();
+      if (s === 'ACTIVE' || s === 'IN SHOP') {
+        const vId = m.vehicleID || m.vehicleid;
+        if (vId) activeMaintVehIds.add(String(vId));
+      }
+    }
+
+    const vehicles = (rawVehicles || []).map((row: any) => {
+      const v = fromDbVehicle(row);
+      if (activeMaintVehIds.has(String(v.vehicleID)) || (v.id && activeMaintVehIds.has(String(v.id)))) {
+        v.status = 'IN_SHOP';
+      }
+      return v;
+    });
     return res.json(vehicles);
   } catch (error: any) {
     console.error('Error fetching vehicles:', error?.message || error);

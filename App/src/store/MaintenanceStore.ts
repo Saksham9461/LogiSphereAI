@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import axios from '../api/axiosClient';
-import { GetMaintenance, RegisterMaintenance } from '../api/apiPath';
+import { GetMaintenance, RegisterMaintenance, CompleteMaintenance } from '../api/apiPath';
 
 const extractList = (data: any) => {
   if (Array.isArray(data)) return data;
@@ -81,6 +81,28 @@ const useMaintenanceStore = create<any>((set, get) => ({
       return { success: true, data: item };
     } catch (error: any) {
       const message = error.response?.data?.message || 'Failed to create maintenance record';
+      set({ loading: false, error: message });
+      return { success: false, message };
+    }
+  },
+
+  completeMaintenance: async (id: string) => {
+    try {
+      set({ loading: true, error: null });
+      const response = await axios.put(CompleteMaintenance(id));
+      const rawItem = extractItem(response.data);
+      const updatedItem = normalizeRecord(rawItem);
+      
+      set((state: any) => ({
+        loading: false,
+        maintenanceRecords: state.maintenanceRecords.map((m: any) =>
+          m.id === id ? (updatedItem || { ...m, status: 'Completed', rawStatus: 'COMPLETED' }) : m
+        ),
+        error: null,
+      }));
+      return { success: true, data: updatedItem };
+    } catch (error: any) {
+      const message = error.response?.data?.message || 'Failed to complete maintenance';
       set({ loading: false, error: message });
       return { success: false, message };
     }

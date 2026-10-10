@@ -94,6 +94,24 @@ tripRouter.post('/create', optionalAuth, async (req, res) => {
     const vehicle = await findVehicle(vehicleID);
     if (!vehicle) return fail(res, 400, 'Vehicle not found');
 
+    const vStatus = String(vehicle.status || '').toUpperCase();
+    if (vStatus === 'IN_SHOP' || vStatus === 'MAINTENANCE') {
+      return fail(res, 400, `Vehicle ${vehicle.name || vehicle.registrationNumber || vehicleID} is currently in shop for maintenance and cannot be assigned to trips`);
+    }
+
+    const allMaint = await db.list('maintenance_records');
+    const hasActiveMaint = (allMaint || []).some((m: any) => {
+      const mVId = m.vehicleID || m.vehicleid;
+      const mStatus = String(m.status || '').toUpperCase();
+      return (
+        (mVId === vehicleID || (vehicle.id && mVId === vehicle.id) || (vehicle.vehicleID && mVId === vehicle.vehicleID)) &&
+        (mStatus === 'ACTIVE' || mStatus === 'IN SHOP')
+      );
+    });
+    if (hasActiveMaint) {
+      return fail(res, 400, `Vehicle ${vehicle.name || vehicle.registrationNumber || vehicleID} is currently undergoing maintenance in shop and cannot be assigned to trips`);
+    }
+
     const maxCap = Number(vehicle.maxLoadCapacity ?? vehicle.maxloadcapacity ?? vehicle.capacity ?? 0);
     if (Number(cargoWeight) > maxCap) {
       return fail(res, 400, `Cargo weight (${cargoWeight} kg) exceeds vehicle max load capacity (${maxCap} kg)`);

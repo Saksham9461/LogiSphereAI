@@ -17,20 +17,20 @@ import { roleMap } from '../constants/roles';
 import useAuthStore from '../store/AuthStore';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
-import { ArrowLeft } from 'lucide-react-native';
+import { ArrowLeft, UserPlus } from 'lucide-react-native';
+import { Alert } from 'react-native';
 
 export default function SignupScreen({ navigation }: any) {
   const signup = useAuthStore(state => state.signup);
   const loading = useAuthStore(state => state.loading);
   const error = useAuthStore(state => state.error);
+  const token = useAuthStore(state => state.token);
 
   const [name, setName] = useState('');
   const [phoneNo, setPhoneNo] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('Dispatcher');
-  const [licenseNo, setLicenseNo] = useState('');
-  const [licenseExpiryDate, setLicenseExpiryDate] = useState('');
 
   const { width } = useWindowDimensions();
   const isTablet = width > 768;
@@ -59,10 +59,6 @@ export default function SignupScreen({ navigation }: any) {
       useAuthStore.setState({ error: 'Password must be at least 6 characters long.' });
       return;
     }
-    if ((role === 'Driver' || role === 'ROLE_DRIVER') && !licenseNo.trim()) {
-      useAuthStore.setState({ error: 'License number is required for Driver role.' });
-      return;
-    }
 
     const payload: Record<string, unknown> = {
       name: trimmedName,
@@ -70,15 +66,36 @@ export default function SignupScreen({ navigation }: any) {
       password: trimmedPassword,
       phoneNo: cleanPhone,
       role: roleMap[role] || role,
-      licenseNo: role === 'Driver' ? licenseNo.trim() : undefined,
-      licenseExpiryDate: role === 'Driver' && licenseExpiryDate ? new Date(licenseExpiryDate).toISOString() : undefined,
     };
 
-    await signup(payload);
+    const res = await signup(payload);
+    if (res?.success) {
+      Alert.alert(
+        'Staff Registered',
+        `Successfully registered ${trimmedName} as ${role}.`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              setName('');
+              setPhoneNo('');
+              setEmail('');
+              setPassword('');
+              setRole('Dispatcher');
+              if (token && navigation.canGoBack()) {
+                navigation.goBack();
+              }
+            },
+          },
+        ]
+      );
+    }
   };
 
+  const ContainerComponent = token ? View : SafeAreaView;
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ContainerComponent style={styles.screen}>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -92,20 +109,26 @@ export default function SignupScreen({ navigation }: any) {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.formContainer}>
-            <Pressable
-              style={styles.backButton}
-              onPress={() => {
-                useAuthStore.setState({ error: null });
-                navigation.goBack();
-              }}
-            >
-              <ArrowLeft size={20} color={colors.textSecondary} />
-              <Text style={styles.backText}>Back to Sign In</Text>
-            </Pressable>
+            {!token && (
+              <Pressable
+                style={styles.backButton}
+                onPress={() => {
+                  useAuthStore.setState({ error: null });
+                  navigation.navigate('Login');
+                }}
+              >
+                <ArrowLeft size={20} color={colors.textSecondary} />
+                <Text style={styles.backText}>Back to Sign In</Text>
+              </Pressable>
+            )}
 
             <View style={styles.hero}>
-              <Text style={styles.title}>Create Account</Text>
-              <Text style={styles.subtitle}>Join LogiSphere AI to manage your fleet & drivers</Text>
+              <Text style={styles.title}>{token ? 'Register Staff' : 'Create Account'}</Text>
+              <Text style={styles.subtitle}>
+                {token
+                  ? 'Add a new dispatcher, safety officer, or manager to LogiSphere AI'
+                  : 'Join LogiSphere AI to manage your fleet & staff'}
+              </Text>
             </View>
 
             <View style={styles.formSpace}>
@@ -159,30 +182,8 @@ export default function SignupScreen({ navigation }: any) {
                   setRole(r);
                   if (error) useAuthStore.setState({ error: null });
                 }}
+                excludeRoles={['Driver', 'ROLE_DRIVER']}
               />
-
-              {role === 'Driver' && (
-                <>
-                  <AppTextInput
-                    label="License Number"
-                    value={licenseNo}
-                    onChangeText={text => {
-                      setLicenseNo(text);
-                      if (error) useAuthStore.setState({ error: null });
-                    }}
-                    placeholder="DL-1420110012345"
-                  />
-                  <AppTextInput
-                    label="License Expiry Date"
-                    value={licenseExpiryDate}
-                    onChangeText={text => {
-                      setLicenseExpiryDate(text);
-                      if (error) useAuthStore.setState({ error: null });
-                    }}
-                    placeholder="YYYY-MM-DD"
-                  />
-                </>
-              )}
             </View>
 
             {error ? (
@@ -193,29 +194,31 @@ export default function SignupScreen({ navigation }: any) {
 
             <View style={styles.buttonSpace}>
               <PrimaryButton
-                title={loading ? 'Creating Account...' : 'Register'}
+                title={loading ? 'Registering...' : token ? 'Register Staff Member' : 'Register'}
                 onPress={handleSubmit}
                 disabled={loading}
               />
-              <PrimaryButton
-                title="Already have an account? Sign In"
-                tone="secondary"
-                onPress={() => {
-                  useAuthStore.setState({ error: null });
-                  navigation.navigate('Login');
-                }}
-                disabled={loading}
-              />
+              {!token && (
+                <PrimaryButton
+                  title="Already have an account? Sign In"
+                  tone="secondary"
+                  onPress={() => {
+                    useAuthStore.setState({ error: null });
+                    navigation.navigate('Login');
+                  }}
+                  disabled={loading}
+                />
+              )}
             </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </ContainerComponent>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  screen: {
     flex: 1,
     backgroundColor: colors.bg,
   },
@@ -224,7 +227,8 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingVertical: 20,
+    paddingTop: 8,
+    paddingBottom: 120,
   },
   tabletContent: {
     alignSelf: 'center',
@@ -238,8 +242,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 20,
-    paddingVertical: 8,
+    marginBottom: 16,
+    paddingVertical: 6,
   },
   backText: {
     color: colors.textSecondary,
@@ -247,8 +251,8 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   hero: {
-    gap: 6,
-    marginBottom: 28,
+    gap: 4,
+    marginBottom: 18,
   },
   title: {
     color: colors.textPrimary,

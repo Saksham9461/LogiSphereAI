@@ -28,7 +28,9 @@ export default function AttendanceHistory() {
         {item.clockOutTime && (
           <View style={styles.clockOutBox}>
             <Text style={styles.logTimeOut}>{item.clockOutTime}</Text>
-            <Text style={styles.logActionOut}>Clocked Out</Text>
+            <Text style={styles.logActionOut}>
+              {item.autoClockOut ? 'Auto Clock-Out' : 'Clocked Out'}
+            </Text>
           </View>
         )}
       </View>
@@ -158,5 +160,5 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: colors.borderSoft,
     marginVertical: rf(16),
-  }
+  },
 });

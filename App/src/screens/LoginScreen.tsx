@@ -49,7 +49,7 @@ export default function LoginScreen({ navigation }: any) {
     }
 
     const backendRole = roleMap[role] || role;
-    await login(trimmedEmail, password, backendRole);
+    await login(trimmedEmail, password, backendRole, rememberMe);
   };
 
   return (
@@ -127,26 +127,6 @@ export default function LoginScreen({ navigation }: any) {
                 onPress={handleLogin}
                 disabled={loading}
               />
-              <View style={styles.secondaryActions}>
-                <PrimaryButton
-                  title="Create Account"
-                  tone="secondary"
-                  onPress={() => {
-                    useAuthStore.setState({ error: null });
-                    navigation.navigate('Signup');
-                  }}
-                  disabled={loading}
-                />
-                <PrimaryButton
-                  title="Forgot Password"
-                  tone="secondary"
-                  onPress={() => {
-                    useAuthStore.setState({ error: null });
-                    navigation.navigate('ResetPassword');
-                  }}
-                  disabled={loading}
-                />
-              </View>
             </View>
           </View>
         </ScrollView>

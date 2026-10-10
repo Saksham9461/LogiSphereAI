@@ -16,7 +16,10 @@ export const signToken = (user: any) =>
 
 export function authenticate(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
-  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  let token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token && req.query?.token && typeof req.query.token === 'string') {
+    token = req.query.token;
+  }
   if (!token) return fail(res, 401, 'Authentication required');
   try {
     req.user = jwt.verify(token, env.JWT_SECRET) as any;
@@ -28,7 +31,10 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
 
 export const optionalAuth = (req: Request, _res: Response, next: NextFunction) => {
   const header = req.headers.authorization;
-  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  let token = header?.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token && req.query?.token && typeof req.query.token === 'string') {
+    token = req.query.token;
+  }
   if (token) {
     try {
       req.user = jwt.verify(token, env.JWT_SECRET) as any;

@@ -19,8 +19,22 @@ client.interceptors.response.use(
   response => response,
   error => {
     const status = error?.response?.status;
-    if (status === 401 || status === 403) {
-      console.warn('API auth error', status, error?.response?.data || error?.message);
+    if (status === 401) {
+      console.warn('API auth error (401): unauthorized token or session expired');
+      const isLoginRequest = error?.config?.url?.includes('/auth/login');
+      if (!isLoginRequest) {
+        try {
+          // Lazily resolve AuthStore to avoid circular dependency
+          const useAuthStore = require('../store/AuthStore').default;
+          if (useAuthStore?.getState) {
+            useAuthStore.getState().logout();
+          }
+        } catch {
+          // safely ignored
+        }
+      }
+    } else if (status === 403) {
+      console.warn('API auth error (403): forbidden');
     }
     return Promise.reject(error);
   },

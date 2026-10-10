@@ -63,7 +63,13 @@ export function initChatWebSocket(server: Server) {
 
   server.on('upgrade', (request, socket, head) => {
     const reqUrl = request.url || '';
-    if (reqUrl.startsWith('/ws/chat') || reqUrl.startsWith('/chat')) {
+    const parsedPath = reqUrl.split('?')[0].replace(/\/+$/, '');
+    if (
+      parsedPath === '/ws/chat' ||
+      parsedPath === '/chat' ||
+      parsedPath === '/api/chat/ws' ||
+      parsedPath === '/ws'
+    ) {
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request);
       });
@@ -133,6 +139,7 @@ export function initChatWebSocket(server: Server) {
     // Handle incoming messages
     ws.on('message', async (rawMessage: string) => {
       try {
+        ws.isAlive = true;
         const payload: ChatMessagePayload = JSON.parse(rawMessage.toString());
         await handleSocketMessage(ws, payload);
       } catch (err) {
@@ -182,8 +189,14 @@ export function initChatWebSocket(server: Server) {
 async function handleSocketMessage(ws: AuthenticatedSocket, payload: ChatMessagePayload) {
   if (!ws.user) return;
   const senderId = ws.user.userId; // DERIVE sender identity ONLY from authenticated token!
+  ws.isAlive = true;
 
   switch (payload.type) {
+    case 'ping':
+      ws.isAlive = true;
+      ws.send(JSON.stringify({ type: 'pong' }));
+      break;
+
     case 'pong':
       ws.isAlive = true;
       break;
@@ -252,17 +265,24 @@ async function handleSocketMessage(ws: AuthenticatedSocket, payload: ChatMessage
       const messageRecord = await db.insert('messages', {
         id: messageId,
         conversationId,
+        conversation_id: conversationId,
         senderId,
+        sender_id: senderId,
         receiverId,
+        receiver_id: receiverId,
         message: message.trim(),
         messageType: payload.messageType || 'TEXT',
+        message_type: payload.messageType || 'TEXT',
         createdAt: serverCreatedAt,
+        created_at: serverCreatedAt,
         deliveredAt,
+        delivered_at: deliveredAt,
         readAt: null,
+        read_at: null,
       });
 
       // Update conversation updated_at
-      await db.update('conversations', { id: conversationId }, { updated_at: serverCreatedAt });
+      await db.update('conversations', { id: conversationId }, { updated_at: serverCreatedAt, updatedAt: serverCreatedAt });
 
       const formattedMsg = {
         id: messageRecord.id || messageId,
@@ -278,27 +298,8 @@ async function handleSocketMessage(ws: AuthenticatedSocket, payload: ChatMessage
         status: deliveredAt ? 'DELIVERED' : 'SENT',
       };
 
-      // 1. Send acknowledgement back to sender
-      ws.send(JSON.stringify({
-        type: 'chat:ack',
-        data: formattedMsg,
-      }));
-
-      // 2. Deliver real-time message to receiver if connected
-      if (isReceiverOnline) {
-        const receiverSockets = userSocketsMap.get(receiverId);
-        if (receiverSockets) {
-          const receiverPayload = JSON.stringify({
-            type: 'chat:message',
-            data: formattedMsg,
-          });
-          receiverSockets.forEach(rWs => {
-            if (rWs.readyState === WebSocket.OPEN) {
-              rWs.send(receiverPayload);
-            }
-          });
-        }
-      }
+      // Broadcast real-time message to sender and receiver
+      broadcastRealtimeMessage(conversationId, formattedMsg, senderId, receiverId, ws);
       break;
     }
 
@@ -319,35 +320,11 @@ async function handleSocketMessage(ws: AuthenticatedSocket, payload: ChatMessage
 
       if (targetIds && targetIds.length > 0) {
         for (const mId of targetIds) {
-          await db.update('messages', { id: mId }, { read_at: readAt });
+          await db.update('messages', { id: mId }, { read_at: readAt, readAt });
         }
-
-        // Notify other participants in the conversation
-        const participants = await db.list('conversation_participants', { conversation_id: conversationId });
-        const readNotification = JSON.stringify({
-          type: 'chat:read',
-          data: {
-            conversationId,
-            messageIds: targetIds,
-            readAt,
-            readerId: senderId,
-          },
-        });
-
-        participants.forEach((p: any) => {
-          const pUserId = p.user_id || p.userid;
-          if (pUserId !== senderId) {
-            const pSockets = userSocketsMap.get(pUserId);
-            if (pSockets) {
-              pSockets.forEach(pWs => {
-                if (pWs.readyState === WebSocket.OPEN) {
-                  pWs.send(readNotification);
-                }
-              });
-            }
-          }
-        });
       }
+
+      await broadcastRealtimeRead(conversationId, targetIds || [], senderId, readAt);
       break;
     }
 
@@ -380,6 +357,115 @@ async function handleSocketMessage(ws: AuthenticatedSocket, payload: ChatMessage
   }
 }
 
+export function broadcastRealtimeMessage(
+  conversationId: string,
+  formattedMsg: any,
+  senderId: string,
+  receiverId: string,
+  sendingWs?: AuthenticatedSocket
+) {
+  const isReceiverOnline = isUserOnline(receiverId);
+
+  // 1. Send acknowledgement to the sending socket
+  if (sendingWs && sendingWs.readyState === WebSocket.OPEN) {
+    sendingWs.send(JSON.stringify({
+      type: 'chat:ack',
+      data: formattedMsg,
+    }));
+  }
+
+  // 1b. Deliver to any other sockets of senderId (multi-device/multi-session sync)
+  const senderSockets = userSocketsMap.get(senderId);
+  if (senderSockets) {
+    const senderPayload = JSON.stringify({
+      type: 'chat:ack',
+      data: formattedMsg,
+    });
+    senderSockets.forEach((sWs) => {
+      if (sWs !== sendingWs && sWs.readyState === WebSocket.OPEN) {
+        sWs.send(senderPayload);
+      }
+    });
+  }
+
+  // 2. Deliver real-time message to receiver sockets
+  const receiverSockets = userSocketsMap.get(receiverId);
+  if (receiverSockets && receiverSockets.size > 0) {
+    formattedMsg.status = 'DELIVERED';
+    formattedMsg.deliveredAt = formattedMsg.deliveredAt || new Date().toISOString();
+
+    const receiverPayload = JSON.stringify({
+      type: 'chat:message',
+      data: formattedMsg,
+    });
+    receiverSockets.forEach((rWs) => {
+      if (rWs.readyState === WebSocket.OPEN) {
+        rWs.send(receiverPayload);
+      }
+    });
+
+    // Notify sender that message was delivered
+    const deliveredPayload = JSON.stringify({
+      type: 'chat:delivered',
+      data: {
+        messageId: formattedMsg.id,
+        conversationId,
+        deliveredAt: formattedMsg.deliveredAt,
+      },
+    });
+    if (senderSockets) {
+      senderSockets.forEach((sWs) => {
+        if (sWs.readyState === WebSocket.OPEN) {
+          sWs.send(deliveredPayload);
+        }
+      });
+    }
+  }
+}
+
+export async function broadcastRealtimeRead(
+  conversationId: string,
+  targetIds: string[],
+  readerId: string,
+  readAt: string
+) {
+  const participants = await db.list('conversation_participants', { conversation_id: conversationId });
+  const readNotification = JSON.stringify({
+    type: 'chat:read',
+    data: {
+      conversationId,
+      messageIds: targetIds,
+      readAt,
+      readerId,
+    },
+  });
+
+  // Broadcast to other participants in conversation (e.g. sender)
+  participants.forEach((p: any) => {
+    const pUserId = p.user_id || p.userid || p.userId;
+    if (pUserId && pUserId !== readerId) {
+      const pSockets = userSocketsMap.get(pUserId);
+      if (pSockets) {
+        pSockets.forEach((pWs) => {
+          if (pWs.readyState === WebSocket.OPEN) {
+            pWs.send(readNotification);
+          }
+        });
+      }
+    }
+  });
+
+  // Also broadcast to reader's OTHER sockets so multi-device/multi-session unread counters sync immediately
+  const readerSockets = userSocketsMap.get(readerId);
+  if (readerSockets) {
+    readerSockets.forEach((rWs) => {
+      if (rWs.readyState === WebSocket.OPEN) {
+        rWs.send(readNotification);
+      }
+    });
+  }
+}
+
 export async function findOrCreateConversation(userIdA: string, userIdB: string): Promise<string> {
   const allParticipants = await db.list('conversation_participants');
   
@@ -403,9 +489,29 @@ export async function findOrCreateConversation(userIdA: string, userIdB: string)
   // Create new conversation
   const newConvId = `conv-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
   const nowIso = new Date().toISOString();
-  await db.insert('conversations', { id: newConvId, createdAt: nowIso, updatedAt: nowIso });
-  await db.insert('conversation_participants', { conversationId: newConvId, userId: userIdA, joinedAt: nowIso });
-  await db.insert('conversation_participants', { conversationId: newConvId, userId: userIdB, joinedAt: nowIso });
+  await db.insert('conversations', {
+    id: newConvId,
+    created_at: nowIso,
+    createdAt: nowIso,
+    updated_at: nowIso,
+    updatedAt: nowIso,
+  });
+  await db.insert('conversation_participants', {
+    conversation_id: newConvId,
+    conversationId: newConvId,
+    user_id: userIdA,
+    userId: userIdA,
+    joined_at: nowIso,
+    joinedAt: nowIso,
+  });
+  await db.insert('conversation_participants', {
+    conversation_id: newConvId,
+    conversationId: newConvId,
+    user_id: userIdB,
+    userId: userIdB,
+    joined_at: nowIso,
+    joinedAt: nowIso,
+  });
 
   return newConvId;
 }

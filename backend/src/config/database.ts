@@ -42,6 +42,29 @@ const withTimeout = <T>(promise: PromiseLike<T>, ms = 3000): Promise<T> => {
   ]);
 };
 
+function getRowKey(table: Table, row: any): string {
+  if (!row) return '';
+  if (table === 'conversation_participants') {
+    const cId = row.conversation_id || row.conversationid || row.conversationId || '';
+    const uId = row.user_id || row.userid || row.userId || '';
+    return `${cId}:::${uId}`;
+  }
+  return String(
+    row.id ||
+    row.vehicleid ||
+    row.vehicleID ||
+    row.tripid ||
+    row.tripID ||
+    row.fuellogid ||
+    row.fuelLogId ||
+    row.expenseid ||
+    row.expenseId ||
+    row.messageid ||
+    row.messageId ||
+    ''
+  );
+}
+
 export const db = {
   async list(table: Table, filter?: Record<string, any>) {
     const entries = Object.entries(filter ?? {});
@@ -74,7 +97,27 @@ export const db = {
         }
 
         const memRows = getMemoryRows();
-        const combined = [...memRows, ...supaData];
+        const seen = new Set<string>();
+        const combined: any[] = [];
+
+        for (const row of supaData) {
+          const key = getRowKey(table, row);
+          if (key) {
+            if (seen.has(key)) continue;
+            seen.add(key);
+          }
+          combined.push(row);
+        }
+
+        for (const row of memRows) {
+          const key = getRowKey(table, row);
+          if (key) {
+            if (seen.has(key)) continue;
+            seen.add(key);
+          }
+          combined.push(row);
+        }
+
         if (combined.length > 0) return combined;
       } catch (err) {
         console.error(`[db.list] Error querying Supabase for table ${table}:`, err);
@@ -164,6 +207,8 @@ export const db = {
             locationname: data.locationName || data.locationname || 'Office Location',
             distancefromoffice: Number(data.distanceFromOffice ?? data.distancefromoffice ?? 0),
             status: data.status || 'Verified Location',
+            auto_clock_out: Boolean(data.autoClockOut ?? data.auto_clock_out ?? data.autoclockout ?? false),
+            clock_out_type: data.clockOutType || data.clock_out_type || data.clockouttype || 'MANUAL',
           };
         } else if (table === 'trips') {
           const tripIdVal = data.tripID || data.tripid || data.id || `TRP-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -242,6 +287,12 @@ export const db = {
             cleanPatch.clockouttime = patch.clockOutTime ?? patch.clockouttime;
           }
           if (patch.status !== undefined) cleanPatch.status = patch.status;
+          if (patch.autoClockOut !== undefined || patch.auto_clock_out !== undefined || patch.autoclockout !== undefined) {
+            cleanPatch.auto_clock_out = Boolean(patch.autoClockOut ?? patch.auto_clock_out ?? patch.autoclockout);
+          }
+          if (patch.clockOutType !== undefined || patch.clock_out_type !== undefined || patch.clockouttype !== undefined) {
+            cleanPatch.clock_out_type = patch.clockOutType || patch.clock_out_type || patch.clockouttype;
+          }
           cleanPatch[timeField] = now();
         } else if (table === 'trips') {
           cleanPatch = {};

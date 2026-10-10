@@ -16,6 +16,8 @@ export const GetChatUsers = `${BASE_URL}/api/chat/users`;
 export const GetConversations = `${BASE_URL}/api/chat/conversations`;
 export const CreateConversation = `${BASE_URL}/api/chat/conversations`;
 export const GetMessages = (conversationId: string) => `${BASE_URL}/api/chat/conversations/${conversationId}/messages`;
+export const SendMessageRest = (conversationId: string) => `${BASE_URL}/api/chat/conversations/${conversationId}/messages`;
+export const MarkConversationRead = (conversationId: string) => `${BASE_URL}/api/chat/conversations/${conversationId}/read`;
 
 export const Login = `${BASE_URL}/api/auth/login`;
 export const requestemail = `${BASE_URL}/api/auth/request-reset-password`;
@@ -38,6 +40,7 @@ export const ChangePassword = `${BASE_URL}/api/auth/change-password`;
 export const TriggerSOS = `${BASE_URL}/api/sos/trigger`;
 export const GetMaintenance = `${BASE_URL}/api/maintenance`;
 export const RegisterMaintenance = `${BASE_URL}/api/maintenance/create`;
+export const CompleteMaintenance = (id: string) => `${BASE_URL}/api/maintenance/${id}/complete`;
 export const GetFuel = `${BASE_URL}/api/fuel`;
 export const RegisterFuel = `${BASE_URL}/api/fuel/create`;
 export const GetExpenses = `${BASE_URL}/api/expenses`;
@@ -53,6 +56,8 @@ export const ClockIn = `${BASE_URL}/api/attendance/clock-in`;
 export const ClockOut = `${BASE_URL}/api/attendance/clock-out`;
 export const GetAttendanceStatus = `${BASE_URL}/api/attendance/status`;
 export const GetAttendanceHistory = `${BASE_URL}/api/attendance/history`;
+export const GetAttendanceReport = `${BASE_URL}/api/attendance/report`;
+export const ExportAttendancePdf = `${BASE_URL}/api/attendance/report/export-pdf`;
 
 
 

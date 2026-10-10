@@ -2,16 +2,21 @@ import {create} from 'zustand';
 import client from '../api/axiosClient';
 import {ChangePassword, Login, Signup, requestemail, resetPassword} from '../api/apiPath';
 import {tokenStorage} from '../services/storage/tokenStorage';
+import {isJwtExpired} from '../utils/jwt';
 
 import useTripStore from './TripStore';
+import useChatStore from './ChatStore';
+
+export type AuthStatus = 'initializing' | 'authenticated' | 'unauthenticated';
 
 type AuthState = {
+  authStatus: AuthStatus;
   loading: boolean;
   user: any | null;
   token: string | null;
   error: string | null;
   hydrate: () => Promise<void>;
-  login: (email: string, password: string, role: string) => Promise<any>;
+  login: (email: string, password: string, role: string, rememberMe?: boolean) => Promise<any>;
   logout: () => Promise<void>;
   requestResetPassword: (email: string) => Promise<any>;
   resetUserPassword: (token: string, newPassword: string) => Promise<any>;
@@ -34,20 +39,44 @@ const extractToken = (response: any) => {
 };
 
 const useAuthStore = create<AuthState>(set => ({
+  authStatus: 'initializing',
   loading: false,
   user: null,
   token: null,
   error: null,
 
   hydrate: async () => {
-    const [token, user] = await Promise.all([tokenStorage.getToken(), tokenStorage.getUser()]);
-    set({token, user});
-    if (user) {
-      useTripStore.getState().initRealtimeSubscription(user);
+    try {
+      const isRemembered = await tokenStorage.getRememberMe();
+      if (!isRemembered) {
+        await tokenStorage.clearSession();
+        set({token: null, user: null, authStatus: 'unauthenticated'});
+        return;
+      }
+
+      const [token, user] = await Promise.all([tokenStorage.getToken(), tokenStorage.getUser()]);
+      if (token && user) {
+        if (isJwtExpired(token)) {
+          console.warn('[AuthStore] Persisted token is expired or invalid. Clearing session.');
+          await tokenStorage.clearSession();
+          set({token: null, user: null, authStatus: 'unauthenticated'});
+          return;
+        }
+
+        set({token, user, authStatus: 'authenticated'});
+        useTripStore.getState().initRealtimeSubscription(user);
+        useChatStore.getState().initSocket();
+      } else {
+        await tokenStorage.clearSession();
+        set({token: null, user: null, authStatus: 'unauthenticated'});
+      }
+    } catch (err) {
+      console.warn('[AuthStore] Hydration error:', err);
+      set({token: null, user: null, authStatus: 'unauthenticated'});
     }
   },
 
-  login: async (email, password, role) => {
+  login: async (email, password, role, rememberMe = false) => {
     try {
       set({loading: true, error: null});
       const response = await client.post(Login, {email, password, role});
@@ -62,15 +91,30 @@ const useAuthStore = create<AuthState>(set => ({
       const userData = data.serviceResult || data.user;
       const userToken = userData?.token || data.token || extractToken(response);
 
-      if (userToken) {
-        await tokenStorage.setToken(userToken);
-      }
-      if (userData) {
-        await tokenStorage.setUser(userData);
-        useTripStore.getState().initRealtimeSubscription(userData);
+      if (rememberMe) {
+        await tokenStorage.setRememberMe(true);
+        if (userToken) {
+          await tokenStorage.setToken(userToken, true);
+        }
+        if (userData) {
+          await tokenStorage.setUser(userData, true);
+        }
+      } else {
+        await tokenStorage.setRememberMe(false);
+        if (userToken) {
+          await tokenStorage.setToken(userToken, false);
+        }
+        if (userData) {
+          await tokenStorage.setUser(userData, false);
+        }
       }
 
-      set({loading: false, user: userData, token: userToken, error: null});
+      if (userData) {
+        useTripStore.getState().initRealtimeSubscription(userData);
+        useChatStore.getState().initSocket();
+      }
+
+      set({loading: false, user: userData, token: userToken, authStatus: 'authenticated', error: null});
       return {success: true, data: userData};
     } catch (error: any) {
       let message = 'Login failed';
@@ -88,8 +132,10 @@ const useAuthStore = create<AuthState>(set => ({
 
   logout: async () => {
     useTripStore.getState().unsubscribeRealtime();
+    useChatStore.getState().disconnectSocket();
+    await tokenStorage.setRememberMe(false);
     await tokenStorage.clearSession();
-    set({user: null, token: null, error: null});
+    set({user: null, token: null, authStatus: 'unauthenticated', error: null});
   },
 
   requestResetPassword: async email => {
@@ -133,14 +179,20 @@ const useAuthStore = create<AuthState>(set => ({
       const userData = data.serviceResult || data.user;
       const newToken = data.token || userData?.token || extractToken(response);
 
-      if (newToken) {
-        await tokenStorage.setToken(newToken);
-      }
-      if (userData) {
-        await tokenStorage.setUser(userData);
+      // Only set session if not already logged in
+      const currentToken = (useAuthStore.getState ? useAuthStore.getState().token : null);
+      if (!currentToken) {
+        if (newToken) {
+          await tokenStorage.setToken(newToken);
+        }
+        if (userData) {
+          await tokenStorage.setUser(userData);
+        }
+        set({loading: false, user: userData || null, token: newToken || null, authStatus: newToken ? 'authenticated' : 'unauthenticated', error: null});
+      } else {
+        set({loading: false, error: null});
       }
 
-      set({loading: false, user: userData || null, token: newToken || null, error: null});
       return {success: true, data: userData || data};
     } catch (error: any) {
       let message = 'Signup failed';
@@ -184,6 +236,7 @@ const useAuthStore = create<AuthState>(set => ({
         loading: false,
         user: userData || (state.user ? { ...state.user, mustChangePassword: false, must_change_password: false } : null),
         token: userToken || state.token,
+        authStatus: 'authenticated',
         error: null,
       }));
       return {success: true, data: userData};

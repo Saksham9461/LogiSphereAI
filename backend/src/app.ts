@@ -48,4 +48,11 @@ app.use('/api/notifications', notificationRouter);
 app.use('/api/locations', locationRouter);
 app.use('/api/v1/locations', locationRouter);
 
+app.all(['/ws/chat', '/chat', '/ws', '/api/chat/ws'], (_req, res) => {
+  return res.status(426).json({
+    success: false,
+    message: 'Upgrade Required: Please connect using WebSocket protocol (ws:// or wss://)',
+  });
+});
+
 app.use((_req, res) => fail(res, 404, 'Route not found'));

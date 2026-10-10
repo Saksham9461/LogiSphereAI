@@ -21,6 +21,7 @@ import {
   Wrench,
   AlertTriangle,
   RefreshCw,
+  CheckCircle2,
 } from 'lucide-react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { rf } from '../theme/responsive';
@@ -53,6 +54,7 @@ export default function MaintenanceScreen() {
     maintenanceRecords,
     fetchMaintenance,
     createMaintenance,
+    completeMaintenance,
     loading,
     error,
   } = useMaintenanceStore();
@@ -62,6 +64,7 @@ export default function MaintenanceScreen() {
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [completingId, setCompletingId] = useState<string | null>(null);
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
@@ -180,6 +183,35 @@ export default function MaintenanceScreen() {
     }
   };
 
+  const handleCompleteMaintenance = (item: any) => {
+    Alert.alert(
+      'Complete Service',
+      `Mark maintenance for "${item.vehicle}" as completed? This vehicle will now become available for trips.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark Complete',
+          onPress: async () => {
+            try {
+              setCompletingId(item.id);
+              const result = await completeMaintenance(item.id);
+              if (result?.success) {
+                await Promise.all([fetchMaintenance(), getVehicles()]);
+                Alert.alert('Success', `Maintenance completed! ${item.vehicle} is now available for trips.`);
+              } else {
+                Alert.alert('Error', result?.message || 'Failed to complete maintenance.');
+              }
+            } catch (err: any) {
+              Alert.alert('Error', err?.message || 'Failed to complete maintenance.');
+            } finally {
+              setCompletingId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <View style={styles.screen}>
       <ScrollView
@@ -238,6 +270,9 @@ export default function MaintenanceScreen() {
           ) : filteredLogs.length > 0 ? (
             filteredLogs.map((l: any) => {
               const s = STATUS_STYLES[l.status] || STATUS_STYLES.Active;
+              const isInShop = l.status === 'Active' || l.rawStatus === 'ACTIVE';
+              const isCompleting = completingId === l.id;
+
               return (
                 <View key={l.id} style={styles.logCard}>
                   <View style={styles.logHeader}>
@@ -259,6 +294,27 @@ export default function MaintenanceScreen() {
                       </Text>
                     </View>
                   </View>
+
+                  {isInShop && (
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.completeButton,
+                        pressed && { opacity: 0.8 },
+                        isCompleting && { opacity: 0.6 },
+                      ]}
+                      disabled={isCompleting}
+                      onPress={() => handleCompleteMaintenance(l)}
+                    >
+                      {isCompleting ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <CheckCircle2 size={16} color="#FFFFFF" strokeWidth={2.5} />
+                      )}
+                      <Text style={styles.completeButtonText}>
+                        {isCompleting ? 'Completing...' : 'Complete Service'}
+                      </Text>
+                    </Pressable>
+                  )}
                 </View>
               );
             })
@@ -448,6 +504,22 @@ const styles = StyleSheet.create({
   logLabel: { color: colors.textMuted, fontSize: rf(11), textTransform: 'uppercase', fontWeight: '700', marginBottom: rf(2) },
   logValue: { color: colors.textPrimary, fontSize: rf(14), fontWeight: '600' },
   logDateText: { color: colors.textMuted, fontSize: rf(12), marginTop: rf(2) },
+  completeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.success,
+    paddingVertical: rf(10),
+    paddingHorizontal: rf(16),
+    borderRadius: rf(10),
+    gap: rf(8),
+    marginTop: rf(12),
+  },
+  completeButtonText: {
+    color: '#FFFFFF',
+    fontSize: rf(14),
+    fontWeight: '700',
+  },
 
   emptyState: { padding: rf(40), alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderRadius: rf(16), borderWidth: 1, borderColor: colors.borderSoft, borderStyle: 'dashed', marginTop: rf(8) },
   emptyStateIconWrapper: { width: rf(64), height: rf(64), borderRadius: rf(32), backgroundColor: colors.panel, alignItems: 'center', justifyContent: 'center', marginBottom: rf(16), borderWidth: 1, borderColor: colors.borderSoft },

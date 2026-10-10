@@ -14,11 +14,15 @@ import { ChevronDown, Check } from 'lucide-react-native';
 type Props = {
   value: string;
   onChange: (roleName: string) => void;
+  excludeRoles?: string[];
 };
 
-export default function RoleSelector({ value, onChange }: Props) {
+export default function RoleSelector({ value, onChange, excludeRoles = [] }: Props) {
   const [isOpen, setIsOpen] = useState(false);
-  const selectedRole = ROLES.find(r => r.name === value) || ROLES[0];
+  const availableRoles = ROLES.filter(
+    r => !excludeRoles.includes(r.name) && !excludeRoles.includes(r.value)
+  );
+  const selectedRole = availableRoles.find(r => r.name === value) || availableRoles[0];
 
   return (
     <View style={styles.wrap}>
@@ -29,8 +33,8 @@ export default function RoleSelector({ value, onChange }: Props) {
         onPress={() => setIsOpen(true)}
       >
         <View style={styles.triggerContent}>
-          <Text style={styles.triggerText}>{selectedRole.name}</Text>
-          <Text style={styles.triggerCode}>{selectedRole.code}</Text>
+          <Text style={styles.triggerText}>{selectedRole?.name || value}</Text>
+          <Text style={styles.triggerCode}>{selectedRole?.code || ''}</Text>
         </View>
         <ChevronDown size={20} color={colors.textSecondary} />
       </Pressable>
@@ -47,7 +51,7 @@ export default function RoleSelector({ value, onChange }: Props) {
         >
           <View style={styles.dropdownContainer}>
             <ScrollView showsVerticalScrollIndicator={false}>
-              {ROLES.map(role => {
+              {availableRoles.map(role => {
                 const isActive = role.name === value;
                 return (
                   <Pressable
