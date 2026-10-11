@@ -154,7 +154,21 @@ vehicleRouter.put('/update/', async (req, res) => {
 
     if (body.registrationNumber !== undefined || body.registrationnumber !== undefined || body.reg !== undefined) {
       const reg = body.registrationNumber ?? body.registrationnumber ?? body.reg;
-      if (reg) patch.registrationNumber = String(reg).trim().toUpperCase();
+      if (reg) {
+        const cleanReg = String(reg).trim().toUpperCase();
+        patch.registrationNumber = cleanReg;
+
+        // Check if another vehicle already has this registration number
+        const allVehicles = await db.list('vehicles');
+        const conflict = (allVehicles || []).find((v: any) => {
+          const vId = String(v.vehicleID || v.vehicleid || v.id || '');
+          const vReg = String(v.registrationNumber || v.registrationnumber || v.reg || '').trim().toUpperCase();
+          return vId.toLowerCase() !== id.toLowerCase() && vReg === cleanReg;
+        });
+        if (conflict) {
+          return fail(res, 409, `Vehicle with registration number '${cleanReg}' already exists`);
+        }
+      }
     }
     if (body.name !== undefined || body.vehicleName !== undefined) {
       const name = String(body.name ?? body.vehicleName).trim();

@@ -20,6 +20,7 @@ import { chatRouter } from './modules/chat/routes';
 import { ocrRouter } from './modules/ocr/routes';
 import { notificationRouter } from './modules/notifications/routes';
 import { locationRouter } from './modules/locations/routes';
+import { alertRouter } from './modules/alerts/routes';
 
 export const app = express();
 
@@ -47,8 +48,10 @@ app.use('/api/ocr', ocrRouter);
 app.use('/api/notifications', notificationRouter);
 app.use('/api/locations', locationRouter);
 app.use('/api/v1/locations', locationRouter);
+app.use('/api/alerts', alertRouter);
+app.use('/api/sos', alertRouter);
 
-app.all(['/ws/chat', '/chat', '/ws', '/api/chat/ws'], (_req, res) => {
+app.all(['/ws/chat', '/chat', '/ws', '/api/chat/ws', '/ws/tracking', '/tracking', '/api/tracking/ws', '/ws/alerts', '/alerts', '/api/alerts/ws'], (_req, res) => {
   return res.status(426).json({
     success: false,
     message: 'Upgrade Required: Please connect using WebSocket protocol (ws:// or wss://)',

@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator, Modal, Alert } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { MapPin, CheckCircle, AlertTriangle, LogOut } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
@@ -18,6 +19,12 @@ export default function ClockInWidget() {
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchStatus();
+    }, [fetchStatus])
+  );
 
   const onClockInPress = async () => {
     setServerErrorMessage(null);

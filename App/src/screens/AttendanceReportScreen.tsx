@@ -586,11 +586,13 @@ const styles = StyleSheet.create({
     fontSize: rf(16),
     fontWeight: '800',
     color: colors.textPrimary,
+    textAlign: 'center',
   },
   kpiLabel: {
     fontSize: rf(11),
     color: colors.textMuted,
     marginTop: rf(2),
+    textAlign: 'center',
   },
   searchContainer: {
     flexDirection: 'row',

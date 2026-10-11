@@ -9,6 +9,8 @@ interface AuthenticatedSocket extends WebSocket {
     userId: string;
     email: string;
     role: string;
+    businessId?: string;
+    business_id?: string;
   };
   isAlive?: boolean;
 }
@@ -54,6 +56,100 @@ function broadcastUserStatus(userId: string, isOnline: boolean) {
   });
 }
 
+export function broadcastTrackingLocation(locationPayload: any) {
+  const payload = JSON.stringify({
+    type: 'tracking:location_update',
+    data: locationPayload,
+  });
+  userSocketsMap.forEach((sockets) => {
+    sockets.forEach((ws) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        // Send to managers, dispatchers, or connected tracking clients
+        const role = ws.user?.role || '';
+        if (
+          !ws.user ||
+          ['ROLE_MANAGER', 'ROLE_DISPATCHER', 'MANAGER', 'DISPATCHER'].includes(role) ||
+          ws.user.userId === locationPayload.driverID
+        ) {
+          ws.send(payload);
+        }
+      }
+    });
+  });
+}
+
+export function broadcastTrackingTripEnded(tripID: string) {
+  const payload = JSON.stringify({
+    type: 'tracking:trip_ended',
+    data: { tripID },
+  });
+  userSocketsMap.forEach((sockets) => {
+    sockets.forEach((ws) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        const role = ws.user?.role || '';
+        if (
+          !ws.user ||
+          ['ROLE_MANAGER', 'ROLE_DISPATCHER', 'MANAGER', 'DISPATCHER'].includes(role)
+        ) {
+          ws.send(payload);
+        }
+      }
+    });
+  });
+}
+
+export function broadcastEmergencyAlertCreated(alert: any) {
+  const payload = JSON.stringify({
+    type: 'alert:emergency_created',
+    data: alert,
+  });
+  console.log(`[WebSocket Broadcast] Emergency alert created (${alert.id}), broadcasting to authorized managers & driver.`);
+  const alertOrg = alert.businessId || alert.business_id || 'default_org';
+  const alertDriverId = alert.driverId || alert.driver_id;
+
+  userSocketsMap.forEach((sockets) => {
+    sockets.forEach((ws) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        const role = String(ws.user?.role || '').toUpperCase();
+        const isManager = ['ROLE_MANAGER', 'FLEET_MANAGER', 'ROLE_ADMIN', 'ADMIN', 'ROLE_DISPATCHER', 'DISPATCHER', 'MANAGER'].includes(role);
+        const isDriverOwner = ws.user?.userId === alertDriverId;
+        const managerOrg = ws.user?.businessId || ws.user?.business_id || 'default_org';
+        const orgMatch = managerOrg === alertOrg;
+
+        if ((isManager && orgMatch) || isDriverOwner) {
+          ws.send(payload);
+        }
+      }
+    });
+  });
+}
+
+export function broadcastEmergencyAlertUpdated(alert: any) {
+  const payload = JSON.stringify({
+    type: 'alert:emergency_updated',
+    data: alert,
+  });
+  console.log(`[WebSocket Broadcast] Emergency alert updated (${alert.id}), broadcasting status update.`);
+  const alertOrg = alert.businessId || alert.business_id || 'default_org';
+  const alertDriverId = alert.driverId || alert.driver_id;
+
+  userSocketsMap.forEach((sockets) => {
+    sockets.forEach((ws) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        const role = String(ws.user?.role || '').toUpperCase();
+        const isManager = ['ROLE_MANAGER', 'FLEET_MANAGER', 'ROLE_ADMIN', 'ADMIN', 'ROLE_DISPATCHER', 'DISPATCHER', 'MANAGER'].includes(role);
+        const isDriverOwner = ws.user?.userId === alertDriverId;
+        const managerOrg = ws.user?.businessId || ws.user?.business_id || 'default_org';
+        const orgMatch = managerOrg === alertOrg;
+
+        if ((isManager && orgMatch) || isDriverOwner) {
+          ws.send(payload);
+        }
+      }
+    });
+  });
+}
+
 function get24HourCutoffIso(): string {
   return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 }
@@ -68,7 +164,13 @@ export function initChatWebSocket(server: Server) {
       parsedPath === '/ws/chat' ||
       parsedPath === '/chat' ||
       parsedPath === '/api/chat/ws' ||
-      parsedPath === '/ws'
+      parsedPath === '/ws' ||
+      parsedPath === '/ws/tracking' ||
+      parsedPath === '/tracking' ||
+      parsedPath === '/api/tracking/ws' ||
+      parsedPath === '/ws/alerts' ||
+      parsedPath === '/alerts' ||
+      parsedPath === '/api/alerts/ws'
     ) {
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request);

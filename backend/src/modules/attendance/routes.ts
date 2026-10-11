@@ -118,7 +118,7 @@ function resolveAuthUser(req: any) {
 attendanceRouter.get('/status', optionalAuth, async (req, res) => {
   try {
     const user = resolveAuthUser(req);
-    const userId = user?.userId || (req.query.userId as string);
+    const userId = user?.userId || (req.query.userId as string) || (req.headers['x-user-id'] as string);
     if (!userId) {
       return res.json({
         success: true,
@@ -140,12 +140,19 @@ attendanceRouter.get('/status', optionalAuth, async (req, res) => {
     // Active session strictly means clockOutTime is null
     const openRecord = userRecords.find((r: any) => !r.clockOutTime);
 
+    // Only return today's attendance logs for recent logs view
+    const todayDateKey = getBusinessDateString();
+    const todayRecords = userRecords.filter((r: any) => {
+      const recKey = extractRecordDateKey(r, BUSINESS_TIMEZONE);
+      return recKey === todayDateKey;
+    });
+
     if (openRecord) {
       return res.json({
         success: true,
         status: 'CLOCKED_IN',
         record: openRecord,
-        history: userRecords,
+        history: todayRecords,
       });
     }
 
@@ -153,7 +160,7 @@ attendanceRouter.get('/status', optionalAuth, async (req, res) => {
       success: true,
       status: 'NOT_CLOCKED_IN',
       record: null,
-      history: userRecords,
+      history: todayRecords,
     });
   } catch (error: any) {
     console.error('[Attendance API Error] GET /status failed:', error);
@@ -165,7 +172,7 @@ attendanceRouter.get('/status', optionalAuth, async (req, res) => {
 attendanceRouter.post('/clock-in', optionalAuth, async (req, res) => {
   try {
     const user = resolveAuthUser(req);
-    const userId = user?.userId || req.body?.userId || req.query?.userId;
+    const userId = user?.userId || req.body?.userId || req.query?.userId || (req.headers['x-user-id'] as string);
     if (!userId) {
       return fail(res, 401, 'User identification required for clock in');
     }
@@ -236,7 +243,11 @@ attendanceRouter.post('/clock-in', optionalAuth, async (req, res) => {
     const savedRaw = await db.insert('attendance_records', newRecordData);
     const savedRecord = normalizeRecord(savedRaw) || newRecordData;
 
-    const updatedHistory = [savedRecord, ...userRecords];
+    const todayDateKey = getBusinessDateString();
+    const updatedHistory = [savedRecord, ...userRecords].filter((r: any) => {
+      const recKey = extractRecordDateKey(r, BUSINESS_TIMEZONE);
+      return recKey === todayDateKey;
+    });
 
     return res.status(201).json({
       success: true,
@@ -254,7 +265,7 @@ attendanceRouter.post('/clock-in', optionalAuth, async (req, res) => {
 attendanceRouter.post('/clock-out', optionalAuth, async (req, res) => {
   try {
     const user = resolveAuthUser(req);
-    const userId = user?.userId || req.body?.userId || req.query?.userId;
+    const userId = user?.userId || req.body?.userId || req.query?.userId || (req.headers['x-user-id'] as string);
     if (!userId) {
       return fail(res, 401, 'User identification required for clock out');
     }
@@ -293,10 +304,15 @@ attendanceRouter.post('/clock-out', optionalAuth, async (req, res) => {
     };
 
     const freshAll = await db.list('attendance_records');
+    const todayDateKey = getBusinessDateString();
     const updatedHistory = (freshAll || [])
       .filter((r: any) => String(r.userId || r.userid || '').toLowerCase() === String(userId).toLowerCase())
       .map(normalizeRecord)
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter((r: any) => {
+        const recKey = extractRecordDateKey(r, BUSINESS_TIMEZONE);
+        return recKey === todayDateKey;
+      });
 
     return res.json({
       success: true,
@@ -338,6 +354,14 @@ attendanceRouter.get('/history', optionalAuth, async (req, res) => {
       : allRecords || [];
 
     const normalized = filtered.map(normalizeRecord).filter(Boolean);
+    if (req.query.today === 'true') {
+      const todayDateKey = getBusinessDateString();
+      const todayOnly = normalized.filter((r: any) => {
+        const recKey = extractRecordDateKey(r, BUSINESS_TIMEZONE);
+        return recKey === todayDateKey;
+      });
+      return res.json(todayOnly);
+    }
     return res.json(normalized);
   } catch (error: any) {
     return fail(res, 500, error.message || 'Failed to fetch attendance history');

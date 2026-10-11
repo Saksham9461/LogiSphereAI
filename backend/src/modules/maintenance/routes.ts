@@ -1,7 +1,20 @@
 import {Router} from 'express';
 import {db} from '../../config/database';
+import {fail} from '../../utils/http';
 
 export const maintenanceRouter = Router();
+
+const ACTIVE_TRIP_STATUSES = [
+  'ACCEPTED',
+  'ASSIGNED',
+  'DISPATCHED',
+  'GOING_TO_PICKUP',
+  'ARRIVED_AT_PICKUP',
+  'PICKED_UP',
+  'IN_TRANSIT',
+  'ARRIVED_AT_DROP',
+];
+
 const decorate = async (r: any) => {
   if (!r) return null;
   const vId = r.vehicleID || r.vehicleid;
@@ -40,36 +53,76 @@ maintenanceRouter.get('/', async (_req, res) => {
   res.json(decorated.filter(Boolean));
 });
 
+// POST Create maintenance record (Rule 8)
 maintenanceRouter.post('/create', async (req, res) => {
   const vId = req.body.vehicleID || req.body.vehicleid;
+  if (!vId) {
+    return fail(res, 400, 'Vehicle ID is required');
+  }
+
+  let veh = await db.find('vehicles', { vehicleID: vId }) || await db.find('vehicles', { vehicleid: vId });
+  if (!veh) {
+    const allVeh = await db.list('vehicles');
+    veh = (allVeh || []).find((v: any) =>
+      String(v.vehicleID || v.vehicleid || v.id || '').toLowerCase() === String(vId).toLowerCase()
+    );
+  }
+  if (!veh) {
+    return fail(res, 404, `Vehicle ${vId} not found`);
+  }
+
+  const vStatus = String(veh.status || '').toUpperCase();
+  if (vStatus === 'RETIRED') {
+    return fail(res, 400, `Cannot create maintenance for retired vehicle ${veh.name || vId}`);
+  }
+
+  // Prevent maintenance creation from overriding active-trip constraints (Rule 8)
+  const allTrips = await db.list('trips');
+  const activeTrip = (allTrips || []).find((t: any) => {
+    const tVId = String(t.vehicleID || t.vehicleid || '').toLowerCase();
+    const tStatus = String(t.status || '').toUpperCase();
+    return (
+      (tVId === String(vId).toLowerCase() || (veh.id && tVId === String(veh.id).toLowerCase()) || (veh.vehicleID && tVId === String(veh.vehicleID).toLowerCase())) &&
+      ACTIVE_TRIP_STATUSES.includes(tStatus)
+    );
+  });
+  if (vStatus === 'ON_TRIP' || activeTrip) {
+    return fail(res, 400, `Cannot place vehicle ${veh.name || vId} into maintenance: vehicle is currently assigned to active trip ${activeTrip?.tripID || activeTrip?.tripid || ''}`);
+  }
+
   const rawStatus = String(req.body.status || 'ACTIVE').toUpperCase();
   const dbStatus = (rawStatus === 'ACTIVE' || rawStatus === 'IN SHOP') ? 'ACTIVE' : 'COMPLETED';
+
+  // If new maintenance is active, update vehicle status to IN_SHOP immediately
+  if (dbStatus === 'ACTIVE') {
+    const vKey = veh.vehicleID ? { vehicleID: veh.vehicleID } : { vehicleid: veh.vehicleid || veh.id };
+    await db.update('vehicles', vKey, { status: 'IN_SHOP' });
+  }
 
   const created = await db.insert('maintenance_records', {
     id: db.makeId('mnt-'),
     ...req.body,
+    vehicleID: veh.vehicleID || veh.vehicleid || vId,
     status: dbStatus,
   });
-
-  // If new maintenance is in shop, update vehicle status to IN_SHOP
-  if (vId && dbStatus === 'ACTIVE') {
-    const veh = await db.find('vehicles', { vehicleID: vId }) || await db.find('vehicles', { vehicleid: vId });
-    if (veh) {
-      const vKey = veh.vehicleID ? { vehicleID: veh.vehicleID } : { vehicleid: veh.vehicleid || veh.id };
-      await db.update('vehicles', vKey, { status: 'IN_SHOP' });
-    }
-  }
 
   const decorated = await decorate(created);
   res.status(201).json(decorated);
 });
 
-// Complete maintenance handler (PUT & POST /api/maintenance/:id/complete)
+// Complete maintenance handler (PUT & POST /api/maintenance/:id/complete) (Rule 9)
 async function handleCompleteMaintenance(req: any, res: any) {
   const { id } = req.params;
   const record = await db.find('maintenance_records', { id });
   if (!record) {
     return res.status(404).json({ success: false, message: 'Maintenance record not found' });
+  }
+
+  const currentStatus = String(record.status || '').toUpperCase();
+  if (currentStatus === 'COMPLETED') {
+    // Idempotent safe handling for repeated closure requests
+    const decorated = await decorate(record);
+    return res.json({ success: true, message: 'Maintenance record is already completed', data: decorated });
   }
 
   // Update maintenance record to COMPLETED
@@ -79,22 +132,57 @@ async function handleCompleteMaintenance(req: any, res: any) {
   const vId = record.vehicleID || record.vehicleid;
   if (vId) {
     const allMaint = await db.list('maintenance_records');
-    const remainingActive = allMaint.filter((m: any) => {
-      const mVId = m.vehicleID || m.vehicleid;
+    const remainingActive = (allMaint || []).filter((m: any) => {
+      const mId = String(m.id || '');
+      const mVId = String(m.vehicleID || m.vehicleid || '');
       const mStatus = String(m.status || '').toUpperCase();
       return (
-        m.id !== id &&
-        mVId === vId &&
+        mId !== String(id) &&
+        mVId.toLowerCase() === String(vId).toLowerCase() &&
         (mStatus === 'ACTIVE' || mStatus === 'IN SHOP')
       );
     });
 
-    // If no more active maintenance records for this vehicle, restore vehicle status to AVAILABLE
-    if (remainingActive.length === 0) {
-      const veh = await db.find('vehicles', { vehicleID: vId }) || await db.find('vehicles', { vehicleid: vId });
-      if (veh) {
-        const vKey = veh.vehicleID ? { vehicleID: veh.vehicleID } : { vehicleid: veh.vehicleid || veh.id };
-        await db.update('vehicles', vKey, { status: 'AVAILABLE' });
+    let veh = await db.find('vehicles', { vehicleID: vId }) || await db.find('vehicles', { vehicleid: vId });
+    if (!veh) {
+      const allVeh = await db.list('vehicles');
+      veh = (allVeh || []).find((v: any) =>
+        String(v.vehicleID || v.vehicleid || v.id || '').toLowerCase() === String(vId).toLowerCase()
+      );
+    }
+
+    if (veh) {
+      const vKey = veh.vehicleID ? { vehicleID: veh.vehicleID } : { vehicleid: veh.vehicleid || veh.id };
+      const vStatus = String(veh.status || '').toUpperCase();
+
+      if (remainingActive.length > 0) {
+        // Vehicle must remain IN_SHOP if there are other open service records
+        if (vStatus !== 'IN_SHOP') {
+          await db.update('vehicles', vKey, { status: 'IN_SHOP' });
+        }
+      } else {
+        // No remaining active maintenance:
+        // Rule 9: NEVER change a Retired vehicle to Available!
+        if (vStatus === 'RETIRED') {
+          // Keep as RETIRED
+        } else {
+          // Check if vehicle has another active trip
+          const allTrips = await db.list('trips');
+          const hasActiveTrip = (allTrips || []).some((t: any) => {
+            const tVId = String(t.vehicleID || t.vehicleid || '').toLowerCase();
+            const tStatus = String(t.status || '').toUpperCase();
+            return (
+              (tVId === String(vId).toLowerCase() || (veh.id && tVId === String(veh.id).toLowerCase())) &&
+              ACTIVE_TRIP_STATUSES.includes(tStatus)
+            );
+          });
+
+          if (hasActiveTrip) {
+            await db.update('vehicles', vKey, { status: 'ON_TRIP' });
+          } else {
+            await db.update('vehicles', vKey, { status: 'AVAILABLE' });
+          }
+        }
       }
     }
   }
@@ -106,3 +194,4 @@ async function handleCompleteMaintenance(req: any, res: any) {
 
 maintenanceRouter.put('/:id/complete', handleCompleteMaintenance);
 maintenanceRouter.post('/:id/complete', handleCompleteMaintenance);
+

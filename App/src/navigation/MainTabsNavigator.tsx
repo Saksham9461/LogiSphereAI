@@ -13,6 +13,7 @@ import LiveTrackingScreen from '../screens/LiveTrackingScreen';
 import AIAssistantScreen from '../screens/AIAssistantScreen';
 import AttendanceReportScreen from '../screens/AttendanceReportScreen';
 import SignupScreen from '../screens/SignupScreen';
+import AlertsScreen from '../screens/AlertsScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -27,7 +28,8 @@ export default function MainTabsNavigator() {
       <Tab.Screen name="AIAssistant" component={AIAssistantScreen} />
       <Tab.Screen name="Drivers" component={DriversScreen} />
       
-      {/* Secondary Screens (Indices 4-11) */}
+      {/* Secondary Screens (Indices 4-12) */}
+      <Tab.Screen name="Alerts" component={AlertsScreen} />
       <Tab.Screen name="TripDispatcher" component={TripDispatcherScreen} />
       <Tab.Screen name="Maintenance" component={MaintenanceScreen} />
       <Tab.Screen name="FuelExpense" component={FuelExpenseScreen} />

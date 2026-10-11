@@ -323,7 +323,7 @@ export function generateAttendancePdf(
       .fontSize(7.5)
       .font('Helvetica')
       .text(
-        'LogiSphere AI • Intelligent Fleet & Attendance Management Platform • Confidential',
+        'Powered by LogiSphere AI • Intelligent Fleet & Attendance Management Platform • Confidential',
         startX,
         802,
         { width: 370, lineBreak: false }

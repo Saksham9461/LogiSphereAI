@@ -6,13 +6,17 @@ import {fail} from '../utils/http';
 declare global {
   namespace Express {
     interface Request {
-      user?: {userId: string; email: string; role: string};
+      user?: {userId: string; email: string; role: string; businessId?: string; business_id?: string};
     }
   }
 }
 
 export const signToken = (user: any) =>
-  jwt.sign({userId: user.id, email: user.email, role: user.role}, env.JWT_SECRET, {expiresIn: env.JWT_EXPIRES_IN as any});
+  jwt.sign(
+    {userId: user.id, email: user.email, role: user.role, businessId: user.businessId || user.business_id},
+    env.JWT_SECRET,
+    {expiresIn: env.JWT_EXPIRES_IN as any}
+  );
 
 export function authenticate(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;

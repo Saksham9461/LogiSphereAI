@@ -34,6 +34,8 @@ import { colors } from '../theme/colors';
 import useDriverStore from '../store/DriverStore';
 import useTripStore from '../store/TripStore';
 import DriverVoiceRegistrationModal from '../components/DriverVoiceRegistration/DriverVoiceRegistrationModal';
+import { speechService } from '../services/speech/speechRecognition';
+import { normalizeFieldValue } from '../utils/driverVoiceNormalizer';
 
 // --- CONSTANTS ---
 const STATUS_STYLES: Record<string, any> = {
@@ -198,6 +200,7 @@ export default function DriversScreen() {
   const [formStatus, setFormStatus] = useState('Available');
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
+  const [listeningField, setListeningField] = useState<'name' | 'license' | 'expiry' | 'contact' | 'email' | null>(null);
 
   // Credential Modal State (short-lived)
   const [createdCredentials, setCreatedCredentials] = useState<{
@@ -210,7 +213,59 @@ export default function DriversScreen() {
   useEffect(() => {
     fetchDrivers();
     getTrips();
+    return () => {
+      speechService.cancel();
+    };
   }, [fetchDrivers, getTrips]);
+
+  const handleToggleFieldMic = async (fieldKey: 'name' | 'license' | 'expiry' | 'contact' | 'email') => {
+    if (listeningField === fieldKey) {
+      await speechService.stopListening();
+      setListeningField(null);
+      return;
+    }
+
+    if (listeningField) {
+      await speechService.cancel();
+    }
+
+    setListeningField(fieldKey);
+    const normKey = fieldKey === 'license' ? 'licenseNumber' : fieldKey === 'expiry' ? 'licenseExpiry' : fieldKey;
+
+    await speechService.startListening({
+      onStart: () => {},
+      onPartialResult: (text: string) => {
+        const parsed = normalizeFieldValue(normKey, text);
+        if (parsed) {
+          if (fieldKey === 'name') setFormName(parsed);
+          else if (fieldKey === 'license') setFormLicense(parsed);
+          else if (fieldKey === 'expiry') setFormExpiry(parsed);
+          else if (fieldKey === 'contact') setFormContact(parsed);
+          else if (fieldKey === 'email') setFormEmail(parsed);
+        }
+      },
+      onResult: (finalText: string) => {
+        const parsed = normalizeFieldValue(normKey, finalText);
+        if (parsed) {
+          if (fieldKey === 'name') setFormName(parsed);
+          else if (fieldKey === 'license') setFormLicense(parsed);
+          else if (fieldKey === 'expiry') setFormExpiry(parsed);
+          else if (fieldKey === 'contact') setFormContact(parsed);
+          else if (fieldKey === 'email') setFormEmail(parsed);
+        }
+        setListeningField(null);
+      },
+      onError: (code: string) => {
+        setListeningField(null);
+        if (code === 'PERMISSION_DENIED') {
+          Alert.alert('Microphone Permission', 'Microphone permission is required for voice input.');
+        }
+      },
+      onEnd: () => {
+        setListeningField(null);
+      },
+    });
+  };
 
   const filteredDrivers = useMemo(() => {
     return (drivers || []).filter((d: any) => {
@@ -226,6 +281,8 @@ export default function DriversScreen() {
   }, [drivers, search]);
 
   const openAddModal = () => {
+    speechService.cancel();
+    setListeningField(null);
     setEditingDriver(null);
     setFormName('');
     setFormEmail('');
@@ -239,6 +296,8 @@ export default function DriversScreen() {
   };
 
   const openEditModal = (driver: any) => {
+    speechService.cancel();
+    setListeningField(null);
     setEditingDriver(driver);
     setFormName(driver.name || '');
     setFormEmail(driver.email || '');
@@ -257,6 +316,8 @@ export default function DriversScreen() {
   };
 
   const handleOpenVoiceRegistration = () => {
+    speechService.cancel();
+    setListeningField(null);
     setShowModal(false);
     setShowVoiceModal(true);
   };
@@ -461,14 +522,14 @@ export default function DriversScreen() {
       {/* ADD/EDIT DRIVER MODAL */}
       <Modal visible={showModal} transparent={true} animationType="slide" onRequestClose={() => setShowModal(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.bottomSheetOverlay}>
-          <Pressable style={{ flex: 1 }} onPress={() => setShowModal(false)} />
+          <Pressable style={{ flex: 1 }} onPress={() => { speechService.cancel(); setListeningField(null); setShowModal(false); }} />
           <View style={styles.bottomSheet}>
             <View style={styles.bottomSheetHeader}>
               <View>
                 <Text style={styles.bottomSheetTitle}>{editingDriver ? 'Update Driver' : 'New Driver'}</Text>
                 <Text style={styles.bottomSheetSubtitle}>Fill in driver details below</Text>
               </View>
-              <Pressable onPress={() => setShowModal(false)}>
+              <Pressable onPress={() => { speechService.cancel(); setListeningField(null); setShowModal(false); }}>
                 <X size={24} color={colors.textMuted} />
               </Pressable>
             </View>
@@ -488,34 +549,106 @@ export default function DriversScreen() {
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.formContainer}>
               <View style={styles.formRow}>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Full Name *</Text>
-                  <TextInput style={styles.formInput} value={formName} onChangeText={setFormName} placeholder="Driver name" placeholderTextColor={colors.textMuted} />
+                  <View style={styles.labelWithMic}>
+                    <Text style={styles.formLabel}>Full Name *</Text>
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => handleToggleFieldMic('name')}
+                      style={[styles.fieldMicBtn, listeningField === 'name' && styles.fieldMicBtnActive]}
+                    >
+                      <Mic size={13} color={listeningField === 'name' ? colors.amber : colors.textMuted} />
+                    </Pressable>
+                  </View>
+                  <TextInput
+                    style={[styles.formInput, listeningField === 'name' && styles.formInputListening]}
+                    value={formName}
+                    onChangeText={setFormName}
+                    placeholder={listeningField === 'name' ? 'Listening...' : 'Driver name'}
+                    placeholderTextColor={listeningField === 'name' ? colors.amber : colors.textMuted}
+                  />
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>License No. *</Text>
-                  <TextInput style={styles.formInput} value={formLicense} onChangeText={setFormLicense} placeholder="DL-00000" placeholderTextColor={colors.textMuted} />
+                  <View style={styles.labelWithMic}>
+                    <Text style={styles.formLabel}>License No. *</Text>
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => handleToggleFieldMic('license')}
+                      style={[styles.fieldMicBtn, listeningField === 'license' && styles.fieldMicBtnActive]}
+                    >
+                      <Mic size={13} color={listeningField === 'license' ? colors.amber : colors.textMuted} />
+                    </Pressable>
+                  </View>
+                  <TextInput
+                    style={[styles.formInput, listeningField === 'license' && styles.formInputListening]}
+                    value={formLicense}
+                    onChangeText={setFormLicense}
+                    placeholder={listeningField === 'license' ? 'Listening...' : 'DL-00000'}
+                    placeholderTextColor={listeningField === 'license' ? colors.amber : colors.textMuted}
+                  />
                 </View>
               </View>
 
               <View style={styles.formRow}>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Expiry (MM/YYYY) *</Text>
-                  <TextInput style={styles.formInput} value={formExpiry} onChangeText={setFormExpiry} placeholder="12/2028" placeholderTextColor={colors.textMuted} />
+                  <View style={styles.labelWithMic}>
+                    <Text style={styles.formLabel}>Expiry (MM/YYYY) *</Text>
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => handleToggleFieldMic('expiry')}
+                      style={[styles.fieldMicBtn, listeningField === 'expiry' && styles.fieldMicBtnActive]}
+                    >
+                      <Mic size={13} color={listeningField === 'expiry' ? colors.amber : colors.textMuted} />
+                    </Pressable>
+                  </View>
+                  <TextInput
+                    style={[styles.formInput, listeningField === 'expiry' && styles.formInputListening]}
+                    value={formExpiry}
+                    onChangeText={setFormExpiry}
+                    placeholder={listeningField === 'expiry' ? 'Listening...' : '12/2028'}
+                    placeholderTextColor={listeningField === 'expiry' ? colors.amber : colors.textMuted}
+                  />
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Contact Phone</Text>
-                  <TextInput style={styles.formInput} value={formContact} onChangeText={setFormContact} placeholder="98765xxxxx" placeholderTextColor={colors.textMuted} keyboardType="phone-pad" />
+                  <View style={styles.labelWithMic}>
+                    <Text style={styles.formLabel}>Contact Phone</Text>
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => handleToggleFieldMic('contact')}
+                      style={[styles.fieldMicBtn, listeningField === 'contact' && styles.fieldMicBtnActive]}
+                    >
+                      <Mic size={13} color={listeningField === 'contact' ? colors.amber : colors.textMuted} />
+                    </Pressable>
+                  </View>
+                  <TextInput
+                    style={[styles.formInput, listeningField === 'contact' && styles.formInputListening]}
+                    value={formContact}
+                    onChangeText={setFormContact}
+                    placeholder={listeningField === 'contact' ? 'Listening...' : '98765xxxxx'}
+                    placeholderTextColor={listeningField === 'contact' ? colors.amber : colors.textMuted}
+                    keyboardType="phone-pad"
+                  />
                 </View>
               </View>
 
               <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Login Email Address {!editingDriver ? '*' : ''}</Text>
+                <View style={styles.labelWithMic}>
+                  <Text style={styles.formLabel}>Login Email Address {!editingDriver ? '*' : ''}</Text>
+                  {!editingDriver ? (
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => handleToggleFieldMic('email')}
+                      style={[styles.fieldMicBtn, listeningField === 'email' && styles.fieldMicBtnActive]}
+                    >
+                      <Mic size={13} color={listeningField === 'email' ? colors.amber : colors.textMuted} />
+                    </Pressable>
+                  ) : null}
+                </View>
                 <TextInput
-                  style={styles.formInput}
+                  style={[styles.formInput, listeningField === 'email' && styles.formInputListening]}
                   value={formEmail}
                   onChangeText={setFormEmail}
-                  placeholder="driver@example.com"
-                  placeholderTextColor={colors.textMuted}
+                  placeholder={listeningField === 'email' ? 'Listening...' : 'driver@example.com'}
+                  placeholderTextColor={listeningField === 'email' ? colors.amber : colors.textMuted}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   editable={!editingDriver}
@@ -554,7 +687,7 @@ export default function DriversScreen() {
             </ScrollView>
 
             <View style={styles.bottomSheetFooter}>
-              <Pressable style={styles.cancelBtn} onPress={() => setShowModal(false)}>
+              <Pressable style={styles.cancelBtn} onPress={() => { speechService.cancel(); setListeningField(null); setShowModal(false); }}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
               </Pressable>
               <Pressable style={[styles.saveBtn, loading && { opacity: 0.6 }]} onPress={handleSave} disabled={loading}>
@@ -734,8 +867,12 @@ const styles = StyleSheet.create({
   formContainer: { gap: rf(16), paddingBottom: rf(20) },
   formRow: { flexDirection: 'row', gap: rf(12) },
   formGroup: { flex: 1, gap: rf(6) },
+  labelWithMic: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  fieldMicBtn: { padding: rf(4), borderRadius: rf(6), backgroundColor: 'rgba(255,255,255,0.05)' },
+  fieldMicBtnActive: { backgroundColor: 'rgba(245, 158, 11, 0.2)', borderWidth: 1, borderColor: colors.amber },
   formLabel: { color: colors.textMuted, fontSize: rf(11), textTransform: 'uppercase', fontWeight: '700' },
   formInput: { backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.border, borderRadius: rf(8), paddingHorizontal: rf(12), height: rf(44), color: colors.textPrimary, fontSize: rf(14) },
+  formInputListening: { borderColor: colors.amber, backgroundColor: 'rgba(245, 158, 11, 0.06)' },
   dropdownInput: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.border, borderRadius: rf(8), paddingHorizontal: rf(12), height: rf(44) },
   dropdownInputText: { color: colors.textPrimary, fontSize: rf(14) },
 

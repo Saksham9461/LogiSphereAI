@@ -137,7 +137,7 @@ const useChatStore = create<ChatState>((set, get) => ({
       ws.onopen = () => {
         isConnecting = false;
         if (activeSocketInstance !== ws) {
-          try { ws.close(); } catch (_) {}
+          try { ws.close(); } catch (_) { }
           return;
         }
 
@@ -235,7 +235,7 @@ const useChatStore = create<ChatState>((set, get) => ({
       activeSocketInstance = null;
       try {
         wsToClose.close();
-      } catch (_) {}
+      } catch (_) { }
     }
     set({ socket: null, connectionStatus: 'DISCONNECTED' });
   },
@@ -786,6 +786,19 @@ function handleIncomingSocketMessage(payload: any, set: any, get: any) {
             [conversationId]: Boolean(isTyping),
           },
         }));
+      }
+      break;
+    }
+
+    case 'alert:emergency_created':
+    case 'alert:emergency_updated': {
+      try {
+        const { useAlertStore } = require('./AlertStore');
+        if (useAlertStore?.getState && payload.data) {
+          useAlertStore.getState().handleRealtimeAlert(payload.data);
+        }
+      } catch (err) {
+        console.warn('[ChatSocket] Error dispatching alert event to AlertStore:', err);
       }
       break;
     }

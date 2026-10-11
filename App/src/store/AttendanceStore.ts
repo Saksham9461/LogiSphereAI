@@ -119,6 +119,8 @@ const DEFAULT_FILTERS: AttendanceReportFilter = {
   limit: 50,
 };
 
+let inFlightFetchStatusPromise: Promise<{ success: boolean; data?: any; message?: string }> | null = null;
+
 export const useAttendanceStore = create<AttendanceState>((set, get) => ({
   status: 'NOT_CLOCKED_IN',
   clockInTime: null,
@@ -146,41 +148,62 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
   setStatus: (status) => set({ status }),
 
   fetchStatus: async () => {
-    try {
-      set({ loading: true, error: null });
-      const response = await axios.get(GetAttendanceStatus);
-      const data = response.data;
-      if (data?.success) {
-        const activeRec = data.record;
-        set({
-          loading: false,
-          status: data.status || (activeRec ? 'CLOCKED_IN' : 'NOT_CLOCKED_IN'),
-          clockInTime: activeRec?.clockInTime || null,
-          latitude: activeRec?.latitude ?? null,
-          longitude: activeRec?.longitude ?? null,
-          distanceFromOffice: activeRec?.distanceFromOffice ?? null,
-          history: Array.isArray(data.history) ? data.history : [],
-          error: null,
-        });
-        return { success: true, data };
-      }
-      set({ loading: false });
-      return { success: false, message: data?.message || 'Failed to fetch attendance status' };
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || 'Network error fetching attendance status';
-      set({ loading: false, error: msg });
-      return { success: false, message: msg };
+    // If a fetchStatus request is already in-flight, return the shared promise to avoid spamming the backend
+    if (inFlightFetchStatusPromise) {
+      return inFlightFetchStatusPromise;
     }
+
+    inFlightFetchStatusPromise = (async () => {
+      try {
+        set({ loading: true, error: null });
+        const user = useAuthStore.getState().user;
+        const currentUserId = user?.id || user?.userId;
+        const response = await axios.get(GetAttendanceStatus, {
+          params: currentUserId ? { userId: currentUserId } : undefined,
+          headers: currentUserId ? { 'x-user-id': currentUserId } : undefined,
+        });
+        const data = response.data;
+        if (data?.success) {
+          const activeRec = data.record;
+          set({
+            loading: false,
+            status: data.status || (activeRec ? 'CLOCKED_IN' : 'NOT_CLOCKED_IN'),
+            clockInTime: activeRec?.clockInTime || null,
+            latitude: activeRec?.latitude ?? null,
+            longitude: activeRec?.longitude ?? null,
+            distanceFromOffice: activeRec?.distanceFromOffice ?? null,
+            history: Array.isArray(data.history) ? data.history : [],
+            error: null,
+          });
+          return { success: true, data };
+        }
+        set({ loading: false });
+        return { success: false, message: data?.message || 'Failed to fetch attendance status' };
+      } catch (err: any) {
+        const msg = err?.response?.data?.message || err?.message || 'Network error fetching attendance status';
+        set({ loading: false, error: msg });
+        return { success: false, message: msg };
+      } finally {
+        inFlightFetchStatusPromise = null;
+      }
+    })();
+
+    return inFlightFetchStatusPromise;
   },
 
   clockIn: async (lat, lon, distance, locationName) => {
     try {
       set({ loading: true, error: null });
+      const user = useAuthStore.getState().user;
+      const currentUserId = user?.id || user?.userId;
       const response = await axios.post(ClockIn, {
         latitude: lat,
         longitude: lon,
         distanceFromOffice: distance,
         locationName,
+        userId: currentUserId,
+      }, {
+        headers: currentUserId ? { 'x-user-id': currentUserId } : undefined,
       });
       const data = response.data;
       if (data?.success) {
@@ -210,7 +233,13 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
   clockOut: async () => {
     try {
       set({ loading: true, error: null });
-      const response = await axios.post(ClockOut);
+      const user = useAuthStore.getState().user;
+      const currentUserId = user?.id || user?.userId;
+      const response = await axios.post(ClockOut, {
+        userId: currentUserId,
+      }, {
+        headers: currentUserId ? { 'x-user-id': currentUserId } : undefined,
+      });
       const data = response.data;
       if (data?.success) {
         set({
@@ -364,3 +393,12 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     }
   },
 }));
+
+// Automatically fetch attendance whenever authenticated user becomes available or changes
+useAuthStore.subscribe((state, prevState) => {
+  const currentId = state.user?.id || state.user?.userId;
+  const prevId = prevState?.user?.id || prevState?.user?.userId;
+  if (currentId && currentId !== prevId) {
+    useAttendanceStore.getState().fetchStatus();
+  }
+});

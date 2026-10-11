@@ -20,6 +20,14 @@ export const SOSButton: React.FC<SOSButtonProps> = ({ compact = false }) => {
   const [loading, setLoading] = useState(false);
   const user = useAuthStore((state) => state.user);
 
+  // Strict role requirement: SOS button is visible ONLY to authenticated Drivers
+  const role = String(user?.role || '').toUpperCase();
+  const isDriver = role === 'ROLE_DRIVER' || role === 'DRIVER';
+
+  if (!isDriver) {
+    return null;
+  }
+
   const handlePress = () => {
     Alert.alert(
       '🚨 EMERGENCY SOS',
@@ -40,22 +48,50 @@ export const SOSButton: React.FC<SOSButtonProps> = ({ compact = false }) => {
   };
 
   const executeSOS = async () => {
+    if (loading) return;
     setLoading(true);
     try {
-      const res = await triggerSOSApi(user?.id || 'unknown_user');
-      if (res.success) {
+      const res = await triggerSOSApi();
+      if (res.success && res.alert) {
+        const alertTime = new Date(res.alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const locInfo = res.alert.latitude && res.alert.longitude
+          ? `\nCoordinates: ${res.alert.latitude.toFixed(4)}, ${res.alert.longitude.toFixed(4)}`
+          : '\nLocation: Coordinates unavailable';
+
         Alert.alert(
-          '🚨 SOS ALERT DISPATCHED',
-          res.isMock
-            ? 'Emergency SOS alert registered successfully! Control center and emergency dispatchers have been notified.'
-            : 'Emergency signal sent! Support team is on the way.',
-          [{ text: 'OK' }]
+          '🚨 EMERGENCY SOS DISPATCHED',
+          `Emergency alert registered successfully!\n\nAlert ID: ${res.alert.id}\nTime: ${alertTime}${locInfo}\n\nAuthorized managers and control center have been notified immediately in real time.`,
+          [{ text: 'Understood' }]
         );
       } else {
-        Alert.alert('SOS Error', 'Failed to dispatch SOS alert. Please try calling emergency services directly.');
+        const errorMsg = res.error || 'Failed to dispatch SOS alert to the server.';
+        Alert.alert(
+          '🚨 Emergency SOS Failed',
+          `${errorMsg}\n\nWould you like to retry transmitting the emergency alert immediately?`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Retry SOS',
+              style: 'destructive',
+              onPress: executeSOS,
+            },
+          ]
+        );
       }
     } catch (err: any) {
-      Alert.alert('SOS Error', err?.message || 'Unable to complete SOS request.');
+      const errorMsg = err?.message || 'Unable to complete SOS request.';
+      Alert.alert(
+        '🚨 Emergency SOS Failed',
+        `${errorMsg}\n\nWould you like to retry transmitting the emergency alert immediately?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Retry SOS',
+            style: 'destructive',
+            onPress: executeSOS,
+          },
+        ]
+      );
     } finally {
       setLoading(false);
     }

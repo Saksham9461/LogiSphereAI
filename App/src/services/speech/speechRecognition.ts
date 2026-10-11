@@ -26,13 +26,13 @@ export interface SpeechListenerCallbacks {
 export class NativeSpeechService {
   private isListening: boolean = false;
   private isStarting: boolean = false;
-  private shouldKeepListening: boolean = false;
-  private locale: string = 'en-IN';
+  private isStopping: boolean = false;
+  private locale: string = 'en-US';
   private callbacks: SpeechListenerCallbacks = {};
   private currentTranscript: string = '';
-  private accumulatedTranscript: string = '';
   private isInitialized: boolean = false;
-  private restartTimer: any = null;
+  private resultDelivered: boolean = false;
+  private activeSessionToken: number = 0;
 
   constructor() {
     this.initVoiceListeners();
@@ -52,144 +52,107 @@ export class NativeSpeechService {
   }
 
   private onSpeechStart(e: SpeechStartEvent) {
-    if (__DEV__) console.log('[Voice] Speech listening active');
+    if (__DEV__) console.log('[Voice] onSpeechStart');
     this.isListening = true;
     this.isStarting = false;
     this.callbacks.onStart?.();
   }
 
   private onSpeechRecognized(e: SpeechRecognizedEvent) {
-    if (__DEV__) console.log('[Voice] Speech recognized');
+    if (__DEV__) console.log('[Voice] onSpeechRecognized');
   }
 
   private onSpeechEnd(e: SpeechEndEvent) {
-    if (__DEV__) console.log('[Voice] Speech segment ended');
+    if (__DEV__) console.log('[Voice] onSpeechEnd');
     this.isListening = false;
+    this.callbacks.onEnd?.();
 
-    // If user explicitly pressed STOP, finalize session
-    if (!this.shouldKeepListening) {
-      if (__DEV__) console.log('[Voice] User stopped listening -> staying stopped');
-      const finalVal = this.getBestTranscript();
-      if (finalVal.length > 0) {
-        this.callbacks.onResult?.(finalVal);
-      } else {
-        this.callbacks.onError?.('NO_SPEECH_DETECTED', 'No speech detected.');
-      }
-      this.callbacks.onEnd?.();
-      return;
+    // If final results haven't been delivered via onSpeechResults yet,
+    // but we captured a partial transcript during the speech segment, deliver it cleanly.
+    if (!this.resultDelivered && this.currentTranscript && this.currentTranscript.trim().length > 0) {
+      this.resultDelivered = true;
+      const textToDeliver = this.currentTranscript.trim();
+      if (__DEV__) console.log('[Voice] Delivering best transcript on end:', textToDeliver);
+      this.callbacks.onResult?.(textToDeliver);
     }
-
-    // User is STILL listening! Auto-restart speech engine segment
-    if (__DEV__) console.log('[Voice] Segment ended due to silence, user still listening -> auto-restarting segment');
-    this.scheduleAutoRestart();
   }
 
   private onSpeechError(e: SpeechErrorEvent) {
-    if (__DEV__) console.log('[Voice] Speech error event:', e);
-    this.isListening = false;
+    if (__DEV__) console.log('[Voice] onSpeechError:', e);
 
-    if (!this.shouldKeepListening) {
-      const errorObj = e.error;
-      const errorMsg = typeof errorObj === 'string' ? errorObj : (errorObj?.message || errorObj?.code || '');
-      let errorCode: SpeechErrorCode = 'SERVICE_ERROR';
-      if (String(errorMsg).includes('permission') || errorObj?.code === '9') {
-        errorCode = 'PERMISSION_DENIED';
-      } else if (
-        errorObj?.code === '7' ||
-        errorObj?.code === '6' ||
-        String(errorMsg).includes('No match') ||
-        String(errorMsg).includes('7')
-      ) {
-        errorCode = 'NO_SPEECH_DETECTED';
-      }
-      this.callbacks.onError?.(errorCode, 'Speech recognition error.');
-      this.callbacks.onEnd?.();
+    // If result was already delivered or we have captured valid transcript,
+    // do not disrupt the form with an error.
+    if (this.resultDelivered) {
+      this.isListening = false;
+      this.isStarting = false;
       return;
     }
 
-    // User is STILL listening! Recover automatically
-    if (__DEV__) console.log('[Voice] Recoverable error while user is listening -> auto-restarting');
-    this.scheduleAutoRestart();
-  }
-
-  private scheduleAutoRestart() {
-    if (this.restartTimer) {
-      clearTimeout(this.restartTimer);
-    }
-
-    this.restartTimer = setTimeout(async () => {
-      if (!this.shouldKeepListening) return;
-      await this.restartEngineInternal();
-    }, 300);
-  }
-
-  private async restartEngineInternal() {
-    if (!this.shouldKeepListening || this.isStarting) return;
-    this.isStarting = true;
-
-    try {
-      await Voice.cancel().catch(() => {});
-      await Voice.destroy().catch(() => {});
-      this.isInitialized = false;
-      this.initVoiceListeners();
-
-      const options = {
-        EXTRA_LANGUAGE_MODEL: 'LANGUAGE_MODEL_FREE_FORM',
-        EXTRA_MAX_RESULTS: 5,
-        EXTRA_PARTIAL_RESULTS: true,
-        EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS: 5000,
-        EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS: 5000,
-        EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS: 3000,
-        REQUEST_PERMISSIONS_AUTO: true,
-      };
-
-      try {
-        await Voice.start(this.locale, options);
-      } catch (e) {
-        await Voice.start('en-US', options);
-      }
-      this.isListening = true;
-      if (__DEV__) console.log('[Voice] Engine segment restarted successfully');
-    } catch (err) {
-      if (__DEV__) console.log('[Voice] Exception restarting engine:', err);
-    } finally {
+    if (this.currentTranscript && this.currentTranscript.trim().length > 0) {
+      this.isListening = false;
       this.isStarting = false;
+      this.resultDelivered = true;
+      this.callbacks.onResult?.(this.currentTranscript.trim());
+      return;
     }
+
+    const errorObj = e?.error;
+    const errorMsg = typeof errorObj === 'string' ? errorObj : (errorObj?.message || errorObj?.code || '');
+    const errorCodeStr = String(errorObj?.code || errorMsg);
+
+    // If a transient disconnect/busy error (11, 8, 5) arrives while the engine is starting up,
+    // it is a leftover artifact from previous session cancel/teardown.
+    // Do NOT abort the starting session!
+    if (this.isStarting || !this.isListening) {
+      if (errorCodeStr.includes('11') || errorCodeStr.includes('8') || errorCodeStr.includes('5')) {
+        if (__DEV__) console.log('[Voice] Ignoring transient cleanup error during startup:', errorCodeStr);
+        return;
+      }
+    }
+
+    this.isListening = false;
+    this.isStarting = false;
+
+    let code: SpeechErrorCode = 'SERVICE_ERROR';
+    if (errorCodeStr.includes('9') || errorCodeStr.toLowerCase().includes('permission')) {
+      code = 'PERMISSION_DENIED';
+    } else if (
+      errorCodeStr.includes('7') ||
+      errorCodeStr.includes('6') ||
+      errorCodeStr.toLowerCase().includes('no match') ||
+      errorCodeStr.toLowerCase().includes('no speech')
+    ) {
+      code = 'NO_SPEECH_DETECTED';
+    } else if (errorCodeStr.includes('SPEECH_UNAVAILABLE')) {
+      code = 'SPEECH_UNAVAILABLE';
+    }
+
+    this.callbacks.onError?.(code, String(errorMsg || 'Speech recognition error.'));
   }
 
   private onSpeechResults(e: SpeechResultsEvent) {
-    if (__DEV__) console.log('[Voice] Final Speech Results:', e.value);
+    if (__DEV__) console.log('[Voice] onSpeechResults:', e.value);
     if (e.value && e.value.length > 0) {
       const topResult = e.value[0]?.trim();
       if (topResult && topResult.length > 0) {
-        this.updateAccumulatedTranscript(topResult);
+        this.currentTranscript = topResult;
+        if (!this.resultDelivered) {
+          this.resultDelivered = true;
+          this.callbacks.onResult?.(topResult);
+        }
       }
     }
   }
 
   private onSpeechPartialResults(e: SpeechResultsEvent) {
-    if (__DEV__) console.log('[Voice] Partial Speech Results:', e.value);
+    if (__DEV__) console.log('[Voice] onSpeechPartialResults:', e.value);
     if (e.value && e.value.length > 0) {
       const partialText = e.value[0]?.trim();
       if (partialText && partialText.length > 0) {
-        this.updateAccumulatedTranscript(partialText);
+        this.currentTranscript = partialText;
+        this.callbacks.onPartialResult?.(partialText);
       }
     }
-  }
-
-  private updateAccumulatedTranscript(text: string) {
-    if (!text) return;
-
-    if (this.accumulatedTranscript && !text.toLowerCase().startsWith(this.accumulatedTranscript.toLowerCase())) {
-      if (!this.accumulatedTranscript.toLowerCase().includes(text.toLowerCase())) {
-        this.accumulatedTranscript = `${this.accumulatedTranscript} ${text}`.trim();
-      }
-    } else {
-      this.accumulatedTranscript = text;
-    }
-
-    this.currentTranscript = this.accumulatedTranscript;
-    this.callbacks.onPartialResult?.(this.accumulatedTranscript);
   }
 
   public clearCallbacks(): void {
@@ -197,7 +160,7 @@ export class NativeSpeechService {
   }
 
   public getBestTranscript(): string {
-    return (this.accumulatedTranscript || this.currentTranscript || '').trim();
+    return (this.currentTranscript || '').trim();
   }
 
   public setLocale(locale: string) {
@@ -211,6 +174,11 @@ export class NativeSpeechService {
   public async requestMicrophonePermission(): Promise<boolean> {
     if (Platform.OS === 'android') {
       try {
+        const alreadyGranted = await PermissionsAndroid.check(
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO
+        );
+        if (alreadyGranted) return true;
+
         const granted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
           {
@@ -230,90 +198,102 @@ export class NativeSpeechService {
     return true;
   }
 
+  public async isSpeechAvailable(): Promise<boolean> {
+    try {
+      if (Voice && typeof Voice.isAvailable === 'function') {
+        const available = await Voice.isAvailable();
+        return available === 1;
+      }
+      return true;
+    } catch {
+      return true;
+    }
+  }
+
   public async startListening(
     callbacks: SpeechListenerCallbacks,
     localeOverride?: string
   ): Promise<void> {
+    const sessionToken = ++this.activeSessionToken;
     const activeLocale = localeOverride || this.locale || 'en-IN';
-    if (__DEV__) console.log(`[Voice] Start requested (locale: ${activeLocale})`);
+    if (__DEV__) console.log(`[Voice] startListening requested (locale: ${activeLocale})`);
 
-    this.shouldKeepListening = true;
-    if (this.restartTimer) {
-      clearTimeout(this.restartTimer);
-      this.restartTimer = null;
-    }
-
-    this.currentTranscript = '';
-    this.accumulatedTranscript = '';
     this.callbacks = callbacks;
+    this.currentTranscript = '';
+    this.resultDelivered = false;
 
+    // Check permission first
     const hasPermission = await this.requestMicrophonePermission();
     if (!hasPermission) {
-      this.shouldKeepListening = false;
-      this.callbacks.onError?.('PERMISSION_DENIED', 'Microphone permission was denied.');
+      if (sessionToken === this.activeSessionToken) {
+        this.callbacks.onError?.('PERMISSION_DENIED', 'Microphone permission was denied.');
+      }
       return;
     }
 
     if (this.isStarting || this.isListening) {
-      if (__DEV__) console.log('[Voice] Already starting or listening, ignoring duplicate start');
-      return;
+      if (__DEV__) console.log('[Voice] Already active, cleaning up previous session before starting fresh');
+      try {
+        await Voice.cancel();
+      } catch (e) {}
+      this.isListening = false;
+      this.isStarting = false;
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 150));
     }
 
     this.isStarting = true;
-    try {
-      await Voice.cancel().catch(() => {});
-      await Voice.destroy().catch(() => {});
-      this.isInitialized = false;
-      this.initVoiceListeners();
+    this.initVoiceListeners();
 
+    try {
       const options = {
         EXTRA_LANGUAGE_MODEL: 'LANGUAGE_MODEL_FREE_FORM',
         EXTRA_MAX_RESULTS: 5,
         EXTRA_PARTIAL_RESULTS: true,
-        EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS: 5000,
-        EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS: 5000,
-        EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS: 3000,
+        EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS: 6000,
+        EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS: 6000,
+        EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS: 2500,
         REQUEST_PERMISSIONS_AUTO: true,
       };
 
       try {
         await Voice.start(activeLocale, options);
-      } catch (e) {
-        if (__DEV__) console.log(`[Voice] ${activeLocale} start failed, trying en-US...`);
+      } catch (err) {
+        if (__DEV__) console.log(`[Voice] Start failed with ${activeLocale}, trying en-US...`);
         await Voice.start('en-US', options);
       }
+
       this.isListening = true;
-      if (__DEV__) console.log('[Voice] Voice engine started successfully');
+      if (__DEV__) console.log('[Voice] Voice started successfully');
     } catch (err: any) {
       if (__DEV__) console.log('[Voice] Exception starting voice:', err);
       this.isListening = false;
-      this.shouldKeepListening = false;
-      this.callbacks.onError?.('SERVICE_ERROR', err?.message || 'Failed to start speech engine.');
+      if (sessionToken === this.activeSessionToken) {
+        this.callbacks.onError?.('SERVICE_ERROR', err?.message || 'Failed to start speech recognition.');
+      }
     } finally {
       this.isStarting = false;
     }
   }
 
   public async stopListening(): Promise<void> {
-    if (__DEV__) console.log('[Voice] User explicitly pressed STOP');
-    this.shouldKeepListening = false;
-    if (this.restartTimer) {
-      clearTimeout(this.restartTimer);
-      this.restartTimer = null;
-    }
+    if (this.isStopping) return;
+    this.isStopping = true;
+    if (__DEV__) console.log('[Voice] stopListening requested');
 
     try {
       await Voice.stop();
     } catch (err) {
-      if (__DEV__) console.log('[Voice] Error stopping voice:', err);
+      if (__DEV__) console.log('[Voice] Error calling Voice.stop():', err);
     } finally {
       this.isListening = false;
       this.isStarting = false;
+      this.isStopping = false;
 
       const finalVal = this.getBestTranscript();
-      if (finalVal.length > 0) {
+      if (!this.resultDelivered && finalVal.length > 0) {
+        this.resultDelivered = true;
         this.callbacks.onResult?.(finalVal);
-      } else {
+      } else if (!this.resultDelivered) {
         this.callbacks.onError?.('NO_SPEECH_DETECTED', 'No speech detected before stopping.');
       }
       this.callbacks.onEnd?.();
@@ -321,53 +301,45 @@ export class NativeSpeechService {
   }
 
   public async cancel(): Promise<void> {
-    if (__DEV__) console.log('[Voice] Cancelling speech session');
-    this.shouldKeepListening = false;
-    if (this.restartTimer) {
-      clearTimeout(this.restartTimer);
-      this.restartTimer = null;
-    }
+    this.activeSessionToken++;
+    this.callbacks = {}; // Detach listeners first to prevent stale updates
+    if (__DEV__) console.log('[Voice] cancel requested');
 
-    this.callbacks = {};
     try {
       await Voice.cancel();
     } catch (err) {
-      if (__DEV__) console.log('[Voice] Error cancelling voice:', err);
+      if (__DEV__) console.log('[Voice] Error calling Voice.cancel():', err);
     } finally {
       this.isListening = false;
       this.isStarting = false;
+      this.isStopping = false;
+      this.resultDelivered = false;
       this.currentTranscript = '';
-      this.accumulatedTranscript = '';
     }
   }
 
   public async destroy(): Promise<void> {
-    if (__DEV__) console.log('[Voice] Destroying voice service instance');
-    this.shouldKeepListening = false;
-    if (this.restartTimer) {
-      clearTimeout(this.restartTimer);
-      this.restartTimer = null;
-    }
+    this.activeSessionToken++;
+    this.callbacks = {}; // Detach listeners first
+    if (__DEV__) console.log('[Voice] destroy requested');
 
-    this.callbacks = {};
     try {
       await Voice.destroy();
       Voice.removeAllListeners();
       this.isInitialized = false;
     } catch (err) {
-      if (__DEV__) console.log('[Voice] Error destroying voice:', err);
+      if (__DEV__) console.log('[Voice] Error calling Voice.destroy():', err);
     } finally {
       this.isListening = false;
       this.isStarting = false;
+      this.isStopping = false;
+      this.resultDelivered = false;
+      this.currentTranscript = '';
     }
   }
 
   public getIsListening(): boolean {
     return this.isListening;
-  }
-
-  public getShouldKeepListening(): boolean {
-    return this.shouldKeepListening;
   }
 
   public getCurrentTranscript(): string {
@@ -376,3 +348,4 @@ export class NativeSpeechService {
 }
 
 export const speechService = new NativeSpeechService();
+export default speechService;

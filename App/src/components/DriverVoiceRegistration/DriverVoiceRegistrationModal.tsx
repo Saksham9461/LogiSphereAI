@@ -94,7 +94,6 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
       });
     } else {
       speechService.cancel();
-      speechService.destroy();
       setStepState('IDLE');
     }
   }, [visible]);
@@ -103,7 +102,6 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
   useEffect(() => {
     return () => {
       speechService.cancel();
-      speechService.destroy();
     };
   }, []);
 
@@ -149,8 +147,6 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
           setRawSpeechText(trimmed);
           const parsed = normalizeFieldValue(activeFieldKey, trimmed);
           setNormalizedValue(parsed);
-        }
-        if (!speechService.getShouldKeepListening() && stepStateRef.current === 'LISTENING') {
           setStepState('SHOWING_RESULT');
         }
       },
@@ -168,11 +164,16 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
               { text: 'Try Again', onPress: () => handleStartListeningForIndex(fieldIndexRef.current) },
             ]
           );
+        } else if (code === 'SPEECH_UNAVAILABLE') {
+          setStepState('ERROR');
+          setValidationError('Speech recognition service is not available on this device.');
         } else {
-          // NEVER transition to ERROR screen if speech was already detected or continuous listening is active!
-          if (!speechService.getShouldKeepListening() && !rawSpeechText && !normalizedValue && stepStateRef.current === 'LISTENING') {
+          // If speech was already detected or we have values, transition to result card
+          if (rawSpeechText || normalizedValue) {
+            setStepState('SHOWING_RESULT');
+          } else if (stepStateRef.current === 'LISTENING') {
             setStepState('ERROR');
-            setValidationError('No speech detected. Would you like to try again?');
+            setValidationError(code === 'NO_SPEECH_DETECTED' ? 'No speech detected. Please tap Try Again to speak.' : message || 'Could not recognize speech. Please try again.');
           }
         }
       },
@@ -245,8 +246,7 @@ export const DriverVoiceRegistrationModal: React.FC<DriverVoiceRegistrationModal
    * Confirm details on final review screen and pass 4 values to Driver Registration bottomsheet
    */
   const handleSaveDriverToBackend = async () => {
-    speechService.cancel();
-    speechService.destroy();
+    await speechService.cancel();
     onSwitchToManual(formData);
   };
 

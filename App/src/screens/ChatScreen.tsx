@@ -85,17 +85,6 @@ export default function ChatScreen({ navigation }: any) {
     return () => showSub.remove();
   }, []);
 
-  useEffect(() => {
-    const parent = navigation.getParent();
-    if (activeConversationId) {
-      parent?.setOptions({ headerShown: false });
-    } else {
-      parent?.setOptions({ headerShown: true });
-    }
-    return () => {
-      parent?.setOptions({ headerShown: true });
-    };
-  }, [navigation, activeConversationId]);
 
   const handleTextChange = (text: string) => {
     setInputText(text);
@@ -207,8 +196,8 @@ export default function ChatScreen({ navigation }: any) {
                 {isTyping
                   ? 'typing...'
                   : isParticipantOnline
-                  ? 'Online'
-                  : 'Offline • 24h Message Policy Active'}
+                    ? 'Online'
+                    : 'Offline • 24h Message Policy Active'}
               </Text>
             </View>
           ) : (

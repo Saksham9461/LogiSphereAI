@@ -48,6 +48,7 @@ import { RouteRecommendation } from '../api/apiPath';
 import { openGoogleMapsNavigation } from '../utils/navigationUtils';
 import { decodePolyline } from '../utils/polylineUtils';
 import { searchLocations, getPlaceDetails, LocationResult, PRESET_LOCATIONS } from '../services/locationService';
+import driverTrackingService from '../services/tracking/driverTrackingService';
 
 // --- LIFECYCLE STATUS CONFIGURATION ---
 const TRIP_STATUS: Record<string, { label: string; color: string; bg: string; border: string }> = {
@@ -359,6 +360,8 @@ export default function TripDispatcherScreen() {
       driverID: String(d.driverID ?? d.driverid ?? d.id ?? `driver-${i}`),
       name: d.name ?? d.fullName ?? `Driver ${i + 1}`,
       status: String(d.status ?? d.state ?? 'AVAILABLE').toUpperCase(),
+      licenseNo: d.licenseNo ?? d.licenseno ?? d.licenseNumber ?? '',
+      licenseExpiryDate: d.licenseExpiryDate ?? d.licenseexpirydate ?? '',
     }));
   }, [drivers]);
 
@@ -379,7 +382,49 @@ export default function TripDispatcherScreen() {
       return true;
     });
   }, [normalizedVehicles, maintenanceRecords]);
-  const availableDrivers = useMemo(() => normalizedDrivers.filter((d: any) => d.status === 'AVAILABLE'), [normalizedDrivers]);
+
+  const availableDrivers = useMemo(() => {
+    return normalizedDrivers.filter((d: any) => {
+      if (d.status !== 'AVAILABLE') return false;
+      if (!d.licenseNo) return false;
+      if (!d.licenseExpiryDate) return false;
+
+      const rawDate = String(d.licenseExpiryDate).trim();
+      let normExpiry: string | null = null;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+        normExpiry = rawDate;
+      } else if (/^\d{4}-\d{2}$/.test(rawDate)) {
+        const [y, m] = rawDate.split('-').map(Number);
+        const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+        normExpiry = `${rawDate}-${String(lastDay).padStart(2, '0')}`;
+      } else if (/^\d{1,2}[/-]\d{4}$/.test(rawDate)) {
+        const parts = rawDate.split(/[/-]/).map(Number);
+        const m = parts[0];
+        const y = parts[1];
+        const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+        normExpiry = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      } else if (/^\d{1,2}[/-]\d{1,2}[/-]\d{4}$/.test(rawDate)) {
+        const parts = rawDate.split(/[/-]/).map(Number);
+        const day = parts[0];
+        const m = parts[1];
+        const y = parts[2];
+        normExpiry = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      } else {
+        const p = new Date(rawDate);
+        if (!isNaN(p.getTime())) normExpiry = p.toISOString().slice(0, 10);
+      }
+
+      if (!normExpiry) return false;
+      const nowInKolkata = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+
+      return normExpiry >= nowInKolkata;
+    });
+  }, [normalizedDrivers]);
 
   useEffect(() => {
     if (!vehicleId && availableVehicles.length > 0) setVehicleId(availableVehicles[0].vehicleID);
@@ -528,11 +573,19 @@ export default function TripDispatcherScreen() {
 
   const handleGoToPickup = async (t: any) => {
     const tID = t.tripID || t.tripid;
+
+    // 1. Display mandatory GPS tracking disclosure notice
+    const userConfirmed = await driverTrackingService.promptTrackingNotice();
+    if (!userConfirmed) return;
+
     setActionLoadingId(tID);
     const result = await startPickupNavigation(tID);
     setActionLoadingId(null);
     if (result.success) {
       await refreshAll();
+      // 2. Start native foreground GPS fleet tracking
+      await driverTrackingService.startTracking(tID);
+
       const sLat = t.sourceLatitude ?? t.sourcelatitude;
       const sLng = t.sourceLongitude ?? t.sourcelongitude;
       openGoogleMapsNavigation(
@@ -577,11 +630,19 @@ export default function TripDispatcherScreen() {
 
   const handleGoToDrop = async (t: any) => {
     const tID = t.tripID || t.tripid;
+
+    if (!driverTrackingService.getIsTracking()) {
+      const userConfirmed = await driverTrackingService.promptTrackingNotice();
+      if (!userConfirmed) return;
+    }
+
     setActionLoadingId(tID);
     const result = await startDelivery(tID);
     setActionLoadingId(null);
     if (result.success) {
       await refreshAll();
+      await driverTrackingService.startTracking(tID);
+
       const dLat = t.destinationLatitude ?? t.destinationlatitude;
       const dLng = t.destinationLongitude ?? t.destinationlongitude;
       openGoogleMapsNavigation(
@@ -616,6 +677,8 @@ export default function TripDispatcherScreen() {
         setActionLoadingId(null);
         setConfirmModal(null);
         if (result.success) {
+          // Clean up live GPS tracking for completed trip
+          await driverTrackingService.stopTracking();
           await refreshAll();
           Alert.alert('Trip Delivered', 'Trip marked as DELIVERED successfully.');
         } else {
@@ -633,6 +696,8 @@ export default function TripDispatcherScreen() {
     setSubmitting(false);
 
     if (result.success) {
+      // Clean up live GPS tracking for cancelled trip
+      await driverTrackingService.stopTracking();
       setActionModal(null);
       await refreshAll();
     } else {

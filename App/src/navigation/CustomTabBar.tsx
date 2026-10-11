@@ -22,11 +22,13 @@ import {
   Sparkles,
   FileText,
   UserPlus,
+  ShieldAlert,
 } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
 import { useAttendanceStore } from '../store/AttendanceStore';
 import useChatStore from '../store/ChatStore';
+import { useAlertStore } from '../store/AlertStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
@@ -40,6 +42,8 @@ const getIcon = (routeName: string, color: string, size: number) => {
       return <Truck color={color} size={size} />;
     case 'Drivers':
       return <Users color={color} size={size} />;
+    case 'Alerts':
+      return <ShieldAlert color={color} size={size} />;
     case 'TripDispatcher':
       return <Map color={color} size={size} />;
     case 'Maintenance':
@@ -72,6 +76,8 @@ const getLabel = (routeName: string) => {
       return 'Vehicles';
     case 'Drivers':
       return 'Drivers';
+    case 'Alerts':
+      return 'Alerts';
     case 'TripDispatcher':
       return 'Trips';
     case 'Maintenance':
@@ -102,6 +108,7 @@ export default function CustomTabBar({ state, descriptors, navigation }: any) {
   const { status } = useAttendanceStore();
   const isClockedIn = status === 'CLOCKED_IN';
   const insets = useSafeAreaInsets();
+  const activeAlertCount = useAlertStore((s) => s.activeCount);
 
   useEffect(() => {
     animation.value = withTiming(isMoreOpen ? 1 : 0, {
@@ -185,6 +192,13 @@ export default function CustomTabBar({ state, descriptors, navigation }: any) {
                 onPress={() => handlePress(route, isFocused)}>
                 <View style={[styles.iconBox, isFocused && { backgroundColor: 'transparent' }]}>
                   {getIcon(route.name, color, 24)}
+                  {route.name === 'Alerts' && activeAlertCount > 0 && (
+                    <View style={styles.menuBadge}>
+                      <Text style={styles.menuBadgeText}>
+                        {activeAlertCount > 99 ? '99+' : activeAlertCount}
+                      </Text>
+                    </View>
+                  )}
                 </View>
                 <Text style={[styles.gridItemText, { color }]}>{getLabel(route.name)}</Text>
               </Pressable>
@@ -240,6 +254,13 @@ export default function CustomTabBar({ state, descriptors, navigation }: any) {
             <X color={colors.amber} size={24} />
           ) : (
             <MoreHorizontal color={isSecondaryActive ? colors.amber : colors.textMuted} size={24} />
+          )}
+          {activeAlertCount > 0 && (
+            <View style={styles.moreBadge}>
+              <Text style={styles.moreBadgeText}>
+                {activeAlertCount > 99 ? '99+' : activeAlertCount}
+              </Text>
+            </View>
           )}
           <Text style={[styles.tabLabel, { color: (isMoreOpen || isSecondaryActive) ? colors.amber : colors.textMuted }]}>
             More
@@ -371,5 +392,41 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  moreBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 18,
+    backgroundColor: '#DC2626',
+    borderRadius: 9,
+    minWidth: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: colors.panel,
+  },
+  moreBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  menuBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    backgroundColor: '#DC2626',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  menuBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
   },
 });

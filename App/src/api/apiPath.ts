@@ -58,7 +58,17 @@ export const GetAttendanceStatus = `${BASE_URL}/api/attendance/status`;
 export const GetAttendanceHistory = `${BASE_URL}/api/attendance/history`;
 export const GetAttendanceReport = `${BASE_URL}/api/attendance/report`;
 export const ExportAttendancePdf = `${BASE_URL}/api/attendance/report/export-pdf`;
+export const GetLiveTracking = `${BASE_URL}/api/tracking/live`;
+export const UpdateVehicleLocation = `${BASE_URL}/api/tracking/location`;
+export const WS_TRACKING_URL = `${WS_URL}/ws/tracking`;
 
+// Emergency Alerts
+export const GetAlerts = `${BASE_URL}/api/alerts`;
+export const GetAlertsCount = `${BASE_URL}/api/alerts/count`;
+export const GetAlertDetails = (id: string) => `${BASE_URL}/api/alerts/${id}`;
+export const AcknowledgeAlert = (id: string) => `${BASE_URL}/api/alerts/${id}/acknowledge`;
+export const ResolveAlert = (id: string) => `${BASE_URL}/api/alerts/${id}/resolve`;
+export const WS_ALERTS_URL = `${WS_URL}/ws/alerts`;
 
 
 

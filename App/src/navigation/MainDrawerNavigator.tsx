@@ -4,31 +4,40 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {User} from 'lucide-react-native';
 import MainTabsNavigator from './MainTabsNavigator';
 import useAuthStore from '../store/AuthStore';
+import useChatStore from '../store/ChatStore';
 import {colors} from '../theme/colors';
 import SOSButton from '../components/SOSButton';
+import EmergencyAlertBanner from '../components/EmergencyAlertBanner';
 
 export default function MainDrawerNavigator({navigation}: any) {
   const user = useAuthStore(state => state.user);
   const insets = useSafeAreaInsets();
+  const activeConversationId = useChatStore(state => state.activeConversationId);
+  const userRole = String(user?.role || '').toUpperCase();
+  const isDriver = userRole === 'ROLE_DRIVER' || userRole === 'DRIVER';
 
   return (
     <View style={styles.container}>
-      {/* Top Header */}
-      <View style={[styles.header, {paddingTop: insets.top + 6}]}>
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          Hey! {user?.name || 'User'}
-        </Text>
-        <View style={styles.headerRight}>
-          <SOSButton />
-          <Pressable
-            onPress={() => navigation.navigate('Settings')}
-            style={styles.profileBtn}
-            hitSlop={8}
-          >
-            <User color={colors.textPrimary} size={20} />
-          </Pressable>
+      <EmergencyAlertBanner />
+
+      {/* Top Header - Shown on all screens, hidden only inside specific chat threads */}
+      {!activeConversationId && (
+        <View style={[styles.header, {paddingTop: insets.top + 6}]}>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            Hey! {user?.name || 'User'}
+          </Text>
+          <View style={styles.headerRight}>
+            {isDriver && <SOSButton />}
+            <Pressable
+              onPress={() => navigation.navigate('Settings')}
+              style={styles.profileBtn}
+              hitSlop={8}
+            >
+              <User color={colors.textPrimary} size={20} />
+            </Pressable>
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Main Operations Tabs */}
       <View style={styles.content}>

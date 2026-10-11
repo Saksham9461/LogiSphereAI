@@ -15,7 +15,8 @@ type Table =
   | 'notifications'
   | 'conversations'
   | 'conversation_participants'
-  | 'messages';
+  | 'messages'
+  | 'emergency_alerts';
 
 const now = () => new Date().toISOString();
 
@@ -33,6 +34,7 @@ const memory: Record<Table, any[]> = {
   conversations: [],
   conversation_participants: [],
   messages: [],
+  emergency_alerts: [],
 };
 
 const withTimeout = <T>(promise: PromiseLike<T>, ms = 3000): Promise<T> => {
@@ -131,6 +133,26 @@ export const db = {
     return list[0] ?? null;
   },
 
+  async findById(table: Table, id: string) {
+    if (!id) return null;
+    if (table === 'vehicles') {
+      const v = (await this.find(table, { vehicleID: id })) || (await this.find(table, { vehicleid: id })) || (await this.find(table, { id }));
+      if (v) return v;
+      const all = await this.list(table);
+      return (all || []).find((row: any) => String(row.vehicleID || row.vehicleid || row.id || '').toLowerCase() === String(id).toLowerCase()) ?? null;
+    }
+    if (table === 'trips') {
+      const t = (await this.find(table, { tripID: id })) || (await this.find(table, { tripid: id })) || (await this.find(table, { id }));
+      if (t) return t;
+      const all = await this.list(table);
+      return (all || []).find((row: any) => String(row.tripID || row.tripid || row.id || '').toLowerCase() === String(id).toLowerCase()) ?? null;
+    }
+    const u = (await this.find(table, { id })) || (await this.find(table, { userID: id }));
+    if (u) return u;
+    const all = await this.list(table);
+    return (all || []).find((row: any) => String(row.id || row.userID || row.userid || '').toLowerCase() === String(id).toLowerCase()) ?? null;
+  },
+
   async insert(table: Table, data: any) {
     const row = { ...data, createdAt: data.createdAt ?? now(), updatedAt: data.updatedAt ?? now() };
     if (supabase) {
@@ -207,8 +229,6 @@ export const db = {
             locationname: data.locationName || data.locationname || 'Office Location',
             distancefromoffice: Number(data.distanceFromOffice ?? data.distancefromoffice ?? 0),
             status: data.status || 'Verified Location',
-            auto_clock_out: Boolean(data.autoClockOut ?? data.auto_clock_out ?? data.autoclockout ?? false),
-            clock_out_type: data.clockOutType || data.clock_out_type || data.clockouttype || 'MANUAL',
           };
         } else if (table === 'trips') {
           const tripIdVal = data.tripID || data.tripid || data.id || `TRP-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -253,6 +273,29 @@ export const db = {
             delivered_at: data.delivered_at || data.deliveredAt || null,
             read_at: data.read_at || data.readAt || null,
           };
+        } else if (table === 'emergency_alerts') {
+          insertPayload = {
+            id: data.id || `alt-${Date.now()}`,
+            driver_id: data.driver_id || data.driverId,
+            driver_name: data.driver_name || data.driverName || 'Driver',
+            business_id: data.business_id || data.businessId || 'default_org',
+            trip_id: data.trip_id || data.tripId || null,
+            vehicle_id: data.vehicle_id || data.vehicleId || null,
+            latitude: data.latitude !== null && data.latitude !== undefined ? Number(data.latitude) : null,
+            longitude: data.longitude !== null && data.longitude !== undefined ? Number(data.longitude) : null,
+            location_accuracy_meters: data.location_accuracy_meters ?? data.locationAccuracy ?? null,
+            location_captured_at: data.location_captured_at || data.locationCapturedAt || now(),
+            location_status: data.location_status || data.locationStatus || 'PRECISE',
+            message: data.message || 'EMERGENCY SOS: Driver triggered emergency alert',
+            status: data.status || 'ACTIVE',
+            acknowledged_by: data.acknowledged_by || data.acknowledgedBy || null,
+            acknowledged_at: data.acknowledged_at || data.acknowledgedAt || null,
+            resolved_by: data.resolved_by || data.resolvedBy || null,
+            resolved_at: data.resolved_at || data.resolvedAt || null,
+            resolution_note: data.resolution_note || data.resolutionNote || null,
+            created_at: data.created_at || data.createdAt || now(),
+            updated_at: data.updated_at || data.updatedAt || now(),
+          };
         }
 
         console.log(`\n--------------------------------------------------`);
@@ -260,17 +303,73 @@ export const db = {
         console.log(`[DB Insert] Supabase Insert Payload:`, JSON.stringify(insertPayload, null, 2));
 
         let { data: created, error } = await supabase.from(table).insert(insertPayload).select('*').single();
+
+        // Handle schema cache missing column errors by removing the unrecognized column and retrying
+        while (error && (error.code === 'PGRST204' || error.message?.includes('schema cache'))) {
+          const match = error.message.match(/Could not find the '([^']+)' column/i);
+          if (match && match[1] && (insertPayload as any)[match[1]] !== undefined) {
+            console.warn(`[DB Insert] Column '${match[1]}' not found in Supabase '${table}' schema cache. Retrying without it.`);
+            delete (insertPayload as any)[match[1]];
+            const retryRes = await supabase.from(table).insert(insertPayload).select('*').single();
+            created = retryRes.data;
+            error = retryRes.error;
+          } else {
+            break;
+          }
+        }
+
         if (!error && created) {
           console.log(`[DB Insert SUCCESS] Saved to Supabase table "${table}":`, JSON.stringify(created, null, 2));
           console.log(`--------------------------------------------------\n`);
-          memory[table].unshift(created);
-          return created;
+          const merged = { ...row, ...created };
+          memory[table].unshift(merged);
+          return merged;
         }
+
+        // If database rejected insert due to unique constraint / duplicate key violation, do NOT fallback to memory
+        const errMsg = error?.message || '';
+        if (error?.code === '23505' || errMsg.includes('duplicate key') || errMsg.includes('unique constraint') || errMsg.includes('already exists')) {
+          const duplicateError: any = new Error(errMsg || 'Duplicate key violation');
+          duplicateError.code = '23505';
+          throw duplicateError;
+        }
+
         console.warn(`[DB Insert Warning] Table "${table}" Supabase insert failed (${error?.message}). Falling back to memory store.`);
-      } catch (err) {
+      } catch (err: any) {
+        if (err?.code === '23505' || err?.message?.includes('duplicate key') || err?.message?.includes('unique constraint')) {
+          throw err;
+        }
         console.warn(`[DB Insert Exception] Table "${table}":`, err);
       }
     }
+
+    // In-memory uniqueness validation for vehicles and users
+    if (table === 'vehicles') {
+      const reg = String(data.registrationNumber || data.registrationnumber || '').trim().toUpperCase();
+      if (reg) {
+        const existingVeh = memory.vehicles.find(v =>
+          String(v.registrationNumber || v.registrationnumber || '').trim().toUpperCase() === reg
+        );
+        if (existingVeh) {
+          const dupErr: any = new Error(`Vehicle with registration number '${reg}' already exists`);
+          dupErr.code = '23505';
+          throw dupErr;
+        }
+      }
+    } else if (table === 'users') {
+      const email = String(data.email || '').trim().toLowerCase();
+      if (email) {
+        const existingUser = memory.users.find(u =>
+          String(u.email || '').trim().toLowerCase() === email
+        );
+        if (existingUser) {
+          const dupErr: any = new Error(`User with email '${email}' already exists`);
+          dupErr.code = '23505';
+          throw dupErr;
+        }
+      }
+    }
+
     console.log(`[DB Insert Memory] Fallback to in-memory for table "${table}":`, JSON.stringify(row, null, 2));
     memory[table].unshift(row);
     return row;
@@ -287,12 +386,9 @@ export const db = {
             cleanPatch.clockouttime = patch.clockOutTime ?? patch.clockouttime;
           }
           if (patch.status !== undefined) cleanPatch.status = patch.status;
-          if (patch.autoClockOut !== undefined || patch.auto_clock_out !== undefined || patch.autoclockout !== undefined) {
-            cleanPatch.auto_clock_out = Boolean(patch.autoClockOut ?? patch.auto_clock_out ?? patch.autoclockout);
-          }
-          if (patch.clockOutType !== undefined || patch.clock_out_type !== undefined || patch.clockouttype !== undefined) {
-            cleanPatch.clock_out_type = patch.clockOutType || patch.clock_out_type || patch.clockouttype;
-          }
+          if (patch.latitude !== undefined) cleanPatch.latitude = Number(patch.latitude);
+          if (patch.longitude !== undefined) cleanPatch.longitude = Number(patch.longitude);
+          if (patch.locationName || patch.locationname) cleanPatch.locationname = patch.locationName || patch.locationname;
           cleanPatch[timeField] = now();
         } else if (table === 'trips') {
           cleanPatch = {};
@@ -314,6 +410,25 @@ export const db = {
           if (patch.read_at !== undefined || patch.readAt !== undefined) {
             cleanPatch.read_at = patch.read_at ?? patch.readAt;
           }
+        } else if (table === 'emergency_alerts') {
+          cleanPatch = {};
+          if (patch.status !== undefined) cleanPatch.status = patch.status;
+          if (patch.acknowledged_by !== undefined || patch.acknowledgedBy !== undefined) {
+            cleanPatch.acknowledged_by = patch.acknowledged_by ?? patch.acknowledgedBy;
+          }
+          if (patch.acknowledged_at !== undefined || patch.acknowledgedAt !== undefined) {
+            cleanPatch.acknowledged_at = patch.acknowledged_at ?? patch.acknowledgedAt;
+          }
+          if (patch.resolved_by !== undefined || patch.resolvedBy !== undefined) {
+            cleanPatch.resolved_by = patch.resolved_by ?? patch.resolvedBy;
+          }
+          if (patch.resolved_at !== undefined || patch.resolvedAt !== undefined) {
+            cleanPatch.resolved_at = patch.resolved_at ?? patch.resolvedAt;
+          }
+          if (patch.resolution_note !== undefined || patch.resolutionNote !== undefined) {
+            cleanPatch.resolution_note = patch.resolution_note ?? patch.resolutionNote;
+          }
+          cleanPatch[timeField] = now();
         }
 
         console.log(`\n--------------------------------------------------`);
@@ -331,20 +446,50 @@ export const db = {
 
         let q = supabase.from(table).update(cleanPatch).select('*');
         for (const [k, v] of Object.entries(key)) q = q.eq(k.toLowerCase(), v);
-        const { data, error } = await q;
+        let { data, error } = await q;
+
+        while (error && (error.code === 'PGRST204' || error.message?.includes('schema cache'))) {
+          const match = error.message.match(/Could not find the '([^']+)' column/i);
+          if (match && match[1] && cleanPatch[match[1]] !== undefined) {
+            console.warn(`[DB Update] Column '${match[1]}' not found in Supabase '${table}' schema cache. Retrying without it.`);
+            delete cleanPatch[match[1]];
+            let retryQ = supabase.from(table).update(cleanPatch).select('*');
+            for (const [k, v] of Object.entries(key)) retryQ = retryQ.eq(k.toLowerCase(), v);
+            const retryRes = await retryQ;
+            data = retryRes.data;
+            error = retryRes.error;
+          } else {
+            break;
+          }
+        }
+
         if (!error && data && data.length > 0) {
           console.log(`[DB Update SUCCESS] Table "${table}" updated:`, JSON.stringify(data[0], null, 2));
           console.log(`--------------------------------------------------\n`);
-          return data[0];
+          return memRow ? { ...memRow, ...data[0] } : data[0];
         }
 
         let qLower = supabase.from(table).update(cleanPatch).select('*');
         for (const [k, v] of Object.entries(key)) qLower = qLower.eq(k, v);
-        const resLower = await qLower;
+        let resLower = await qLower;
+
+        while (resLower.error && (resLower.error.code === 'PGRST204' || resLower.error.message?.includes('schema cache'))) {
+          const match = resLower.error.message.match(/Could not find the '([^']+)' column/i);
+          if (match && match[1] && cleanPatch[match[1]] !== undefined) {
+            console.warn(`[DB Update] Column '${match[1]}' not found in Supabase '${table}' schema cache. Retrying without it.`);
+            delete cleanPatch[match[1]];
+            let retryQLower = supabase.from(table).update(cleanPatch).select('*');
+            for (const [k, v] of Object.entries(key)) retryQLower = retryQLower.eq(k, v);
+            resLower = await retryQLower;
+          } else {
+            break;
+          }
+        }
+
         if (!resLower.error && resLower.data && resLower.data.length > 0) {
           console.log(`[DB Update SUCCESS] Table "${table}" updated:`, JSON.stringify(resLower.data[0], null, 2));
           console.log(`--------------------------------------------------\n`);
-          return resLower.data[0];
+          return memRow ? { ...memRow, ...resLower.data[0] } : resLower.data[0];
         }
         if (memRow) return memRow;
         return null;
@@ -358,6 +503,84 @@ export const db = {
     Object.assign(row, patch, { updatedAt: now(), updatedat: now() });
     return row;
   },
+
+  async upsert(table: Table, conflictKey: string, data: any) {
+    const row = { ...data, createdAt: data.createdAt ?? now(), updatedAt: now(), updatedat: now() };
+    const norm = (s: string) => s.replace(/_/g, '').toLowerCase();
+    const conflictVal = data[conflictKey] ?? data[norm(conflictKey)] ?? data[conflictKey.toLowerCase()];
+
+    // 1. In-memory update or insert
+    const memIndex = memory[table].findIndex(r => {
+      const targetNormKey = norm(conflictKey);
+      const matchPropKey = Object.keys(r).find(rk => norm(rk) === targetNormKey);
+      return matchPropKey && (r[matchPropKey] === conflictVal || String(r[matchPropKey]) === String(conflictVal));
+    });
+
+    if (memIndex >= 0) {
+      memory[table][memIndex] = { ...memory[table][memIndex], ...data, updatedAt: now(), updatedat: now() };
+    } else {
+      memory[table].unshift(row);
+    }
+
+    // 2. Supabase upsert
+    if (supabase) {
+      try {
+        let upsertPayload: Record<string, any> = { ...data };
+        if (table === 'tracking_locations') {
+          upsertPayload = {
+            id: data.id || `loc-${conflictVal || Date.now()}`,
+            tripid: data.tripID || data.tripid,
+            vehicleid: data.vehicleID || data.vehicleid,
+            driverid: data.driverID || data.driverid,
+            latitude: Number(data.latitude),
+            longitude: Number(data.longitude),
+            speed: Number(data.speed ?? 0),
+            accuracy: data.accuracy !== undefined ? Number(data.accuracy) : null,
+            heading: data.heading !== undefined ? Number(data.heading) : null,
+            devicetimestamp: data.deviceTimestamp || data.devicetimestamp || now(),
+            receivedat: now(),
+            updatedat: now(),
+          };
+        }
+
+        const { data: supaRow, error } = await supabase
+          .from(table)
+          .upsert(upsertPayload, { onConflict: conflictKey.toLowerCase() })
+          .select('*')
+          .single();
+
+        if (!error && supaRow) {
+          if (memIndex >= 0) {
+            memory[table][memIndex] = supaRow;
+          }
+          return supaRow;
+        }
+
+        // Fallback with exact conflictKey name
+        const { data: supaRowOrig, error: errorOrig } = await supabase
+          .from(table)
+          .upsert(upsertPayload, { onConflict: conflictKey })
+          .select('*')
+          .single();
+
+        if (!errorOrig && supaRowOrig) {
+          if (memIndex >= 0) {
+            memory[table][memIndex] = supaRowOrig;
+          }
+          return supaRowOrig;
+        }
+
+        if (error || errorOrig) {
+          console.warn(`[db.upsert] Table "${table}" Supabase upsert note: ${error?.message || errorOrig?.message}. Preserved in memory.`);
+        }
+      } catch (err) {
+        console.warn(`[db.upsert] Table "${table}" exception:`, err);
+      }
+    }
+
+    return memIndex >= 0 ? memory[table][memIndex] : row;
+  },
+
 
   async remove(table: Table, key: Record<string, any>) {
     const norm = (s: string) => s.replace(/_/g, '').toLowerCase();

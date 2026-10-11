@@ -6,6 +6,7 @@ import {isJwtExpired} from '../utils/jwt';
 
 import useTripStore from './TripStore';
 import useChatStore from './ChatStore';
+import driverTrackingService from '../services/tracking/driverTrackingService';
 
 export type AuthStatus = 'initializing' | 'authenticated' | 'unauthenticated';
 
@@ -131,6 +132,11 @@ const useAuthStore = create<AuthState>(set => ({
   },
 
   logout: async () => {
+    try {
+      await driverTrackingService.stopTracking();
+    } catch (e) {
+      console.warn('[AuthStore] Error stopping tracking on logout:', e);
+    }
     useTripStore.getState().unsubscribeRealtime();
     useChatStore.getState().disconnectSocket();
     await tokenStorage.setRememberMe(false);

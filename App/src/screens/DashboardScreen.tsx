@@ -143,7 +143,7 @@ const TripCard = ({ trip }: any) => {
   );
 };
 
-export default function DashboardScreen() {
+export default function DashboardScreen({ navigation }: any) {
   const user = useAuthStore(state => state.user);
   const { stats, vehicleStatus, fetchDashboardSummary, loading: loadingSummary, error: summaryError } = useDashboardStore();
   const { trips, getTrips, loading: loadingTrips, error: tripsError } = useTripStore();
@@ -158,8 +158,18 @@ export default function DashboardScreen() {
   React.useEffect(() => {
     if (user) {
       useTripStore.getState().initRealtimeSubscription(user);
+      fetchAttendanceStatus();
     }
   }, [user]);
+
+  // Ensure attendance status is refreshed whenever navigation reaches/focuses this screen
+  React.useEffect(() => {
+    if (!navigation) return;
+    const unsub = navigation.addListener('focus', () => {
+      fetchAttendanceStatus();
+    });
+    return unsub;
+  }, [navigation]);
 
   // Fetch data on screen focus
   useFocusEffect(

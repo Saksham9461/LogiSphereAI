@@ -1,20 +1,7 @@
-export type AIResponseType = 
-  | 'text'
-  | 'fleet_summary'
-  | 'vehicle_list'
-  | 'trip_summary'
-  | 'driver_summary'
-  | 'maintenance_alert'
-  | 'fuel_summary';
+import { FleetAiResponse } from './fleetAiService';
 
-export interface AIResponse {
-  success: boolean;
-  intent: string;
-  type: AIResponseType;
-  message: string;
-  data?: any;
-  suggestions?: string[];
-}
+export type AIResponse = FleetAiResponse;
+
 
 const MOCK_INTENTS: Record<string, AIResponse> = {
   'active_vehicles': {

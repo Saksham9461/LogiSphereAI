@@ -2,6 +2,7 @@ import {Router} from 'express';
 import {db} from '../../config/database';
 import {optionalAuth} from '../../middleware/auth';
 import {fail} from '../../utils/http';
+import {broadcastTrackingTripEnded} from '../chat/websocket';
 
 export const tripRouter = Router();
 
@@ -23,18 +24,232 @@ tripRouter.get('/', optionalAuth, async (req, res) => {
   }
 });
 
+const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || 'Asia/Kolkata';
+
+export const ACTIVE_TRIP_STATUSES = [
+  'ACCEPTED',
+  'ASSIGNED',
+  'DISPATCHED',
+  'GOING_TO_PICKUP',
+  'ARRIVED_AT_PICKUP',
+  'PICKED_UP',
+  'IN_TRANSIT',
+  'ARRIVED_AT_DROP',
+];
+
+export function getTodayBusinessDateString(date: Date = new Date(), timeZone = BUSINESS_TIMEZONE): string {
+  try {
+    return date.toLocaleDateString('en-CA', { timeZone });
+  } catch {
+    return date.toISOString().split('T')[0];
+  }
+}
+
+export function parseLicenseExpiryDate(raw: any): string | null {
+  if (!raw) return null;
+  const str = String(raw).trim();
+  if (!str) return null;
+
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    return str;
+  }
+
+  // YYYY-MM
+  if (/^\d{4}-\d{2}$/.test(str)) {
+    const [y, m] = str.split('-').map(Number);
+    if (m >= 1 && m <= 12) {
+      const lastDay = new Date(y, m, 0).getDate();
+      return `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    }
+  }
+
+  // MM/YYYY or DD/MM/YYYY
+  const parts = str.split('/');
+  if (parts.length === 2) {
+    const p1 = Number(parts[0]);
+    const p2 = Number(parts[1]);
+    if (!isNaN(p1) && !isNaN(p2)) {
+      let mm = p1;
+      let yyyy = p2;
+      if (p1 > 12 && p2 <= 12) {
+        yyyy = p1;
+        mm = p2;
+      }
+      if (mm >= 1 && mm <= 12) {
+        const lastDay = new Date(yyyy, mm, 0).getDate();
+        return `${yyyy}-${String(mm).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      }
+    }
+  }
+
+  if (parts.length === 3) {
+    const d = Number(parts[0]);
+    const m = Number(parts[1]);
+    const y = Number(parts[2]);
+    if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+      return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+  }
+
+  try {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return d.toISOString().split('T')[0];
+    }
+  } catch {}
+
+  return null;
+}
+
 // Helper to look up vehicle robustly
 async function findVehicle(vehicleID: string) {
   let vehicle = await db.find('vehicles', {vehicleID});
   if (!vehicle) vehicle = await db.find('vehicles', {vehicleid: vehicleID});
+  if (!vehicle) {
+    const all = await db.list('vehicles');
+    vehicle = (all || []).find((v: any) =>
+      String(v.vehicleID || v.vehicleid || v.id).toLowerCase() === String(vehicleID).toLowerCase()
+    );
+  }
   return vehicle;
+}
+
+// Helper to look up driver robustly
+async function findDriver(driverID: string) {
+  let driver = await db.find('users', {id: driverID});
+  if (!driver) driver = await db.find('users', {id: driverID.toLowerCase()});
+  if (!driver) {
+    const all = await db.list('users');
+    driver = (all || []).find((u: any) =>
+      String(u.id || u.userId || '').toLowerCase() === String(driverID).toLowerCase()
+    );
+  }
+  return driver;
 }
 
 // Helper to look up trip robustly
 async function findTrip(tripID: string) {
   let trip = await db.find('trips', {tripID});
   if (!trip) trip = await db.find('trips', {tripid: tripID});
+  if (!trip) {
+    const all = await db.list('trips');
+    trip = (all || []).find((t: any) =>
+      String(t.tripID || t.tripid || t.id).toLowerCase() === String(tripID).toLowerCase()
+    );
+  }
   return trip;
+}
+
+// Helper to validate vehicle eligibility (Rule 2)
+async function validateVehicleEligibility(vehicleID: string): Promise<{ valid: boolean; error?: string; vehicle?: any }> {
+  const vehicle = await findVehicle(vehicleID);
+  if (!vehicle) {
+    return { valid: false, error: `Vehicle ${vehicleID} not found` };
+  }
+
+  const vStatus = String(vehicle.status || '').toUpperCase();
+  if (vStatus === 'RETIRED') {
+    return { valid: false, error: `Vehicle ${vehicle.name || vehicle.registrationNumber || vehicleID} is retired and cannot be assigned or dispatched` };
+  }
+  if (vStatus === 'IN_SHOP' || vStatus === 'MAINTENANCE') {
+    return { valid: false, error: `Vehicle ${vehicle.name || vehicle.registrationNumber || vehicleID} is currently in shop for maintenance and cannot be assigned or dispatched` };
+  }
+  if (vStatus === 'INACTIVE') {
+    return { valid: false, error: `Vehicle ${vehicle.name || vehicle.registrationNumber || vehicleID} is inactive and cannot be assigned or dispatched` };
+  }
+
+  // Active maintenance check
+  const allMaint = await db.list('maintenance_records');
+  const hasActiveMaint = (allMaint || []).some((m: any) => {
+    const mVId = m.vehicleID || m.vehicleid;
+    const mStatus = String(m.status || '').toUpperCase();
+    return (
+      (mVId === vehicleID || (vehicle.id && mVId === vehicle.id) || (vehicle.vehicleID && mVId === vehicle.vehicleID)) &&
+      (mStatus === 'ACTIVE' || mStatus === 'IN SHOP')
+    );
+  });
+  if (hasActiveMaint) {
+    return { valid: false, error: `Vehicle ${vehicle.name || vehicle.registrationNumber || vehicleID} is currently undergoing maintenance in shop and cannot be assigned or dispatched` };
+  }
+
+  return { valid: true, vehicle };
+}
+
+// Helper to validate driver eligibility (Rule 3)
+async function validateDriverEligibility(driverID: string): Promise<{ valid: boolean; error?: string; driver?: any }> {
+  const driver = await findDriver(driverID);
+  if (!driver) {
+    return { valid: false, error: `Driver ${driverID} not found` };
+  }
+
+  const role = String(driver.role || '').toUpperCase();
+  if (role !== 'ROLE_DRIVER' && role !== 'DRIVER') {
+    return { valid: false, error: `User ${driver.name || driverID} is not a driver` };
+  }
+
+  const status = String(driver.status || '').toUpperCase();
+  if (status === 'SUSPENDED') {
+    return { valid: false, error: `Driver ${driver.name || driverID} is suspended and cannot be assigned to trips` };
+  }
+  if (status === 'INACTIVE' || status === 'OFF_DUTY') {
+    return { valid: false, error: `Driver ${driver.name || driverID} is currently ${status.toLowerCase()} and cannot be assigned to trips` };
+  }
+
+  const licenseNo = String(driver.licenseNo || driver.licenseno || '').trim();
+  if (!licenseNo) {
+    return { valid: false, error: `Driver ${driver.name || driverID} does not have a registered driver's license` };
+  }
+
+  const rawExpiry = driver.licenseExpiryDate || driver.licenseexpirydate;
+  const parsedExpiry = parseLicenseExpiryDate(rawExpiry);
+  if (!parsedExpiry) {
+    return { valid: false, error: `Driver ${driver.name || driverID} does not have a valid license expiration date on file` };
+  }
+
+  const todayStr = getTodayBusinessDateString();
+  if (parsedExpiry < todayStr) {
+    return { valid: false, error: `Driver ${driver.name || driverID}'s license expired on ${parsedExpiry}. Cannot assign expired license driver to trip.` };
+  }
+
+  return { valid: true, driver };
+}
+
+// Helper to check active trip conflict for vehicle or driver (Rule 4)
+async function checkActiveTripConflict(
+  vehicleID: string,
+  driverID: string,
+  excludeTripID?: string
+): Promise<{ hasConflict: boolean; error?: string }> {
+  const allTrips = await db.list('trips');
+  const normExcl = excludeTripID ? String(excludeTripID).toLowerCase() : '';
+
+  for (const t of allTrips || []) {
+    const tId = String(t.tripID || t.tripid || t.id || '').toLowerCase();
+    if (normExcl && tId === normExcl) continue;
+
+    const tStatus = String(t.status || '').toUpperCase();
+    if (!ACTIVE_TRIP_STATUSES.includes(tStatus)) continue;
+
+    const tVId = String(t.vehicleID || t.vehicleid || '').toLowerCase();
+    const tDId = String(t.driverID || t.driverid || '').toLowerCase();
+
+    if (tVId && tVId === String(vehicleID).toLowerCase()) {
+      return {
+        hasConflict: true,
+        error: `Vehicle ${vehicleID} is already assigned to active trip ${t.tripID || t.tripid || t.id} (status: ${tStatus})`,
+      };
+    }
+
+    if (tDId && tDId === String(driverID).toLowerCase()) {
+      return {
+        hasConflict: true,
+        error: `Driver ${driverID} is already assigned to active trip ${t.tripID || t.tripid || t.id} (status: ${tStatus})`,
+      };
+    }
+  }
+
+  return { hasConflict: false };
 }
 
 // POST Create Trip (Status defaults to PENDING_APPROVAL)
@@ -91,30 +306,42 @@ tripRouter.post('/create', optionalAuth, async (req, res) => {
       }
     }
 
-    const vehicle = await findVehicle(vehicleID);
-    if (!vehicle) return fail(res, 400, 'Vehicle not found');
-
-    const vStatus = String(vehicle.status || '').toUpperCase();
-    if (vStatus === 'IN_SHOP' || vStatus === 'MAINTENANCE') {
-      return fail(res, 400, `Vehicle ${vehicle.name || vehicle.registrationNumber || vehicleID} is currently in shop for maintenance and cannot be assigned to trips`);
+    // 1. Vehicle eligibility (Rule 2)
+    const vehCheck = await validateVehicleEligibility(vehicleID);
+    if (!vehCheck.valid) {
+      return fail(res, 400, vehCheck.error || 'Vehicle is not eligible for assignment');
     }
+    const vehicle = vehCheck.vehicle;
 
-    const allMaint = await db.list('maintenance_records');
-    const hasActiveMaint = (allMaint || []).some((m: any) => {
-      const mVId = m.vehicleID || m.vehicleid;
-      const mStatus = String(m.status || '').toUpperCase();
-      return (
-        (mVId === vehicleID || (vehicle.id && mVId === vehicle.id) || (vehicle.vehicleID && mVId === vehicle.vehicleID)) &&
-        (mStatus === 'ACTIVE' || mStatus === 'IN SHOP')
-      );
-    });
-    if (hasActiveMaint) {
-      return fail(res, 400, `Vehicle ${vehicle.name || vehicle.registrationNumber || vehicleID} is currently undergoing maintenance in shop and cannot be assigned to trips`);
+    // 2. Driver eligibility (Rule 3)
+    const drvCheck = await validateDriverEligibility(driverID);
+    if (!drvCheck.valid) {
+      return fail(res, 400, drvCheck.error || 'Driver is not eligible for assignment');
+    }
+    const driver = drvCheck.driver;
+
+    // 3. Cargo weight validation (Rule 5)
+    const weight = Number(cargoWeight);
+    if (cargoWeight === undefined || cargoWeight === null || isNaN(weight) || !isFinite(weight) || weight <= 0) {
+      return fail(res, 400, 'Cargo weight must be a valid positive number');
     }
 
     const maxCap = Number(vehicle.maxLoadCapacity ?? vehicle.maxloadcapacity ?? vehicle.capacity ?? 0);
-    if (Number(cargoWeight) > maxCap) {
-      return fail(res, 400, `Cargo weight (${cargoWeight} kg) exceeds vehicle max load capacity (${maxCap} kg)`);
+    if (weight > maxCap) {
+      return fail(res, 400, `Cargo weight (${weight} kg) exceeds vehicle max load capacity (${maxCap} kg)`);
+    }
+
+    // 4. Double booking / active trip conflict check (Rule 4)
+    if (String(vehicle.status || '').toUpperCase() === 'ON_TRIP') {
+      return fail(res, 409, `Vehicle ${vehicle.name || vehicleID} is currently on an active trip and cannot be assigned again`);
+    }
+    if (String(driver.status || '').toUpperCase() === 'ON_TRIP') {
+      return fail(res, 409, `Driver ${driver.name || driverID} is currently on an active trip and cannot be assigned again`);
+    }
+
+    const conflict = await checkActiveTripConflict(vehicleID, driverID);
+    if (conflict.hasConflict) {
+      return fail(res, 409, conflict.error || 'Vehicle or driver is already assigned to an active trip');
     }
 
     const tripData = {
@@ -125,13 +352,27 @@ tripRouter.post('/create', optionalAuth, async (req, res) => {
     };
 
     const trip = await db.insert('trips', tripData);
+    const resolvedTripId = trip.tripID || trip.tripid || trip.id || tripData.tripID;
+    const resolvedVehicleId = trip.vehicleID || trip.vehicleid || tripData.vehicleID;
+    const resolvedDriverId = trip.driverID || trip.driverid || tripData.driverID;
+
+    const formattedTrip = {
+      ...trip,
+      tripID: resolvedTripId,
+      tripid: resolvedTripId,
+      id: resolvedTripId,
+      vehicleID: resolvedVehicleId,
+      vehicleid: resolvedVehicleId,
+      driverID: resolvedDriverId,
+      driverid: resolvedDriverId,
+    };
 
     console.log('\n==================================================');
     console.log('[Trip API] POST /api/trip/create RESPONSE (201 Created):');
-    console.log(JSON.stringify(trip, null, 2));
+    console.log(JSON.stringify(formattedTrip, null, 2));
     console.log('==================================================\n');
 
-    return res.status(201).json(trip);
+    return res.status(201).json(formattedTrip);
   } catch (error: any) {
     console.error('[Trip API ERROR] POST /api/trip/create failed:', error);
     return fail(res, 500, error.message || 'Failed to create trip');
@@ -204,6 +445,31 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
 
   // 4. Side effects according to target status
   if (targetStatus === 'ACCEPTED' || targetStatus === 'ASSIGNED' || targetStatus === 'DISPATCHED') {
+    // Validate vehicle eligibility at dispatch time (Rule 2)
+    if (vehicleID) {
+      const vehCheck = await validateVehicleEligibility(vehicleID);
+      if (!vehCheck.valid) {
+        return fail(res, 400, `Cannot dispatch trip: ${vehCheck.error}`);
+      }
+    }
+
+    // Validate driver eligibility at dispatch time (Rule 3)
+    if (driverID) {
+      const drvCheck = await validateDriverEligibility(driverID);
+      if (!drvCheck.valid) {
+        return fail(res, 400, `Cannot dispatch trip: ${drvCheck.error}`);
+      }
+    }
+
+    // Check active conflict (Rule 4)
+    if (vehicleID && driverID) {
+      const conflictCheck = await checkActiveTripConflict(vehicleID, driverID, trip.tripID || tripID);
+      if (conflictCheck.hasConflict) {
+        return fail(res, 409, `Cannot dispatch trip: ${conflictCheck.error}`);
+      }
+    }
+
+    // Rule 6: Dispatch sets driver and vehicle to ON_TRIP
     if (vehicleID) await db.update('vehicles', {vehicleID}, {status: 'ON_TRIP'});
     if (driverID) await db.update('users', {id: driverID}, {status: 'ON_TRIP'});
 
@@ -224,42 +490,118 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
         console.warn('[Notification Error] Driver notification creation failed (non-blocking):', nErr);
       }
     }
-  } else if (targetStatus === 'DELIVERED' || targetStatus === 'COMPLETED') {
+  } else if (targetStatus === 'DELIVERED' || targetStatus === 'COMPLETED' || targetStatus === 'REJECTED' || targetStatus === 'CANCELLED') {
+    // Rule 7: Completing or cancelling trip restores eligible resources safely
     const finalOdometer = req.body?.finalOdometer !== undefined ? Number(req.body.finalOdometer) : trip.finalOdometer;
-    const patchVehicle: Record<string, any> = {status: 'AVAILABLE'};
-    if (finalOdometer) patchVehicle.odometer = finalOdometer;
 
-    if (vehicleID) await db.update('vehicles', {vehicleID}, patchVehicle);
-    if (driverID) {
-      try {
-        let driverUser = await db.find('users', {id: driverID});
-        if (!driverUser) driverUser = await db.find('users', {id: driverID.toLowerCase()});
-        const currentTrips = Number(driverUser?.trips ?? 0);
-        await db.update('users', {id: driverID}, {status: 'AVAILABLE', trips: currentTrips + 1});
-      } catch (dErr) {
-        console.error('[Trip Complete Error] Driver trip count update failed:', dErr);
-        await db.update('users', {id: driverID}, {status: 'AVAILABLE'});
+    // Restore vehicle safely
+    if (vehicleID) {
+      const veh = await findVehicle(vehicleID);
+      if (veh) {
+        const vStatus = String(veh.status || '').toUpperCase();
+        if (vStatus === 'RETIRED') {
+          // Never change a retired vehicle to available
+        } else {
+          // Check if vehicle has active maintenance
+          const allMaint = await db.list('maintenance_records');
+          const hasActiveMaint = (allMaint || []).some((m: any) => {
+            const mVId = String(m.vehicleID || m.vehicleid || '').toLowerCase();
+            const targetVId = String(vehicleID || '').toLowerCase();
+            const altVId1 = veh.id ? String(veh.id).toLowerCase() : '';
+            const altVId2 = veh.vehicleID ? String(veh.vehicleID).toLowerCase() : '';
+            const mStatus = String(m.status || '').toUpperCase();
+            return (
+              (mVId === targetVId || (altVId1 && mVId === altVId1) || (altVId2 && mVId === altVId2)) &&
+              (mStatus === 'ACTIVE' || mStatus === 'IN SHOP')
+            );
+          });
+
+          if (hasActiveMaint) {
+            await db.update('vehicles', {vehicleID}, {status: 'IN_SHOP'});
+          } else {
+            // Check if vehicle is still assigned to another active trip
+            const allTrips = await db.list('trips');
+            const otherActive = (allTrips || []).some((t: any) => {
+              const tId = String(t.tripID || t.tripid || t.id || '').toLowerCase();
+              const currId = String(trip.tripID || tripID).toLowerCase();
+              const tVId = String(t.vehicleID || t.vehicleid || '').toLowerCase();
+              const tStatus = String(t.status || '').toUpperCase();
+              return tId !== currId && (tVId === String(vehicleID).toLowerCase() || (veh.id && tVId === String(veh.id).toLowerCase())) && ACTIVE_TRIP_STATUSES.includes(tStatus);
+            });
+
+            if (otherActive) {
+              await db.update('vehicles', {vehicleID}, {status: 'ON_TRIP'});
+            } else {
+              const patchVehicle: Record<string, any> = {status: 'AVAILABLE'};
+              if (finalOdometer && (targetStatus === 'DELIVERED' || targetStatus === 'COMPLETED')) {
+                patchVehicle.odometer = finalOdometer;
+              }
+              await db.update('vehicles', {vehicleID}, patchVehicle);
+            }
+          }
+        }
       }
     }
 
-    // Manager notification
-    try {
-      await db.insert('notifications', {
-        id: db.makeId('notif-'),
-        userId: trip.createdById || 'usr-manager',
-        role: 'ROLE_MANAGER',
-        title: 'Trip Delivered',
-        body: `Trip #${trip.tripID || tripID} has been successfully delivered.`,
-        tripId: trip.tripID || tripID,
-        createdAt: new Date().toISOString(),
-        read: false,
-      });
-    } catch (nErr) {
-      console.warn('[Notification Error] Manager notification creation failed (non-blocking):', nErr);
+    // Restore driver safely
+    if (driverID) {
+      const drv = await findDriver(driverID);
+      if (drv) {
+        const dStatus = String(drv.status || '').toUpperCase();
+        if (dStatus === 'SUSPENDED' || dStatus === 'INACTIVE' || dStatus === 'OFF_DUTY') {
+          // Never change a suspended driver to available
+        } else {
+          // Check if driver is still assigned to another active trip
+          const allTrips = await db.list('trips');
+          const otherActive = (allTrips || []).some((t: any) => {
+            const tId = String(t.tripID || t.tripid || t.id || '').toLowerCase();
+            const currId = String(trip.tripID || tripID).toLowerCase();
+            const tDId = String(t.driverID || t.driverid || '').toLowerCase();
+            const tStatus = String(t.status || '').toUpperCase();
+            return tId !== currId && (tDId === String(driverID).toLowerCase() || (drv.id && tDId === String(drv.id).toLowerCase())) && ACTIVE_TRIP_STATUSES.includes(tStatus);
+          });
+
+          if (otherActive) {
+            await db.update('users', {id: driverID}, {status: 'ON_TRIP'});
+          } else {
+            const patchDriver: Record<string, any> = {status: 'AVAILABLE'};
+            if (targetStatus === 'DELIVERED' || targetStatus === 'COMPLETED') {
+              patchDriver.trips = Number(drv.trips ?? 0) + 1;
+            }
+            await db.update('users', {id: driverID}, patchDriver);
+          }
+        }
+      }
     }
-  } else if (targetStatus === 'REJECTED' || targetStatus === 'CANCELLED') {
-    if (vehicleID) await db.update('vehicles', {vehicleID}, {status: 'AVAILABLE'});
-    if (driverID) await db.update('users', {id: driverID}, {status: 'AVAILABLE'});
+
+    // Manager notification if delivered
+    if (targetStatus === 'DELIVERED' || targetStatus === 'COMPLETED') {
+      try {
+        await db.insert('notifications', {
+          id: db.makeId('notif-'),
+          userId: trip.createdById || 'usr-manager',
+          role: 'ROLE_MANAGER',
+          title: 'Trip Delivered',
+          body: `Trip #${trip.tripID || tripID} has been successfully delivered.`,
+          tripId: trip.tripID || tripID,
+          createdAt: new Date().toISOString(),
+          read: false,
+        });
+      } catch (nErr) {
+        console.warn('[Notification Error] Manager notification creation failed (non-blocking):', nErr);
+      }
+    }
+  }
+
+  // 4b. Cleanup live tracking location when trip reaches terminal state (bounded storage)
+  if (['DELIVERED', 'COMPLETED', 'REJECTED', 'CANCELLED'].includes(targetStatus)) {
+    try {
+      const finishedTripId = trip.tripID || tripID;
+      await db.remove('tracking_locations', { tripID: finishedTripId });
+      broadcastTrackingTripEnded(finishedTripId);
+    } catch (cleanErr) {
+      console.warn('[Tracking Cleanup] Failed to remove finished trip location:', cleanErr);
+    }
   }
 
   // 5. Update Trip Record

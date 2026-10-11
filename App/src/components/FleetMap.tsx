@@ -1,13 +1,14 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Dimensions, Text } from 'react-native';
 import { Map, Camera, Marker, GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
 import { MAPTILER_API_KEY } from '../config/env';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
 import { Truck, MapPin } from 'lucide-react-native';
+import useVehicleStore from '../store/VehicleStore';
 
 const { width } = Dimensions.get('window');
-const MAP_HEIGHT = rf(300);
+const MAP_HEIGHT = rf(310);
 
 export interface RouteLineItem {
   id: string;
@@ -40,24 +41,69 @@ export default function FleetMap({
   destCoords,
 }: FleetMapProps) {
   const cameraRef = useRef<any>(null);
+  const vehicles = useVehicleStore((state) => state.vehicles);
 
-  const realMapVehicles = (trips || []).map((t: any) => {
-    const sLat = Number(t.sourceLatitude ?? t.sourcelatitude ?? 23.0225);
-    const sLng = Number(t.sourceLongitude ?? t.sourcelongitude ?? 72.5714);
-    return {
-      tripID: String(t.tripID || t.tripid || t.id),
-      vehicleID: String(t.vehicleID || t.vehicleid || t.vehicle || 'Vehicle'),
-      driverID: String(t.driverID || t.driverid || t.driver || 'Driver'),
-      source: String(t.source || ''),
-      destination: String(t.destination || ''),
-      status: String(t.status || ''),
-      latitude: sLat,
-      longitude: sLng,
-      speed: Number(t.speed ?? 0),
-    };
-  });
+  const getVehicleDisplayName = (vID: string, fallbackName?: string) => {
+    const cleanId = String(vID || '').trim();
+    const found = (vehicles || []).find(
+      (v: any) =>
+        String(v.vehicleID || v.vehicleid || v.id).toLowerCase() === cleanId.toLowerCase()
+    );
+    if (found?.name) return found.name;
+    if (fallbackName && !fallbackName.toLowerCase().startsWith('veh-')) {
+      return fallbackName;
+    }
+    if (found?.registrationNumber) return found.registrationNumber;
+    return fallbackName || cleanId || 'Vehicle';
+  };
 
-  // Update camera when a trip or route is selected
+  // Extract real coordinates only — NEVER hardcode mock coordinates for unrecorded locations
+  const realMapVehicles = (trips || [])
+    .map((t: any) => {
+      const lat =
+        t.latitude !== undefined && t.latitude !== null
+          ? Number(t.latitude)
+          : t.sourceLatitude !== undefined && t.sourceLatitude !== null
+          ? Number(t.sourceLatitude)
+          : t.sourcelatitude !== undefined && t.sourcelatitude !== null
+          ? Number(t.sourcelatitude)
+          : null;
+
+      const lng =
+        t.longitude !== undefined && t.longitude !== null
+          ? Number(t.longitude)
+          : t.sourceLongitude !== undefined && t.sourceLongitude !== null
+          ? Number(t.sourceLongitude)
+          : t.sourcelongitude !== undefined && t.sourcelongitude !== null
+          ? Number(t.sourcelongitude)
+          : null;
+
+      if (lat === null || lng === null || isNaN(lat) || isNaN(lng)) {
+        return null;
+      }
+
+      const vID = String(t.vehicleID || t.vehicleid || t.vehicle || 'Vehicle');
+      const vName = getVehicleDisplayName(vID, t.vehicleName || t.registrationNumber);
+
+      return {
+        tripID: String(t.tripID || t.tripid || t.id),
+        vehicleID: vID,
+        vehicleName: vName,
+        driverID: String(t.driverID || t.driverid || t.driver || 'Driver'),
+        driverName: String(t.driverName || 'Driver'),
+        source: String(t.source || ''),
+        destination: String(t.destination || ''),
+        status: String(t.status || ''),
+        latitude: lat,
+        longitude: lng,
+        speed: Number(t.speed ?? 0),
+        freshness: t.freshness || (t.isLive ? 'LIVE' : 'UPDATING'),
+        isLive: Boolean(t.isLive),
+      };
+    })
+    .filter(Boolean) as any[];
+
+  // Smoothly move camera when selectedTrip changes without reloading the map
   useEffect(() => {
     if (originCoords && destCoords && cameraRef.current) {
       const minLon = Math.min(originCoords.longitude, destCoords.longitude) - 0.05;
@@ -70,29 +116,30 @@ export default function FleetMap({
         duration: 1000,
       });
     } else if (selectedTrip && cameraRef.current) {
-      const targetVehicle = realMapVehicles.find(v => v.tripID === String(selectedTrip.tripID || selectedTrip.id));
+      const targetVehicle = realMapVehicles.find(
+        (v) => v.tripID === String(selectedTrip.tripID || selectedTrip.id)
+      );
       if (targetVehicle) {
         cameraRef.current.flyTo({
           center: [targetVehicle.longitude, targetVehicle.latitude],
-          zoom: 14,
-          duration: 1000,
+          zoom: 14.5,
+          duration: 900,
         });
       }
     }
-  }, [selectedTrip, realMapVehicles, originCoords, destCoords]);
+  }, [selectedTrip, originCoords, destCoords]);
 
   const styleURL = `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_API_KEY}`;
 
-  const lons = realMapVehicles.map(v => v.longitude);
-  const lats = realMapVehicles.map(v => v.latitude);
-  const minLon = lons.length > 0 ? Math.min(...lons) : 72.5;
-  const maxLon = lons.length > 0 ? Math.max(...lons) : 72.6;
-  const minLat = lats.length > 0 ? Math.min(...lats) : 23.0;
-  const maxLat = lats.length > 0 ? Math.max(...lats) : 23.1;
+  const lons = realMapVehicles.map((v) => v.longitude);
+  const lats = realMapVehicles.map((v) => v.latitude);
+  const minLon = lons.length > 0 ? Math.min(...lons) - 0.03 : 72.5;
+  const maxLon = lons.length > 0 ? Math.max(...lons) + 0.03 : 72.6;
+  const minLat = lats.length > 0 ? Math.min(...lats) - 0.03 : 23.0;
+  const maxLat = lats.length > 0 ? Math.max(...lats) + 0.03 : 23.1;
 
-  // Separate route lines into selected and unselected for proper z-index rendering
-  const unselectedRoutes = routeLines.filter(r => r.id !== selectedRouteId);
-  const selectedRoute = routeLines.find(r => r.id === selectedRouteId);
+  const unselectedRoutes = routeLines.filter((r) => r.id !== selectedRouteId);
+  const selectedRoute = routeLines.find((r) => r.id === selectedRouteId);
 
   return (
     <View style={[styles.container, style]}>
@@ -110,23 +157,25 @@ export default function FleetMap({
                   ],
                   padding: { left: 40, right: 40, top: 40, bottom: 40 },
                 }
-              : selectedTrip
+              : selectedTrip && selectedTrip.latitude && selectedTrip.longitude
               ? {
-                  center: [
-                    realMapVehicles.find(v => v.tripID === String(selectedTrip.tripID || selectedTrip.id))?.longitude || 72.5714,
-                    realMapVehicles.find(v => v.tripID === String(selectedTrip.tripID || selectedTrip.id))?.latitude || 23.0225,
-                  ],
-                  zoom: 14,
+                  center: [Number(selectedTrip.longitude), Number(selectedTrip.latitude)],
+                  zoom: 14.5,
                 }
-              : {
+              : realMapVehicles.length > 0
+              ? {
                   bounds: [minLon, minLat, maxLon, maxLat],
                   padding: { left: 50, right: 50, top: 50, bottom: 50 },
+                }
+              : {
+                  center: [72.5714, 23.0225],
+                  zoom: 11,
                 }
           }
         />
 
-        {/* 1. DRAW UNSELECTED ROUTE POLYLINES (BACKGROUND) */}
-        {unselectedRoutes.map(route => {
+        {/* 1. UNSELECTED ROUTES */}
+        {unselectedRoutes.map((route) => {
           if (!route.coordinates || route.coordinates.length < 2) return null;
           const geoJson: any = {
             type: 'Feature',
@@ -152,7 +201,7 @@ export default function FleetMap({
           );
         })}
 
-        {/* 2. DRAW SELECTED / RECOMMENDED ROUTE POLYLINE (FOREGROUND & HIGHLIGHTED) */}
+        {/* 2. SELECTED ROUTE */}
         {selectedRoute && selectedRoute.coordinates.length >= 2 && (
           <GeoJSONSource
             key={`source-${selectedRoute.id}`}
@@ -178,7 +227,7 @@ export default function FleetMap({
           </GeoJSONSource>
         )}
 
-        {/* 3. ORIGIN & DESTINATION MARKERS FOR ROUTE INTELLIGENCE */}
+        {/* 3. ORIGIN & DESTINATION PINS */}
         {originCoords && (
           <Marker id="origin-marker" lngLat={[originCoords.longitude, originCoords.latitude]}>
             <View style={[styles.customPin, { backgroundColor: colors.amber }]}>
@@ -195,9 +244,10 @@ export default function FleetMap({
           </Marker>
         )}
 
-        {/* 4. VEHICLE MARKERS */}
-        {realMapVehicles.map(vehicle => {
+        {/* 4. REAL-TIME VEHICLE MARKERS */}
+        {realMapVehicles.map((vehicle) => {
           const isSelected = String(selectedTrip?.tripID || selectedTrip?.id) === vehicle.tripID;
+          const isLive = vehicle.freshness === 'LIVE';
 
           return (
             <Marker
@@ -206,12 +256,31 @@ export default function FleetMap({
               lngLat={[vehicle.longitude, vehicle.latitude]}
               onPress={() => onSelectTrip(vehicle)}
             >
-              <View style={[styles.markerContainer, isSelected && styles.markerContainerSelected]}>
-                <Truck size={14} color={colors.panel} />
-                {isSelected && (
+              <View
+                style={[
+                  styles.markerContainer,
+                  isSelected && styles.markerContainerSelected,
+                  isLive && !isSelected && styles.markerContainerLive,
+                ]}
+              >
+                <Truck size={14} color={isSelected ? '#1a1200' : colors.panel} />
+                {isSelected ? (
                   <View style={styles.markerInfo}>
-                    <Text style={styles.markerText}>{vehicle.vehicleID}</Text>
-                    <Text style={styles.markerSpeed}>{Math.round(vehicle.speed)} km/h</Text>
+                    <Text style={[styles.markerText, isSelected && { color: '#1a1200' }]}>
+                      {vehicle.vehicleName || getVehicleDisplayName(vehicle.vehicleID)}
+                    </Text>
+                    <Text style={[styles.markerSpeed, isSelected && { color: 'rgba(0,0,0,0.7)' }]}>
+                      {Math.round(vehicle.speed)} km/h {isLive ? '• LIVE' : ''}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.miniBadge}>
+                    <View
+                      style={[
+                        styles.indicatorDot,
+                        { backgroundColor: isLive ? '#22c55e' : '#f59e0b' },
+                      ]}
+                    />
                   </View>
                 )}
               </View>
@@ -247,7 +316,8 @@ const styles = StyleSheet.create({
   },
   markerContainer: {
     backgroundColor: colors.blue,
-    padding: rf(8),
+    paddingHorizontal: rf(8),
+    paddingVertical: rf(6),
     borderRadius: rf(20),
     borderWidth: 2,
     borderColor: colors.panel,
@@ -255,26 +325,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 5,
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 6,
+  },
+  markerContainerLive: {
+    backgroundColor: '#0284c7',
+    borderColor: '#38bdf8',
   },
   markerContainerSelected: {
     backgroundColor: colors.amber,
-    transform: [{ scale: 1.1 }],
-    zIndex: 10,
+    borderColor: '#fef08a',
+    transform: [{ scale: 1.12 }],
+    zIndex: 20,
+  },
+  miniBadge: {
+    marginLeft: rf(4),
+  },
+  indicatorDot: {
+    width: rf(6),
+    height: rf(6),
+    borderRadius: rf(3),
   },
   markerInfo: {
     marginLeft: rf(6),
   },
   markerText: {
     color: colors.panel,
-    fontSize: rf(12),
+    fontSize: rf(11),
     fontWeight: '700',
   },
   markerSpeed: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: rf(10),
-    fontWeight: '500',
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: rf(9),
+    fontWeight: '600',
   },
 });

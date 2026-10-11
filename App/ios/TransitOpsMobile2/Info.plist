@@ -36,7 +36,15 @@
 	<key>NSCameraUsageDescription</key>
 	<string>LogiSphere AI requires camera access to scan driving licences and populate driver details.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>LogiSphere AI requires your location to securely verify your presence during attendance clock-in.</string>
+	<string>LogiSphere AI requires your location for live trip fleet tracking and attendance verification.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>LogiSphere AI requires background location access to transmit continuous vehicle telemetry while your assigned trip is active.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>LogiSphere AI requires continuous location access while an assigned trip is underway for dispatcher visibility.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

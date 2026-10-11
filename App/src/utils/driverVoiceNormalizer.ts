@@ -233,6 +233,22 @@ export const normalizeExpiry = (input: string): string => {
 };
 
 /**
+ * Normalizes Spoken Email
+ * e.g. "rahul dot sharma at gmail dot com" -> "rahul.sharma@gmail.com"
+ */
+export const normalizeEmail = (input: string): string => {
+  if (!input) return '';
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/\s+at\s+/g, '@')
+    .replace(/\s+dot\s+/g, '.')
+    .replace(/\bat\s+/g, '@')
+    .replace(/\s+dot\b/g, '.')
+    .replace(/\s+/g, '');
+};
+
+/**
  * Normalizes field value according to field key
  */
 export const normalizeFieldValue = (key: string, input: string): string => {
@@ -245,7 +261,10 @@ export const normalizeFieldValue = (key: string, input: string): string => {
       return normalizeExpiry(input);
     case 'contact':
       return normalizePhone(input);
+    case 'email':
+      return normalizeEmail(input);
     default:
       return input.trim();
   }
 };
+

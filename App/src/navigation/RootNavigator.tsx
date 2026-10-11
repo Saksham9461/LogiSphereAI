@@ -27,12 +27,12 @@ export default function RootNavigator() {
       ) : mustChangePassword ? (
         <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ gestureEnabled: false }} />
       ) : (
-        <Stack.Group>
-          <Stack.Screen name="Main" component={MainDrawerNavigator} />
-          <Stack.Screen name="Settings" component={SettingsScreen} />
-          <Stack.Screen name="AttendanceReport" component={AttendanceReportScreen} />
-          <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
-          <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+        <Stack.Group screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Main" component={MainDrawerNavigator} options={{ headerShown: false }} />
+          <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="AttendanceReport" component={AttendanceReportScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ headerShown: false }} />
         </Stack.Group>
       )}
     </Stack.Navigator>
