@@ -64,13 +64,6 @@ Minor/
 │   │   │   └── axiosClient.ts   # Axios instance with Bearer auth token interceptor
 │   │   ├── assets/               # Application logo and static image assets
 │   │   ├── components/           # Shared & feature UI components
-│   │   │   ├── DriverVoiceRegistration/ # Voice registration modal & step components
-│   │   │   │   ├── DriverReview.tsx
-│   │   │   │   ├── DriverVoiceRegistrationModal.tsx
-│   │   │   │   ├── VoiceListeningIndicator.tsx
-│   │   │   │   ├── VoiceProgress.tsx
-│   │   │   │   ├── VoiceQuestion.tsx
-│   │   │   │   └── VoiceResultCard.tsx
 │   │   │   ├── AttendanceHistory.tsx
 │   │   │   ├── ClockInWidget.tsx
 │   │   │   ├── FleetMap.tsx      # Vector map with vehicle callsign markers & route rendering
@@ -276,15 +269,9 @@ The backend and frontend enforce 5 distinct operational roles:
   - `logout()` terminates active driver GPS tracking (`driverTrackingService.stopTracking()`), unsubscribes Supabase realtime channels, closes WebSockets, and clears AsyncStorage.
   - 401 response interceptor in `axiosClient.ts` automatically clears stale credentials.
 
-### 6.2 Voice-Assisted Driver Registration
-- **Files**: `App/src/components/DriverVoiceRegistration/*`, `App/src/services/speech/speechRecognition.ts`, `App/src/utils/driverVoiceNormalizer.ts`, `App/src/screens/DriversScreen.tsx`.
-- **Status**: **Partially implemented / Known platform constraints**.
-- **Verified Implementation**:
-  - Modal steps through 4 driver interview fields: Full Name, License Number, License Expiry Date, Contact Phone Number.
-  - `NativeSpeechService` wraps `@react-native-voice/voice`, checks Android `PermissionsAndroid.PERMISSIONS.RECORD_AUDIO`, and hooks native speech events (`onSpeechStart`, `onSpeechResults`, `onSpeechPartialResults`, `onSpeechEnd`, `onSpeechError`).
-  - `driverVoiceNormalizer.ts` transforms verbal transcripts ("DL one four two zero..." → `DL1420...`, "March fifteen twenty thirty" → `15/03/2030`, verbal digits to numbers).
-  - Review screen (`DriverReview.tsx`) provides manual editing fields and one-click submission into `DriverStore.fetchDrivers()`.
-- **Known Issue & Native Constraint**: On Android Emulators or physical devices lacking Google Speech Services / Voice Recognition engines installed, Android's native `SpeechRecognizer` emits error code `7` (`ERROR_NO_MATCH` / "no speech detected"). The system gracefully degrades by displaying a retry button, error disclosure, and direct manual text input fields.
+### 6.2 Voice-Assisted Driver Registration (Deprecated & Removed)
+- **Status**: **Removed**.
+- **Details**: Deprecated and completely removed in preparation for Regula Document Reader OCR integration. Manual driver registration remains fully functional.
 
 ### 6.3 Attendance, Auto Clock-Out & Reporting
 - **Files**: `backend/src/modules/attendance/autoClockOut.ts`, `backend/src/modules/attendance/pdfGenerator.ts`, `backend/src/modules/attendance/routes.ts`, `App/src/screens/AttendanceReportScreen.tsx`, `App/src/store/AttendanceStore.ts`.
@@ -571,7 +558,7 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 | **Executive PDF Export** | **Implemented and verified** | `pdfGenerator.ts`, `AttendanceStore.ts`, `attendance/routes.ts` | `/api/attendance/report/export-pdf`, `pdfkit` | Verified binary PDF generation with auth token in query param |
 | **Real-Time 1-on-1 Chat** | **Implemented and verified** | `ChatScreen.tsx`, `ChatStore.ts`, `chat/websocket.ts`, `chat/routes.ts` | `conversations`, `conversation_participants`, `messages`, `/ws/chat` | 7/10 passed (`chat_flow.test.ts`), live messaging verified |
 | **24-Hour Message Retention** | **Implemented and verified** | `cleanup.ts`, `server.ts`, `chat/routes.ts` | `messages` table | Verified; automated cleanup daemon deletes expired rows |
-| **Voice-Assisted Driver Registration** | **Partially implemented (Native constraint)** | `DriverVoiceRegistrationModal.tsx`, `NativeSpeechService`, `driverVoiceNormalizer.ts` | `@react-native-voice/voice`, `/api/user/create` | Native SpeechRecognizer error 7 on emulators; manual fallback works |
+| **Voice-Assisted Driver Registration** | **Removed** | N/A | None | Deprecated and removed in preparation for Regula OCR |
 | **Vehicle Registry** | **Implemented and verified** | `VehicleRegistryScreen.tsx`, `VehicleStore.ts`, `vehicles/routes.ts` | `vehicles` table, `/api/vehicle/*` | Fully integrated and functional |
 | **Driver Roster** | **Implemented and verified** | `DriversScreen.tsx`, `DriverStore.ts`, `users/routes.ts` | `users` table, `/api/user/*` | 6/6 tests passed (`driver_flow.test.ts`) |
 | **Maintenance Logging** | **Implemented and verified** | `MaintenanceScreen.tsx`, `MaintenanceStore.ts`, `maintenance/routes.ts` | `maintenance_records` table, `/api/maintenance/*` | 3/3 tests passed (`maintenance_flow.test.ts`) |

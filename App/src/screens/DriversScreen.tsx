@@ -20,7 +20,6 @@ import {
   X,
   ChevronDown,
   AlertTriangle,
-  Mic,
   Edit2,
   Trash2,
   RefreshCw,
@@ -34,9 +33,6 @@ import { colors } from '../theme/colors';
 import useDriverStore from '../store/DriverStore';
 import useTripStore from '../store/TripStore';
 import useAuthStore from '../store/AuthStore';
-import DriverVoiceRegistrationModal from '../components/DriverVoiceRegistration/DriverVoiceRegistrationModal';
-import { speechService } from '../services/speech/speechRecognition';
-import { normalizeFieldValue } from '../utils/driverVoiceNormalizer';
 
 // --- CONSTANTS ---
 const STATUS_STYLES: Record<string, any> = {
@@ -82,20 +78,20 @@ const countCompletedTripsForDriver = (driver: any, allTrips: any[]) => {
 
   const completedCountFromStore = Array.isArray(allTrips)
     ? allTrips.filter((t: any) => {
-        const tDriverID = String(t.driverID || t.driverid || t.driver?.id || t.driver?.userID || '').toLowerCase();
-        const tDriverEmail = String(t.driverEmail || t.driver?.email || '').toLowerCase();
-        const tDriverName = String(t.driverName || t.driver?.name || '').toLowerCase();
+      const tDriverID = String(t.driverID || t.driverid || t.driver?.id || t.driver?.userID || '').toLowerCase();
+      const tDriverEmail = String(t.driverEmail || t.driver?.email || '').toLowerCase();
+      const tDriverName = String(t.driverName || t.driver?.name || '').toLowerCase();
 
-        const matchesDriver =
-          (driverID && tDriverID === driverID) ||
-          (driverEmail && tDriverEmail === driverEmail) ||
-          (driverName && tDriverName === driverName);
+      const matchesDriver =
+        (driverID && tDriverID === driverID) ||
+        (driverEmail && tDriverEmail === driverEmail) ||
+        (driverName && tDriverName === driverName);
 
-        const status = String(t.status || '').toUpperCase();
-        const isCompleted = status === 'DELIVERED' || status === 'COMPLETED';
+      const status = String(t.status || '').toUpperCase();
+      const isCompleted = status === 'DELIVERED' || status === 'COMPLETED';
 
-        return matchesDriver && isCompleted;
-      }).length
+      return matchesDriver && isCompleted;
+    }).length
     : 0;
 
   return Math.max(Number(driver?.trips ?? 0), completedCountFromStore);
@@ -216,8 +212,6 @@ export default function DriversScreen() {
   const [formSafety, setFormSafety] = useState('100');
   const [formStatus, setFormStatus] = useState('Available');
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
-  const [showVoiceModal, setShowVoiceModal] = useState(false);
-  const [listeningField, setListeningField] = useState<'name' | 'license' | 'expiry' | 'contact' | 'email' | null>(null);
 
   // Credential Modal State (short-lived)
   const [createdCredentials, setCreatedCredentials] = useState<{
@@ -230,59 +224,7 @@ export default function DriversScreen() {
   useEffect(() => {
     fetchDrivers();
     getTrips();
-    return () => {
-      speechService.cancel();
-    };
   }, [fetchDrivers, getTrips]);
-
-  const handleToggleFieldMic = async (fieldKey: 'name' | 'license' | 'expiry' | 'contact' | 'email') => {
-    if (listeningField === fieldKey) {
-      await speechService.stopListening();
-      setListeningField(null);
-      return;
-    }
-
-    if (listeningField) {
-      await speechService.cancel();
-    }
-
-    setListeningField(fieldKey);
-    const normKey = fieldKey === 'license' ? 'licenseNumber' : fieldKey === 'expiry' ? 'licenseExpiry' : fieldKey;
-
-    await speechService.startListening({
-      onStart: () => {},
-      onPartialResult: (text: string) => {
-        const parsed = normalizeFieldValue(normKey, text);
-        if (parsed) {
-          if (fieldKey === 'name') setFormName(parsed);
-          else if (fieldKey === 'license') setFormLicense(parsed);
-          else if (fieldKey === 'expiry') setFormExpiry(parsed);
-          else if (fieldKey === 'contact') setFormContact(parsed);
-          else if (fieldKey === 'email') setFormEmail(parsed);
-        }
-      },
-      onResult: (finalText: string) => {
-        const parsed = normalizeFieldValue(normKey, finalText);
-        if (parsed) {
-          if (fieldKey === 'name') setFormName(parsed);
-          else if (fieldKey === 'license') setFormLicense(parsed);
-          else if (fieldKey === 'expiry') setFormExpiry(parsed);
-          else if (fieldKey === 'contact') setFormContact(parsed);
-          else if (fieldKey === 'email') setFormEmail(parsed);
-        }
-        setListeningField(null);
-      },
-      onError: (code: string) => {
-        setListeningField(null);
-        if (code === 'PERMISSION_DENIED') {
-          Alert.alert('Microphone Permission', 'Microphone permission is required for voice input.');
-        }
-      },
-      onEnd: () => {
-        setListeningField(null);
-      },
-    });
-  };
 
   const filteredDrivers = useMemo(() => {
     return (drivers || []).filter((d: any) => {
@@ -299,8 +241,6 @@ export default function DriversScreen() {
 
   const openAddModal = () => {
     if (!canManageDrivers) return;
-    speechService.cancel();
-    setListeningField(null);
     setEditingDriver(null);
     setFormName('');
     setFormEmail('');
@@ -315,8 +255,6 @@ export default function DriversScreen() {
 
   const openEditModal = (driver: any) => {
     if (!canManageDrivers) return;
-    speechService.cancel();
-    setListeningField(null);
     setEditingDriver(driver);
     setFormName(driver.name || '');
     setFormEmail(driver.email || '');
@@ -334,29 +272,7 @@ export default function DriversScreen() {
     setShowModal(true);
   };
 
-  const handleOpenVoiceRegistration = () => {
-    if (!canManageDrivers) return;
-    speechService.cancel();
-    setListeningField(null);
-    setShowModal(false);
-    setShowVoiceModal(true);
-  };
 
-  const handleSwitchToManual = (prefilledData?: any) => {
-    if (!canManageDrivers) return;
-    setShowVoiceModal(false);
-    if (prefilledData) {
-      setFormName(prefilledData.name || '');
-      setFormLicense(prefilledData.licenseNumber || '');
-      setFormExpiry(prefilledData.licenseExpiry || '');
-      setFormContact(prefilledData.contact || '');
-      setFormEmail('');
-      setFormTrips('0');
-      setFormSafety('100');
-      setFormStatus('Available');
-    }
-    setShowModal(true);
-  };
 
   const handleSave = async () => {
     if (!canManageDrivers) {
@@ -551,133 +467,74 @@ export default function DriversScreen() {
       {/* ADD/EDIT DRIVER MODAL */}
       <Modal visible={showModal && canManageDrivers} transparent={true} animationType="slide" onRequestClose={() => setShowModal(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.bottomSheetOverlay}>
-          <Pressable style={{ flex: 1 }} onPress={() => { speechService.cancel(); setListeningField(null); setShowModal(false); }} />
+          <Pressable style={{ flex: 1 }} onPress={() => setShowModal(false)} />
           <View style={styles.bottomSheet}>
             <View style={styles.bottomSheetHeader}>
               <View>
                 <Text style={styles.bottomSheetTitle}>{editingDriver ? 'Update Driver' : 'New Driver'}</Text>
                 <Text style={styles.bottomSheetSubtitle}>Fill in driver details below</Text>
               </View>
-              <Pressable onPress={() => { speechService.cancel(); setListeningField(null); setShowModal(false); }}>
+              <Pressable onPress={() => setShowModal(false)}>
                 <X size={24} color={colors.textMuted} />
               </Pressable>
             </View>
 
-            {!editingDriver ? (
-              <Pressable 
-                style={styles.voiceButton} 
-                onPress={handleOpenVoiceRegistration}
-              >
-                <Mic size={18} color="#1a1200" strokeWidth={2.5} />
-                <Text style={styles.voiceButtonText}>
-                  Add Driver with Voice
-                </Text>
-              </Pressable>
-            ) : null}
-
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.formContainer}>
               <View style={styles.formRow}>
                 <View style={styles.formGroup}>
-                  <View style={styles.labelWithMic}>
-                    <Text style={styles.formLabel}>Full Name *</Text>
-                    <Pressable
-                      hitSlop={8}
-                      onPress={() => handleToggleFieldMic('name')}
-                      style={[styles.fieldMicBtn, listeningField === 'name' && styles.fieldMicBtnActive]}
-                    >
-                      <Mic size={13} color={listeningField === 'name' ? colors.amber : colors.textMuted} />
-                    </Pressable>
-                  </View>
+                  <Text style={styles.formLabel}>Full Name *</Text>
                   <TextInput
-                    style={[styles.formInput, listeningField === 'name' && styles.formInputListening]}
+                    style={styles.formInput}
                     value={formName}
                     onChangeText={setFormName}
-                    placeholder={listeningField === 'name' ? 'Listening...' : 'Driver name'}
-                    placeholderTextColor={listeningField === 'name' ? colors.amber : colors.textMuted}
+                    placeholder="Driver name"
+                    placeholderTextColor={colors.textMuted}
                   />
                 </View>
                 <View style={styles.formGroup}>
-                  <View style={styles.labelWithMic}>
-                    <Text style={styles.formLabel}>License No. *</Text>
-                    <Pressable
-                      hitSlop={8}
-                      onPress={() => handleToggleFieldMic('license')}
-                      style={[styles.fieldMicBtn, listeningField === 'license' && styles.fieldMicBtnActive]}
-                    >
-                      <Mic size={13} color={listeningField === 'license' ? colors.amber : colors.textMuted} />
-                    </Pressable>
-                  </View>
+                  <Text style={styles.formLabel}>License No. *</Text>
                   <TextInput
-                    style={[styles.formInput, listeningField === 'license' && styles.formInputListening]}
+                    style={styles.formInput}
                     value={formLicense}
                     onChangeText={setFormLicense}
-                    placeholder={listeningField === 'license' ? 'Listening...' : 'DL-00000'}
-                    placeholderTextColor={listeningField === 'license' ? colors.amber : colors.textMuted}
+                    placeholder="DL-00000"
+                    placeholderTextColor={colors.textMuted}
                   />
                 </View>
               </View>
 
               <View style={styles.formRow}>
                 <View style={styles.formGroup}>
-                  <View style={styles.labelWithMic}>
-                    <Text style={styles.formLabel}>Expiry (MM/YYYY) *</Text>
-                    <Pressable
-                      hitSlop={8}
-                      onPress={() => handleToggleFieldMic('expiry')}
-                      style={[styles.fieldMicBtn, listeningField === 'expiry' && styles.fieldMicBtnActive]}
-                    >
-                      <Mic size={13} color={listeningField === 'expiry' ? colors.amber : colors.textMuted} />
-                    </Pressable>
-                  </View>
+                  <Text style={styles.formLabel}>Expiry (MM/YYYY) *</Text>
                   <TextInput
-                    style={[styles.formInput, listeningField === 'expiry' && styles.formInputListening]}
+                    style={styles.formInput}
                     value={formExpiry}
                     onChangeText={setFormExpiry}
-                    placeholder={listeningField === 'expiry' ? 'Listening...' : '12/2028'}
-                    placeholderTextColor={listeningField === 'expiry' ? colors.amber : colors.textMuted}
+                    placeholder="12/2028"
+                    placeholderTextColor={colors.textMuted}
                   />
                 </View>
                 <View style={styles.formGroup}>
-                  <View style={styles.labelWithMic}>
-                    <Text style={styles.formLabel}>Contact Phone</Text>
-                    <Pressable
-                      hitSlop={8}
-                      onPress={() => handleToggleFieldMic('contact')}
-                      style={[styles.fieldMicBtn, listeningField === 'contact' && styles.fieldMicBtnActive]}
-                    >
-                      <Mic size={13} color={listeningField === 'contact' ? colors.amber : colors.textMuted} />
-                    </Pressable>
-                  </View>
+                  <Text style={styles.formLabel}>Contact Phone</Text>
                   <TextInput
-                    style={[styles.formInput, listeningField === 'contact' && styles.formInputListening]}
+                    style={styles.formInput}
                     value={formContact}
                     onChangeText={setFormContact}
-                    placeholder={listeningField === 'contact' ? 'Listening...' : '98765xxxxx'}
-                    placeholderTextColor={listeningField === 'contact' ? colors.amber : colors.textMuted}
+                    placeholder="98765xxxxx"
+                    placeholderTextColor={colors.textMuted}
                     keyboardType="phone-pad"
                   />
                 </View>
               </View>
 
               <View style={styles.formGroup}>
-                <View style={styles.labelWithMic}>
-                  <Text style={styles.formLabel}>Login Email Address {!editingDriver ? '*' : ''}</Text>
-                  {!editingDriver ? (
-                    <Pressable
-                      hitSlop={8}
-                      onPress={() => handleToggleFieldMic('email')}
-                      style={[styles.fieldMicBtn, listeningField === 'email' && styles.fieldMicBtnActive]}
-                    >
-                      <Mic size={13} color={listeningField === 'email' ? colors.amber : colors.textMuted} />
-                    </Pressable>
-                  ) : null}
-                </View>
+                <Text style={styles.formLabel}>Login Email Address {!editingDriver ? '*' : ''}</Text>
                 <TextInput
-                  style={[styles.formInput, listeningField === 'email' && styles.formInputListening]}
+                  style={styles.formInput}
                   value={formEmail}
                   onChangeText={setFormEmail}
-                  placeholder={listeningField === 'email' ? 'Listening...' : 'driver@example.com'}
-                  placeholderTextColor={listeningField === 'email' ? colors.amber : colors.textMuted}
+                  placeholder="driver@example.com"
+                  placeholderTextColor={colors.textMuted}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   editable={!editingDriver}
@@ -716,7 +573,7 @@ export default function DriversScreen() {
             </ScrollView>
 
             <View style={styles.bottomSheetFooter}>
-              <Pressable style={styles.cancelBtn} onPress={() => { speechService.cancel(); setListeningField(null); setShowModal(false); }}>
+              <Pressable style={styles.cancelBtn} onPress={() => setShowModal(false)}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
               </Pressable>
               <Pressable style={[styles.saveBtn, loading && { opacity: 0.6 }]} onPress={handleSave} disabled={loading}>
@@ -806,13 +663,6 @@ export default function DriversScreen() {
         </Pressable>
       </Modal>
 
-      {/* VOICE DRIVER REGISTRATION MODAL */}
-      <DriverVoiceRegistrationModal
-        visible={showVoiceModal && canManageDrivers}
-        onClose={() => setShowVoiceModal(false)}
-        onSwitchToManual={handleSwitchToManual}
-        onDriverCreated={(creds) => setCreatedCredentials(creds)}
-      />
 
     </View>
   );
@@ -871,37 +721,12 @@ const styles = StyleSheet.create({
   bottomSheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: rf(24) },
   bottomSheetTitle: { color: colors.textPrimary, fontSize: rf(20), fontWeight: '700' },
   bottomSheetSubtitle: { color: colors.textMuted, fontSize: rf(13), marginTop: rf(4) },
-  
-  voiceButton: {
-    backgroundColor: colors.amber,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: rf(12),
-    borderRadius: rf(10),
-    marginBottom: rf(16),
-    gap: rf(8),
-    elevation: 2,
-    shadowColor: colors.amber,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-  },
-  voiceButtonText: {
-    color: '#1a1200',
-    fontSize: rf(14),
-    fontWeight: '800',
-  },
 
   formContainer: { gap: rf(16), paddingBottom: rf(20) },
   formRow: { flexDirection: 'row', gap: rf(12) },
   formGroup: { flex: 1, gap: rf(6) },
-  labelWithMic: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  fieldMicBtn: { padding: rf(4), borderRadius: rf(6), backgroundColor: 'rgba(255,255,255,0.05)' },
-  fieldMicBtnActive: { backgroundColor: 'rgba(245, 158, 11, 0.2)', borderWidth: 1, borderColor: colors.amber },
   formLabel: { color: colors.textMuted, fontSize: rf(11), textTransform: 'uppercase', fontWeight: '700' },
   formInput: { backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.border, borderRadius: rf(8), paddingHorizontal: rf(12), height: rf(44), color: colors.textPrimary, fontSize: rf(14) },
-  formInputListening: { borderColor: colors.amber, backgroundColor: 'rgba(245, 158, 11, 0.06)' },
   dropdownInput: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.border, borderRadius: rf(8), paddingHorizontal: rf(12), height: rf(44) },
   dropdownInputText: { color: colors.textPrimary, fontSize: rf(14) },
 
@@ -937,4 +762,5 @@ const styles = StyleSheet.create({
   copyBtnText: { color: '#1a1200', fontSize: rf(14), fontWeight: '800' },
   doneBtn: { flex: 1, height: rf(48), backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.border, borderRadius: rf(12), alignItems: 'center', justifyContent: 'center' },
   doneBtnText: { color: colors.textPrimary, fontSize: rf(14), fontWeight: '700' },
+
 });

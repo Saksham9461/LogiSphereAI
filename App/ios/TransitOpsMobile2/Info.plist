@@ -35,6 +35,8 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>LogiSphere AI requires camera access to scan driving licences and populate driver details.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>LogiSphere AI requires photo library access to upload driving licence images.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>LogiSphere AI requires your location for live trip fleet tracking and attendance verification.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
@@ -64,10 +66,6 @@
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>LogiSphere AI requires microphone access for voice driver registration.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>LogiSphere AI requires speech recognition to transcribe driver details.</string>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
 </dict>
