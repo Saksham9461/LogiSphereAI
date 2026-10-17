@@ -3,6 +3,7 @@ import {db} from '../../config/database';
 import {optionalAuth} from '../../middleware/auth';
 import {fail} from '../../utils/http';
 import {broadcastTrackingTripEnded} from '../chat/websocket';
+import {calculateTripDelayInsights} from './delayPredictionService';
 
 export const tripRouter = Router();
 
@@ -620,3 +621,19 @@ tripRouter.put('/:tripID/status', optionalAuth, (req, res) => handleStatusUpdate
 tripRouter.put('/dispatch/:tripID', optionalAuth, (req, res) => handleStatusUpdate(req, res, 'ACCEPTED'));
 tripRouter.put('/complete/:tripID', optionalAuth, (req, res) => handleStatusUpdate(req, res, 'DELIVERED'));
 tripRouter.put('/cancel/:tripID', optionalAuth, (req, res) => handleStatusUpdate(req, res, 'CANCELLED'));
+
+// Smart Delay Prediction & Explanation (Advisory, Read-Only)
+tripRouter.get('/:tripID/delay-insights', optionalAuth, async (req, res) => {
+  try {
+    const { tripID } = req.params;
+    const insights = await calculateTripDelayInsights(tripID);
+    return res.json({
+      success: true,
+      data: insights,
+    });
+  } catch (err: any) {
+    console.error(`[Trip API] GET /:tripID/delay-insights error for trip ${req.params?.tripID}:`, err?.message || err);
+    const status = err?.message?.includes('not found') ? 404 : 500;
+    return fail(res, status, err?.message || 'Failed to calculate delay insights');
+  }
+});

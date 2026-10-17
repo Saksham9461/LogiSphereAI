@@ -33,6 +33,7 @@ import { rf } from '../theme/responsive';
 import { colors } from '../theme/colors';
 import useDriverStore from '../store/DriverStore';
 import useTripStore from '../store/TripStore';
+import useAuthStore from '../store/AuthStore';
 import DriverVoiceRegistrationModal from '../components/DriverVoiceRegistration/DriverVoiceRegistrationModal';
 import { speechService } from '../services/speech/speechRecognition';
 import { normalizeFieldValue } from '../utils/driverVoiceNormalizer';
@@ -104,11 +105,13 @@ const countCompletedTripsForDriver = (driver: any, allTrips: any[]) => {
 const DriverCard = ({
   driver,
   trips = [],
+  canManage = false,
   onEdit,
   onDelete,
 }: {
   driver: any;
   trips?: any[];
+  canManage?: boolean;
   onEdit: (driver: any) => void;
   onDelete: (id: string, name?: string) => void;
 }) => {
@@ -132,17 +135,19 @@ const DriverCard = ({
           <View style={[styles.statusBadge, { backgroundColor: style.bg, borderColor: style.border }]}>
             <Text style={[styles.statusText, { color: style.text }]}>{displayStatus}</Text>
           </View>
-          <View style={styles.driverActions}>
-            <Pressable style={styles.iconButton} onPress={() => onEdit(driver)}>
-              <Edit2 size={15} color={colors.textMuted} />
-            </Pressable>
-            <Pressable
-              style={styles.iconButton}
-              onPress={() => onDelete(driverID, driver.name)}
-            >
-              <Trash2 size={15} color={colors.rose} />
-            </Pressable>
-          </View>
+          {canManage && (
+            <View style={styles.driverActions}>
+              <Pressable style={styles.iconButton} onPress={() => onEdit(driver)}>
+                <Edit2 size={15} color={colors.textMuted} />
+              </Pressable>
+              <Pressable
+                style={styles.iconButton}
+                onPress={() => onDelete(driverID, driver.name)}
+              >
+                <Trash2 size={15} color={colors.rose} />
+              </Pressable>
+            </View>
+          )}
         </View>
       </View>
 
@@ -184,6 +189,18 @@ const DriverCard = ({
 export default function DriversScreen() {
   const { drivers, fetchDrivers, registerDriver, updateDriver, deleteDriver, loading, error } = useDriverStore();
   const { trips, getTrips } = useTripStore();
+  const user = useAuthStore((state) => state.user);
+
+  const userRole = String(user?.role || '').toUpperCase().trim();
+  const canManageDrivers = [
+    'ROLE_MANAGER',
+    'FLEET_MANAGER',
+    'MANAGER',
+    'ROLE_ADMIN',
+    'ADMIN',
+    'ROLE_DISPATCHER',
+    'DISPATCHER',
+  ].includes(userRole);
 
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -281,6 +298,7 @@ export default function DriversScreen() {
   }, [drivers, search]);
 
   const openAddModal = () => {
+    if (!canManageDrivers) return;
     speechService.cancel();
     setListeningField(null);
     setEditingDriver(null);
@@ -296,6 +314,7 @@ export default function DriversScreen() {
   };
 
   const openEditModal = (driver: any) => {
+    if (!canManageDrivers) return;
     speechService.cancel();
     setListeningField(null);
     setEditingDriver(driver);
@@ -316,6 +335,7 @@ export default function DriversScreen() {
   };
 
   const handleOpenVoiceRegistration = () => {
+    if (!canManageDrivers) return;
     speechService.cancel();
     setListeningField(null);
     setShowModal(false);
@@ -323,6 +343,7 @@ export default function DriversScreen() {
   };
 
   const handleSwitchToManual = (prefilledData?: any) => {
+    if (!canManageDrivers) return;
     setShowVoiceModal(false);
     if (prefilledData) {
       setFormName(prefilledData.name || '');
@@ -338,6 +359,10 @@ export default function DriversScreen() {
   };
 
   const handleSave = async () => {
+    if (!canManageDrivers) {
+      Alert.alert('Unauthorized', 'You do not have permission to manage drivers.');
+      return;
+    }
     const nameClean = formName.trim();
     const emailClean = formEmail.trim().toLowerCase();
     const licenseClean = formLicense.trim();
@@ -448,6 +473,7 @@ export default function DriversScreen() {
   };
 
   const handleDelete = (driverID: string, name?: string) => {
+    if (!canManageDrivers) return;
     confirmAndDeleteDriver(driverID, name, false);
   };
 
@@ -458,10 +484,12 @@ export default function DriversScreen() {
         {/* HEADER */}
         <View style={styles.headerRow}>
           <Text style={styles.pageTitle}>Drivers</Text>
-          <Pressable style={styles.addButton} onPress={openAddModal}>
-            <Plus size={16} color="#1a1200" strokeWidth={2.5} />
-            <Text style={styles.addButtonText}>Add</Text>
-          </Pressable>
+          {canManageDrivers && (
+            <Pressable style={styles.addButton} onPress={openAddModal}>
+              <Plus size={16} color="#1a1200" strokeWidth={2.5} />
+              <Text style={styles.addButtonText}>Add</Text>
+            </Pressable>
+          )}
         </View>
 
         {/* SEARCH */}
@@ -501,6 +529,7 @@ export default function DriversScreen() {
                 key={driver.id || driver.driverID || driver.userID || driver.email}
                 driver={driver}
                 trips={trips}
+                canManage={canManageDrivers}
                 onEdit={openEditModal}
                 onDelete={handleDelete}
               />
@@ -520,7 +549,7 @@ export default function DriversScreen() {
       </ScrollView>
 
       {/* ADD/EDIT DRIVER MODAL */}
-      <Modal visible={showModal} transparent={true} animationType="slide" onRequestClose={() => setShowModal(false)}>
+      <Modal visible={showModal && canManageDrivers} transparent={true} animationType="slide" onRequestClose={() => setShowModal(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.bottomSheetOverlay}>
           <Pressable style={{ flex: 1 }} onPress={() => { speechService.cancel(); setListeningField(null); setShowModal(false); }} />
           <View style={styles.bottomSheet}>
@@ -779,7 +808,7 @@ export default function DriversScreen() {
 
       {/* VOICE DRIVER REGISTRATION MODAL */}
       <DriverVoiceRegistrationModal
-        visible={showVoiceModal}
+        visible={showVoiceModal && canManageDrivers}
         onClose={() => setShowVoiceModal(false)}
         onSwitchToManual={handleSwitchToManual}
         onDriverCreated={(creds) => setCreatedCredentials(creds)}

@@ -9,6 +9,20 @@ import {fail, mustChangePasswordUsers, publicUser} from '../../utils/http';
 export const userRouter = Router();
 const normalizeRole = (role: string) => role?.startsWith('ROLE_') ? role : ({FLEET_MANAGER: 'ROLE_MANAGER', DISPATCHER: 'ROLE_DISPATCHER', SAFETY_OFFICER: 'ROLE_SAFETY_OFFICER', FINANCIAL_ANALYST: 'ROLE_FINANCE', DRIVER: 'ROLE_DRIVER'} as any)[role] ?? role;
 
+const isManagerOrDispatcher = (role?: string) => {
+  if (!role) return false;
+  const normalized = normalizeRole(role).toUpperCase().trim();
+  return (
+    normalized === 'ROLE_MANAGER' ||
+    normalized === 'ROLE_DISPATCHER' ||
+    normalized === 'ROLE_ADMIN' ||
+    normalized === 'MANAGER' ||
+    normalized === 'FLEET_MANAGER' ||
+    normalized === 'DISPATCHER' ||
+    normalized === 'ADMIN'
+  );
+};
+
 function generateTempPassword(): string {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
   const bytes = crypto.randomBytes(12);
@@ -36,6 +50,10 @@ const formatLicenseExpiry = (raw: any): string | null => {
 };
 
 userRouter.post('/create', optionalAuth, async (req, res) => {
+  if (req.user && !isManagerOrDispatcher(req.user.role)) {
+    return fail(res, 403, 'Only managers and dispatchers are authorized to create users or drivers');
+  }
+
   const {name, email, phoneNo, licenseNo, licenseExpiryDate} = req.body ?? {};
   const role = normalizeRole(req.body?.role);
 
@@ -108,6 +126,10 @@ userRouter.get('/', async (req, res) => {
 
 userRouter.put('/update', optionalAuth, async (req, res) => {
   try {
+    if (req.user && !isManagerOrDispatcher(req.user.role)) {
+      return fail(res, 403, 'Only managers and dispatchers are authorized to update users or drivers');
+    }
+
     const id = String(req.query.id ?? req.body?.id ?? req.body?.userID ?? req.body?.driverID ?? '');
     if (!id) return fail(res, 400, 'User ID is required');
 
@@ -148,8 +170,8 @@ userRouter.put('/update', optionalAuth, async (req, res) => {
 
 userRouter.delete('/delete', optionalAuth, async (req, res) => {
   try {
-    if (req.user && req.user.role === 'ROLE_DRIVER') {
-      return fail(res, 403, 'Drivers are not authorized to delete driver records');
+    if (req.user && !isManagerOrDispatcher(req.user.role)) {
+      return fail(res, 403, 'Only managers and dispatchers are authorized to delete driver records');
     }
 
     const id = String(req.query.id ?? req.body?.id ?? req.body?.driverID ?? '');

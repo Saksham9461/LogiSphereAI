@@ -43,6 +43,7 @@ import useMaintenanceStore from '../store/MaintenanceStore';
 import useAuthStore from '../store/AuthStore';
 import useNotificationStore from '../store/NotificationStore';
 import FleetMap from '../components/FleetMap';
+import TripDelayInsightsModal from '../components/TripDelayInsightsModal';
 import client from '../api/axiosClient';
 import { RouteRecommendation } from '../api/apiPath';
 import { openGoogleMapsNavigation } from '../utils/navigationUtils';
@@ -123,7 +124,41 @@ export default function TripDispatcherScreen() {
 
   const { vehicles, getVehicles } = useVehicleStore();
   const { drivers, getDrivers } = useDriverStore();
-  const { notifications, unreadCount, getNotifications, markAsRead } = useNotificationStore();
+  const {
+    notifications,
+    tripNotifications,
+    unreadCount,
+    tripUnreadCount,
+    getNotifications,
+    markAsRead,
+  } = useNotificationStore();
+
+  const displayedTripNotifications = useMemo(() => {
+    const source = tripNotifications && tripNotifications.length > 0 ? tripNotifications : notifications;
+    return (source || []).filter((n: any) => {
+      const title = String(n?.title || '').toUpperCase();
+      const msg = String(n?.message || n?.body || '').toUpperCase();
+      const type = String(n?.type || '').toUpperCase();
+      const category = String(n?.category || '').toUpperCase();
+
+      if (
+        title.includes('SOS') ||
+        title.includes('EMERGENCY') ||
+        msg.includes('SOS') ||
+        msg.includes('EMERGENCY') ||
+        type === 'SOS' ||
+        category === 'EMERGENCY'
+      ) {
+        return false;
+      }
+      return Boolean(n?.tripId || n?.tripid || type === 'TRIP' || title.includes('TRIP') || msg.includes('TRIP'));
+    });
+  }, [tripNotifications, notifications]);
+
+  const displayedTripUnreadCount = useMemo(() => {
+    return displayedTripNotifications.filter((n: any) => !n.read).length;
+  }, [displayedTripNotifications]);
+
   const { maintenanceRecords, fetchMaintenance } = useMaintenanceStore();
 
   const [search, setSearch] = useState('');
@@ -169,6 +204,7 @@ export default function TripDispatcherScreen() {
   const [actionFuel, setActionFuel] = useState('0');
 
   const [mapModalTrip, setMapModalTrip] = useState<any | null>(null);
+  const [delayModalTripId, setDelayModalTripId] = useState<string | null>(null);
 
   // AI Route Intelligence Modal State
   const [routeModal, setRouteModal] = useState<{
@@ -720,9 +756,9 @@ export default function TripDispatcherScreen() {
             {/* NOTIFICATION BELL */}
             <Pressable style={styles.iconBtn} onPress={() => setShowNotifModal(true)}>
               <Bell size={20} color={colors.textPrimary} />
-              {unreadCount > 0 && (
+              {displayedTripUnreadCount > 0 && (
                 <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{unreadCount}</Text>
+                  <Text style={styles.badgeText}>{displayedTripUnreadCount}</Text>
                 </View>
               )}
             </Pressable>
@@ -830,21 +866,13 @@ export default function TripDispatcherScreen() {
 
                   {/* LIFECYCLE CONTROLS FOOTER */}
                   <View style={styles.tripCardFooter}>
-                    {/* ROW 1: UTILITY BUTTONS (MAP & AI ROUTE IN SINGLE ROW) */}
-                    <View
-                      style={[
-                        styles.utilityButtonsRow,
-                        !canShowAIRoute && styles.utilityButtonsRowSingle,
-                      ]}
-                    >
+                    {/* ROW 1: UTILITY BUTTONS (MAP, AI ROUTE & AI DELAY) */}
+                    <View style={styles.utilityButtonsRow}>
                       <Pressable
-                        style={[
-                          styles.mapBtn,
-                          !canShowAIRoute && styles.mapBtnFullWidth,
-                        ]}
+                        style={styles.mapBtn}
                         onPress={() => setMapModalTrip(t)}
                       >
-                        <Map size={16} color={colors.blue} />
+                        <Map size={15} color={colors.blue} />
                         <Text style={styles.mapBtnText}>Map</Text>
                       </Pressable>
 
@@ -853,10 +881,18 @@ export default function TripDispatcherScreen() {
                           style={styles.aiRouteBtn}
                           onPress={() => handleFetchRouteIntelligence(t)}
                         >
-                          <Sparkles size={15} color="#1a1200" />
+                          <Sparkles size={14} color="#1a1200" />
                           <Text style={styles.aiRouteBtnText}>AI Route</Text>
                         </Pressable>
                       )}
+
+                      <Pressable
+                        style={styles.aiDelayBtn}
+                        onPress={() => setDelayModalTripId(tID)}
+                      >
+                        <Clock size={14} color={colors.amber} />
+                        <Text style={styles.aiDelayBtnText}>AI Delay</Text>
+                      </Pressable>
                     </View>
 
                     {/* ROW 2: ACTION BUTTONS (NEXT ROW WITH FULL WIDTH) */}
@@ -1020,15 +1056,15 @@ export default function TripDispatcherScreen() {
           <View style={[styles.bottomSheet, { maxHeight: '70%' }]}>
             <View style={styles.bottomSheetHeader}>
               <View>
-                <Text style={styles.bottomSheetTitle}>Notifications</Text>
-                <Text style={styles.bottomSheetSubtitle}>{unreadCount} unread update(s)</Text>
+                <Text style={styles.bottomSheetTitle}>Trip Notifications</Text>
+                <Text style={styles.bottomSheetSubtitle}>{displayedTripUnreadCount} unread update(s)</Text>
               </View>
               <Pressable onPress={() => setShowNotifModal(false)}>
                 <X size={24} color={colors.textMuted} />
               </Pressable>
             </View>
             <ScrollView contentContainerStyle={{ gap: rf(10), paddingBottom: rf(20) }}>
-              {notifications.map((n: any) => {
+              {displayedTripNotifications.map((n: any) => {
                 const msgText = n.message || n.body || '';
                 const rawDate = n.createdAt || n.createdat || n.created_at;
                 const dateObj = rawDate ? new Date(rawDate) : new Date();
@@ -1051,9 +1087,9 @@ export default function TripDispatcherScreen() {
                   </Pressable>
                 );
               })}
-              {notifications.length === 0 && (
+              {displayedTripNotifications.length === 0 && (
                 <Text style={{ color: colors.textMuted, textAlign: 'center', marginVertical: rf(20) }}>
-                  No notifications yet.
+                  No trip notifications yet.
                 </Text>
               )}
             </ScrollView>
@@ -1229,6 +1265,13 @@ export default function TripDispatcherScreen() {
           )}
         </View>
       </Modal>
+
+      {/* AI SMART DELAY PREDICTION MODAL */}
+      <TripDelayInsightsModal
+        visible={Boolean(delayModalTripId)}
+        tripId={delayModalTripId}
+        onClose={() => setDelayModalTripId(null)}
+      />
 
       {/* ACTION MODAL (Cancel Trip) */}
       <Modal visible={!!actionModal} transparent={true} animationType="fade" onRequestClose={() => setActionModal(null)}>
@@ -1733,6 +1776,27 @@ const styles = StyleSheet.create({
     backgroundColor: colors.amber,
   },
   aiRouteBtnText: { color: '#1a1200', fontSize: rf(13), fontWeight: '800' },
+  aiDelayBtn: {
+    flex: 1,
+    minWidth: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: rf(5),
+    paddingHorizontal: rf(10),
+    paddingVertical: rf(9),
+    borderRadius: rf(10),
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+  },
+  aiDelayBtnText: {
+    color: colors.amber,
+    fontSize: rf(12),
+    fontWeight: '700',
+  },
 
   aiRecommendationCard: {
     backgroundColor: 'rgba(245,158,11,0.12)',

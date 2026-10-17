@@ -39,6 +39,8 @@ import { rf } from '../theme/responsive';
 import { colors } from '../theme/colors';
 import { useAlertStore, EmergencyAlert, AlertStatusFilter } from '../store/AlertStore';
 import useAuthStore from '../store/AuthStore';
+import { offlineSOSQueue, QueuedSOSRequest } from '../services/offlineSOSQueue';
+import { sosSyncWorker } from '../services/sosSyncWorker';
 
 const { width, height } = Dimensions.get('window');
 
@@ -76,6 +78,26 @@ export default function AlertsScreen() {
   const [resolveNote, setResolveNote] = useState('');
   const [resolvingAlertId, setResolvingAlertId] = useState<string | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [queuedRequests, setQueuedRequests] = useState<QueuedSOSRequest[]>([]);
+  const [retryingQueue, setRetryingQueue] = useState(false);
+
+  // Subscribe to durable offline SOS queue (for authenticated drivers)
+  useEffect(() => {
+    const currentDriverId = currentUser?.id || currentUser?.userId;
+    if (!currentDriverId || isManager) {
+      setQueuedRequests([]);
+      return;
+    }
+
+    const unsub = offlineSOSQueue.subscribeQueue((queue) => {
+      const driverItems = queue.filter(
+        (item) => String(item.driverId).toLowerCase() === String(currentDriverId).toLowerCase()
+      );
+      setQueuedRequests(driverItems);
+    });
+
+    return () => unsub();
+  }, [currentUser, isManager]);
 
   // Fetch alerts on screen focus
   useFocusEffect(
@@ -84,8 +106,18 @@ export default function AlertsScreen() {
     }, [fetchAlerts])
   );
 
+  const handleManualSyncQueue = async () => {
+    setRetryingQueue(true);
+    await sosSyncWorker.syncPendingSOS('user_manual_screen_retry');
+    await fetchAlerts();
+    setRetryingQueue(false);
+  };
+
   const handleRefresh = async () => {
     await fetchAlerts(true);
+    if (!isManager) {
+      await sosSyncWorker.syncPendingSOS('pull_to_refresh');
+    }
   };
 
   const handleAcknowledge = async (alertId: string) => {
@@ -292,12 +324,90 @@ export default function AlertsScreen() {
           />
         }
       >
-        {loading && alerts.length === 0 ? (
+        {/* PENDING OFFLINE SOS QUEUE CARDS (DRIVERS ONLY) */}
+        {!isManager && queuedRequests.map((req) => {
+          const reqDate = new Date(req.createdAt).toLocaleDateString();
+          const reqTime = new Date(req.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+          return (
+            <View key={req.clientRequestId} style={[styles.alertCard, styles.alertCardPendingSync]}>
+              <View style={styles.cardHeader}>
+                <View style={styles.cardHeaderLeft}>
+                  <View style={[styles.driverAvatar, { backgroundColor: '#FEF3C7' }]}>
+                    <RefreshCw color="#D97706" size={16} />
+                  </View>
+                  <View>
+                    <Text style={styles.driverNameText}>
+                      {currentUser?.name || currentUser?.email || 'Driver'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.cardHeaderRight}>
+                  <View style={styles.badgePendingSync}>
+                    <Clock size={12} color="#92400E" />
+                    <Text style={styles.badgePendingSyncText}>
+                      {req.status === 'SYNCING' ? 'SYNCING...' : 'PENDING SYNC'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.metaRow}>
+                <View style={styles.metaItem}>
+                  <Calendar size={13} color={colors.textSecondary} />
+                  <Text style={styles.metaText}>{reqDate}</Text>
+                </View>
+                <View style={styles.metaItem}>
+                  <Clock size={13} color={colors.textSecondary} />
+                  <Text style={styles.metaText}>{reqTime}</Text>
+                </View>
+                <View style={[styles.locBadge, { backgroundColor: '#FEF3C7' }]}>
+                  <Text style={[styles.locBadgeText, { color: '#92400E' }]}>OFFLINE QUEUE</Text>
+                </View>
+              </View>
+
+              <View style={styles.pendingOfflineNoticeBox}>
+                <AlertTriangle size={15} color="#D97706" />
+                <Text style={styles.pendingOfflineNoticeText}>
+                  No internet connection. SOS saved and will be sent automatically when connectivity returns.
+                </Text>
+              </View>
+
+              {req.lastError && req.retryCount > 0 && (
+                <View style={styles.pendingRetryInfoBox}>
+                  <Text style={styles.pendingRetryInfoText}>
+                    Retry count: {req.retryCount} • {req.lastError}
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.cardActions}>
+                <Pressable
+                  style={[styles.btnAction, styles.btnSyncNow]}
+                  onPress={handleManualSyncQueue}
+                  disabled={retryingQueue || req.status === 'SYNCING'}
+                >
+                  {retryingQueue || req.status === 'SYNCING' ? (
+                    <ActivityIndicator size="small" color="#92400E" />
+                  ) : (
+                    <>
+                      <RefreshCw size={14} color="#92400E" />
+                      <Text style={styles.btnSyncNowText}>Retry Sync Now</Text>
+                    </>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          );
+        })}
+
+        {loading && alerts.length === 0 && queuedRequests.length === 0 ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color="#EF4444" />
             <Text style={styles.loadingText}>Loading emergency alerts...</Text>
           </View>
-        ) : alerts.length === 0 ? (
+        ) : alerts.length === 0 && queuedRequests.length === 0 ? (
           <View style={styles.emptyCard}>
             <ShieldCheck color="#10B981" size={48} strokeWidth={1.5} />
             <Text style={styles.emptyTitle}>No Emergency Alerts</Text>
@@ -1389,5 +1499,69 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     maxWidth: '60%',
     textAlign: 'right',
+  },
+  alertCardPendingSync: {
+    borderLeftColor: '#F59E0B',
+    borderLeftWidth: 4,
+    borderColor: '#FCD34D',
+    backgroundColor: '#FFFDF5',
+  },
+  pendingTrackingIdText: {
+    fontSize: rf(10),
+    color: colors.textMuted,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    marginTop: 2,
+  },
+  badgePendingSync: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  badgePendingSyncText: {
+    fontSize: rf(11),
+    fontWeight: '800',
+    color: '#92400E',
+    letterSpacing: 0.5,
+  },
+  pendingOfflineNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FEF3C7',
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  pendingOfflineNoticeText: {
+    flex: 1,
+    fontSize: rf(12),
+    color: '#92400E',
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  pendingRetryInfoBox: {
+    marginTop: 6,
+    paddingHorizontal: 4,
+  },
+  pendingRetryInfoText: {
+    fontSize: rf(11),
+    color: colors.textMuted,
+    fontStyle: 'italic',
+  },
+  btnSyncNow: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  btnSyncNowText: {
+    fontSize: rf(12),
+    fontWeight: '700',
+    color: '#92400E',
   },
 });

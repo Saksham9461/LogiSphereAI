@@ -35,6 +35,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/user', userRouter);
 app.use('/api/vehicle', vehicleRouter);
 app.use('/api/trip', tripRouter);
+app.use('/api/trips', tripRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/maintenance', maintenanceRouter);
 app.use('/api/fuel', fuelRouter);

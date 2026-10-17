@@ -5,6 +5,8 @@ import { TriggerSOS } from '../api/apiPath';
 import useTripStore from '../store/TripStore';
 import useAuthStore from '../store/AuthStore';
 
+import { offlineSOSQueue, QueuedSOSPayload } from './offlineSOSQueue';
+
 export interface SOSLocationResult {
   latitude: number | null;
   longitude: number | null;
@@ -15,6 +17,7 @@ export interface SOSLocationResult {
 }
 
 export interface SOSPayload {
+  clientRequestId?: string;
   userId?: string;
   latitude?: number | null;
   longitude?: number | null;
@@ -24,6 +27,16 @@ export interface SOSPayload {
   tripId?: string | null;
   vehicleId?: string | null;
   message?: string;
+  createdAt?: string;
+}
+
+export interface TriggerSOSResult {
+  success: boolean;
+  alert?: any;
+  queued?: boolean;
+  clientRequestId?: string;
+  error?: string;
+  locationStatus?: string;
 }
 
 /**
@@ -153,12 +166,7 @@ export async function captureSOSLocation(): Promise<SOSLocationResult> {
  * Triggers the emergency SOS alert directly against the authenticated backend.
  * Persists the alert in the database and broadcasts to managers in real-time.
  */
-export const triggerSOSApi = async (customMessage?: string): Promise<{
-  success: boolean;
-  alert?: any;
-  error?: string;
-  locationStatus?: string;
-}> => {
+export const triggerSOSApi = async (customMessage?: string): Promise<TriggerSOSResult> => {
   // 1. Capture real GPS coordinates
   const location = await captureSOSLocation();
 
@@ -173,7 +181,12 @@ export const triggerSOSApi = async (customMessage?: string): Promise<{
     return isDriver && ['ON_TRIP', 'ON TRIP', 'ACCEPTED', 'DISPATCHED', 'IN_TRANSIT'].includes(rawStatus);
   });
 
-  const payload: SOSPayload = {
+  // 3. Generate a stable, unique clientRequestId for the SOS event
+  const clientRequestId = `sos-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  const nowIso = new Date().toISOString();
+
+  const payload: QueuedSOSPayload = {
+    clientRequestId,
     userId: currentUserId,
     latitude: location.latitude,
     longitude: location.longitude,
@@ -183,32 +196,58 @@ export const triggerSOSApi = async (customMessage?: string): Promise<{
     tripId: activeTrip?.tripID || activeTrip?.id || null,
     vehicleId: activeTrip?.vehicleID || activeTrip?.vehicleid || null,
     message: customMessage || 'EMERGENCY SOS: Driver triggered emergency alert',
+    createdAt: nowIso,
   };
 
-  console.log('🚨 Dispatching real emergency SOS to backend:', payload);
+  // 4. Immediately persist the pending SOS request in durable local storage before attempting network
+  await offlineSOSQueue.enqueue({
+    clientRequestId,
+    driverId: String(currentUserId || 'unknown_driver'),
+    payload,
+    createdAt: nowIso,
+    retryCount: 0,
+    status: 'PENDING_SYNC',
+  });
 
+  console.log('🚨 Dispatching emergency SOS to backend (durable queue saved):', payload);
+
+  // 5. If device is online, submit the request using the existing SOS API
   try {
     const response = await client.post(TriggerSOS, payload);
-    const data = response.data;
+    const data = response?.data;
 
-    if (data?.success && data?.alert) {
+    if (response.status === 200 || response.status === 201 || (data?.success && data?.alert)) {
+      // Server confirmed persistence: safely remove from the pending queue
+      await offlineSOSQueue.dequeue(clientRequestId);
       return {
         success: true,
         alert: data.alert,
+        queued: false,
+        clientRequestId,
         locationStatus: location.locationStatus,
       };
     }
 
+    // Server returned failure or validation error: retain in queue
     return {
       success: false,
+      queued: true,
+      clientRequestId,
       error: data?.message || 'Server rejected emergency SOS registration',
       locationStatus: location.locationStatus,
     };
   } catch (error: any) {
-    const errMsg = error?.response?.data?.message || error?.message || 'Network error reaching emergency dispatch server';
-    console.error('🚨 Emergency SOS failed:', errMsg);
+    const isNetworkError = !error?.response || error?.message === 'Network Error' || error?.code === 'ECONNABORTED';
+    const errMsg = isNetworkError
+      ? 'No internet connection. SOS saved and will be sent automatically when connectivity returns.'
+      : error?.response?.data?.message || error?.message || 'Unable to transmit emergency alert to dispatch';
+
+    console.warn('🚨 Emergency SOS network transmission failed, retained in durable queue:', errMsg);
+
     return {
       success: false,
+      queued: true,
+      clientRequestId,
       error: errMsg,
       locationStatus: location.locationStatus,
     };

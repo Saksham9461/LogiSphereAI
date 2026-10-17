@@ -10,6 +10,7 @@ import useAuthStore from './src/store/AuthStore';
 import {navigationTheme} from './src/theme/navigationTheme';
 import {linking} from './src/navigation/linking';
 import {colors} from './src/theme/colors';
+import {sosSyncWorker} from './src/services/sosSyncWorker';
 
 export default function App() {
   const globalLoading = useGlobalLoading();
@@ -17,6 +18,10 @@ export default function App() {
 
   useEffect(() => {
     hydrateAuth();
+    sosSyncWorker.init();
+    return () => {
+      sosSyncWorker.cleanup();
+    };
   }, [hydrateAuth]);
 
   return (

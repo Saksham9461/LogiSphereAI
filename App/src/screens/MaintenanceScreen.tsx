@@ -22,12 +22,62 @@ import {
   AlertTriangle,
   RefreshCw,
   CheckCircle2,
+  Sparkles,
+  TrendingUp,
+  Calendar,
+  ShieldAlert,
+  Info,
+  Layers,
 } from 'lucide-react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { rf } from '../theme/responsive';
 import { colors } from '../theme/colors';
 import useMaintenanceStore from '../store/MaintenanceStore';
 import useVehicleStore from '../store/VehicleStore';
+import client from '../api/axiosClient';
+import { GetMaintenanceForecast } from '../api/apiPath';
+
+export interface MaintenanceForecastData {
+  forecastMonth: string;
+  forecastBudget: number;
+  currency: string;
+  forecastRange: {
+    min: number;
+    max: number;
+  };
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  historicalMonthly: {
+    month: string;
+    actualCost: number;
+    serviceCount: number;
+  }[];
+  vehicleProjections: {
+    vehicleID: string;
+    vehicleName?: string;
+    name?: string;
+    registrationNumber: string;
+    projectedNextMonthCost?: number;
+    estimatedNextMonthCost?: number;
+    riskLevel: 'HIGH' | 'MEDIUM' | 'LOW';
+    totalHistoricalCost: number;
+    recent90DaysCost?: number;
+    recentCost90Days?: number;
+    recent90DaysVisits?: number;
+    recentVisitCount90Days?: number;
+    evidenceReasons?: string[];
+    suggestedAction?: string;
+  }[];
+  aiExplanation: {
+    source: string;
+    summary?: string;
+    executiveSummary?: string;
+    costDrivers?: string[];
+    actionableSuggestions?: string[];
+    budgetRecommendations?: string[];
+    riskSummary?: string;
+  };
+  dataQualityIndicator: string;
+}
 
 // --- CONSTANTS ---
 const STATUS_STYLES: Record<string, any> = {
@@ -79,6 +129,29 @@ export default function MaintenanceScreen() {
   const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [formStatus, setFormStatus] = useState('Active');
 
+  // AI Maintenance Cost Forecast State
+  const [activeTab, setActiveTab] = useState<'RECORDS' | 'FORECAST'>('RECORDS');
+  const [forecastData, setForecastData] = useState<MaintenanceForecastData | null>(null);
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecastError, setForecastError] = useState<string | null>(null);
+
+  const fetchForecast = useCallback(async () => {
+    try {
+      setForecastLoading(true);
+      setForecastError(null);
+      const res = await client.get(GetMaintenanceForecast);
+      if (res?.data?.success && res.data.data) {
+        setForecastData(res.data.data);
+      } else {
+        setForecastError(res?.data?.message || 'Failed to generate maintenance forecast.');
+      }
+    } catch (err: any) {
+      setForecastError(err?.response?.data?.message || err?.message || 'Could not load forecast.');
+    } finally {
+      setForecastLoading(false);
+    }
+  }, []);
+
   // Load records on screen focus
   useFocusEffect(
     useCallback(() => {
@@ -89,7 +162,11 @@ export default function MaintenanceScreen() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([fetchMaintenance(), getVehicles()]);
+    if (activeTab === 'FORECAST') {
+      await Promise.all([fetchForecast(), getVehicles()]);
+    } else {
+      await Promise.all([fetchMaintenance(), getVehicles()]);
+    }
     setRefreshing(false);
   };
 
@@ -235,101 +312,406 @@ export default function MaintenanceScreen() {
           </Pressable>
         </View>
 
-        {/* SEARCH */}
-        <View style={styles.searchContainer}>
-          <Search size={20} color={colors.textMuted} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search vehicle or service..."
-            placeholderTextColor={colors.textMuted}
-            value={search}
-            onChangeText={setSearch}
-          />
+        {/* SEGMENTED TAB SWITCHER */}
+        <View style={styles.segmentContainer}>
+          <Pressable
+            style={[styles.segmentBtn, activeTab === 'RECORDS' && styles.segmentBtnActive]}
+            onPress={() => setActiveTab('RECORDS')}
+          >
+            <Wrench size={14} color={activeTab === 'RECORDS' ? '#1a1200' : colors.textSecondary} />
+            <Text style={[styles.segmentBtnText, activeTab === 'RECORDS' && styles.segmentBtnTextActive]}>
+              Service Log ({maintenanceRecords?.length || 0})
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.segmentBtn, activeTab === 'FORECAST' && styles.segmentBtnActive]}
+            onPress={() => {
+              setActiveTab('FORECAST');
+              if (!forecastData && !forecastLoading) {
+                fetchForecast();
+              }
+            }}
+          >
+            <Sparkles size={14} color={activeTab === 'FORECAST' ? '#1a1200' : colors.amber} />
+            <Text style={[styles.segmentBtnText, activeTab === 'FORECAST' && styles.segmentBtnTextActive]}>
+              AI Cost Forecast
+            </Text>
+          </Pressable>
         </View>
 
-        {/* ERROR STATE */}
-        {error && maintenanceRecords.length === 0 ? (
-          <View style={styles.errorCard}>
-            <AlertTriangle size={24} color={colors.rose} />
-            <Text style={styles.errorText}>{error}</Text>
-            <Pressable style={styles.retryButton} onPress={() => fetchMaintenance()}>
-              <RefreshCw size={14} color={colors.textPrimary} />
-              <Text style={styles.retryButtonText}>Retry</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {/* LIST */}
-        <View style={styles.listContainer}>
-          <Text style={styles.sectionTitle}>Service Log</Text>
-          {loading && maintenanceRecords.length === 0 ? (
-            <View style={styles.loadingState}>
-              <ActivityIndicator size="large" color={colors.amber} />
-              <Text style={styles.loadingText}>Fetching maintenance records...</Text>
-            </View>
-          ) : filteredLogs.length > 0 ? (
-            filteredLogs.map((l: any) => {
-              const s = STATUS_STYLES[l.status] || STATUS_STYLES.Active;
-              const isInShop = l.status === 'Active' || l.rawStatus === 'ACTIVE';
-              const isCompleting = completingId === l.id;
-
-              return (
-                <View key={l.id} style={styles.logCard}>
-                  <View style={styles.logHeader}>
-                    <Text style={styles.logVehicle}>{l.vehicle}</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: s.bg, borderColor: s.border }]}>
-                      <Text style={[styles.statusText, { color: s.text }]}>{s.label}</Text>
+        {activeTab === 'FORECAST' ? (
+          <View style={styles.forecastContainer}>
+            {forecastLoading && !refreshing ? (
+              <View style={styles.loadingState}>
+                <ActivityIndicator size="large" color={colors.amber} />
+                <Text style={styles.loadingText}>Synthesizing historical records & forecasting next month...</Text>
+              </View>
+            ) : forecastError ? (
+              <View style={styles.errorCard}>
+                <AlertTriangle size={24} color={colors.rose} />
+                <Text style={styles.errorText}>{forecastError}</Text>
+                <Pressable style={styles.retryButton} onPress={fetchForecast}>
+                  <RefreshCw size={14} color={colors.textPrimary} />
+                  <Text style={styles.retryButtonText}>Retry Forecast</Text>
+                </Pressable>
+              </View>
+            ) : forecastData ? (
+              <>
+                {/* 1. HERO FORECAST BUDGET CARD */}
+                <View style={styles.forecastHeroCard}>
+                  <View style={styles.forecastHeroTop}>
+                    <View style={styles.forecastHeroIconWrap}>
+                      <Calendar size={18} color={colors.amber} />
                     </View>
-                  </View>
-                  <View style={styles.logBody}>
-                    <View>
-                      <Text style={styles.logLabel}>Service Type</Text>
-                      <Text style={styles.logValue}>{l.service || l.serviceType}</Text>
-                      <Text style={styles.logDateText}>{l.date}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.forecastHeroLabel}>Next Month Budget Forecast</Text>
+                      <Text style={styles.forecastHeroMonth}>{forecastData.forecastMonth}</Text>
                     </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={styles.logLabel}>Cost</Text>
-                      <Text style={[styles.logValue, { fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' }]}>
-                        {inr(l.cost)}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {isInShop && (
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.completeButton,
-                        pressed && { opacity: 0.8 },
-                        isCompleting && { opacity: 0.6 },
+                    <View
+                      style={[
+                        styles.confidenceBadge,
+                        {
+                          backgroundColor:
+                            forecastData.confidence === 'HIGH'
+                              ? 'rgba(34,197,94,0.15)'
+                              : 'rgba(245,158,11,0.15)',
+                          borderColor:
+                            forecastData.confidence === 'HIGH'
+                              ? 'rgba(34,197,94,0.4)'
+                              : 'rgba(245,158,11,0.4)',
+                        },
                       ]}
-                      disabled={isCompleting}
-                      onPress={() => handleCompleteMaintenance(l)}
                     >
-                      {isCompleting ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : (
-                        <CheckCircle2 size={16} color="#FFFFFF" strokeWidth={2.5} />
-                      )}
-                      <Text style={styles.completeButtonText}>
-                        {isCompleting ? 'Completing...' : 'Complete Service'}
+                      <Text
+                        style={[
+                          styles.confidenceBadgeText,
+                          {
+                            color:
+                              forecastData.confidence === 'HIGH'
+                                ? colors.green
+                                : colors.amber,
+                          },
+                        ]}
+                      >
+                        {forecastData.confidence} CONFIDENCE
                       </Text>
-                    </Pressable>
+                    </View>
+                  </View>
+
+                  <View style={styles.heroAmountRow}>
+                    <Text style={styles.heroAmount}>
+                      ₹{Number(forecastData.forecastBudget).toLocaleString('en-IN')}
+                    </Text>
+                    <View style={styles.rangePill}>
+                      <Text style={styles.rangePillText}>
+                        Range: ₹{Number(forecastData.forecastRange.min).toLocaleString('en-IN')} – ₹{Number(forecastData.forecastRange.max).toLocaleString('en-IN')}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.heroSubtext}>
+                    Authoritative baseline computed using exponential decay weighting across actual completed maintenance and expense records.
+                  </Text>
+                </View>
+
+                {/* 2. HISTORICAL MONTHLY EXPENDITURE TREND */}
+                <View style={styles.forecastSectionCard}>
+                  <View style={styles.sectionCardHeader}>
+                    <TrendingUp size={16} color={colors.blue} />
+                    <Text style={styles.sectionCardTitle}>Monthly Spending Actuals</Text>
+                  </View>
+
+                  {forecastData.historicalMonthly.length > 0 ? (
+                    <View style={styles.monthlyBarsList}>
+                      {(() => {
+                        const maxCost = Math.max(
+                          1,
+                          ...forecastData.historicalMonthly.map((m) => m.actualCost)
+                        );
+                        return forecastData.historicalMonthly.map((m) => {
+                          const pct = Math.min(
+                            100,
+                            Math.max(4, Math.round((m.actualCost / maxCost) * 100))
+                          );
+                          return (
+                            <View key={m.month} style={styles.monthBarRow}>
+                              <View style={styles.monthBarLabelCol}>
+                                <Text style={styles.monthBarMonth}>{m.month}</Text>
+                                <Text style={styles.monthBarVisits}>
+                                  {m.serviceCount} service{m.serviceCount === 1 ? '' : 's'}
+                                </Text>
+                              </View>
+
+                              <View style={styles.monthBarProgressWrap}>
+                                <View style={styles.monthBarBg}>
+                                  <View style={[styles.monthBarFill, { width: `${pct}%` }]} />
+                                </View>
+                              </View>
+
+                              <Text style={styles.monthBarAmount}>
+                                ₹{Number(m.actualCost).toLocaleString('en-IN')}
+                              </Text>
+                            </View>
+                          );
+                        });
+                      })()}
+                    </View>
+                  ) : (
+                    <Text style={styles.emptyNoticeText}>No historical maintenance records found.</Text>
                   )}
                 </View>
-              );
-            })
-          ) : (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyStateIconWrapper}>
-                <Wrench size={32} color={colors.textMuted} strokeWidth={1.5} />
-              </View>
-              <Text style={styles.emptyStateTitle}>No records found</Text>
-              <Text style={styles.emptyStateText}>
-                {search ? `No matches for "${search}".` : "Fleet is fully operational. Add your first service record to start tracking vehicle maintenance."}
-              </Text>
+
+                {/* 3. VEHICLE MAINTENANCE RISK RANKING */}
+                <View style={styles.forecastSectionCard}>
+                  <View style={styles.sectionCardHeader}>
+                    <ShieldAlert size={16} color={colors.amber} />
+                    <Text style={styles.sectionCardTitle}>Vehicle Cost & Risk Analysis</Text>
+                  </View>
+
+                  <View style={styles.vehicleProjectionsList}>
+                    {forecastData.vehicleProjections.map((v) => {
+                      const isHigh = v.riskLevel === 'HIGH';
+                      const isMed = v.riskLevel === 'MEDIUM';
+                      const badgeColor = isHigh
+                        ? colors.rose
+                        : isMed
+                        ? colors.amber
+                        : colors.green;
+                      const badgeBg = isHigh
+                        ? 'rgba(239,68,68,0.14)'
+                        : isMed
+                        ? 'rgba(245,158,11,0.14)'
+                        : 'rgba(34,197,94,0.14)';
+                      const badgeBorder = isHigh
+                        ? 'rgba(239,68,68,0.35)'
+                        : isMed
+                        ? 'rgba(245,158,11,0.35)'
+                        : 'rgba(34,197,94,0.35)';
+
+                      const vName = v.vehicleName || v.name || 'Fleet Vehicle';
+                      const cost90 = Number(v.recent90DaysCost ?? v.recentCost90Days ?? 0);
+                      const visits90 = Number(v.recent90DaysVisits ?? v.recentVisitCount90Days ?? 0);
+                      const nextCost = Number(v.projectedNextMonthCost ?? v.estimatedNextMonthCost ?? 0);
+                      const evidence = Array.isArray(v.evidenceReasons) ? v.evidenceReasons : [];
+                      const action = v.suggestedAction || evidence[0] || 'Scheduled inspection recommended';
+
+                      return (
+                        <View key={v.vehicleID} style={styles.vehicleRiskCard}>
+                          <View style={styles.vehicleRiskTop}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.vehicleRiskName}>{vName}</Text>
+                              <Text style={styles.vehicleRiskPlate}>
+                                {v.registrationNumber || v.vehicleID}
+                              </Text>
+                            </View>
+                            <View
+                              style={[
+                                styles.riskLevelBadge,
+                                { backgroundColor: badgeBg, borderColor: badgeBorder },
+                              ]}
+                            >
+                              <Text style={[styles.riskLevelText, { color: badgeColor }]}>
+                                {v.riskLevel} RISK
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={styles.vehicleStatsRow}>
+                            <View style={styles.vehicleStatCol}>
+                              <Text style={styles.vehicleStatLabel}>90-Day Cost</Text>
+                              <Text style={styles.vehicleStatVal}>
+                                ₹{cost90.toLocaleString('en-IN')}
+                              </Text>
+                            </View>
+                            <View style={styles.vehicleStatCol}>
+                              <Text style={styles.vehicleStatLabel}>Visits</Text>
+                              <Text style={styles.vehicleStatVal}>{visits90}</Text>
+                            </View>
+                            <View style={styles.vehicleStatCol}>
+                              <Text style={styles.vehicleStatLabel}>Next Month Proj.</Text>
+                              <Text style={[styles.vehicleStatVal, { color: colors.amber }]}>
+                                ₹{nextCost.toLocaleString('en-IN')}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {evidence.length > 0 && (
+                            <View style={styles.evidenceWrap}>
+                              {evidence.map((reason, idx) => (
+                                <View key={idx} style={styles.evidencePill}>
+                                  <Text style={styles.evidencePillText}>{reason}</Text>
+                                </View>
+                              ))}
+                            </View>
+                          )}
+
+                          <View style={styles.suggestedActionBox}>
+                            <Info size={13} color={colors.textSecondary} />
+                            <Text style={styles.suggestedActionText}>{action}</Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* 4. GEMINI AI PREDICTIVE ADVISORY */}
+                <View style={styles.aiAdvisoryCard}>
+                  <View style={styles.aiAdvisoryHeader}>
+                    <View style={styles.aiAdvisoryHeaderLeft}>
+                      <Sparkles size={16} color={colors.amber} />
+                      <Text style={styles.aiAdvisoryTitle}>Gemini AI Maintenance Advisory</Text>
+                    </View>
+                    <View style={styles.aiAdvisoryPill}>
+                      <Text style={styles.aiAdvisoryPillText}>ADVISORY ONLY</Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.aiSummaryText}>
+                    {forecastData.aiExplanation?.executiveSummary ||
+                      forecastData.aiExplanation?.summary ||
+                      'Automated maintenance forecast generated from fleet historical records.'}
+                  </Text>
+
+                  {Array.isArray(forecastData.aiExplanation?.costDrivers) &&
+                    forecastData.aiExplanation.costDrivers.length > 0 && (
+                      <View style={styles.costDriversBox}>
+                        <Text style={styles.subheadingText}>Primary Cost Drivers:</Text>
+                        {forecastData.aiExplanation.costDrivers.map((driver, idx) => (
+                          <View key={idx} style={styles.bulletRow}>
+                            <View style={styles.bulletDot} />
+                            <Text style={styles.bulletText}>{driver}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                  {(() => {
+                    const recommendations =
+                      forecastData.aiExplanation?.budgetRecommendations ||
+                      forecastData.aiExplanation?.actionableSuggestions ||
+                      [];
+                    if (!Array.isArray(recommendations) || recommendations.length === 0) return null;
+                    return (
+                      <View style={styles.suggestionsBox}>
+                        <Text style={styles.subheadingText}>Actionable Recommendations:</Text>
+                        {recommendations.map((sug, idx) => (
+                          <View key={idx} style={styles.bulletRow}>
+                            <CheckCircle2 size={13} color={colors.green} style={{ marginTop: 2 }} />
+                            <Text style={styles.bulletText}>{sug}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    );
+                  })()}
+                </View>
+
+                <Text style={styles.dataQualityFootnote}>
+                  {forecastData.dataQualityIndicator} All figures are deterministic, advisory, and read-only.
+                </Text>
+              </>
+            ) : null}
+          </View>
+        ) : (
+          <>
+            {/* SEARCH */}
+            <View style={styles.searchContainer}>
+              <Search size={20} color={colors.textMuted} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search vehicle or service..."
+                placeholderTextColor={colors.textMuted}
+                value={search}
+                onChangeText={setSearch}
+              />
             </View>
-          )}
-        </View>
+
+            {/* ERROR STATE */}
+            {error && maintenanceRecords.length === 0 ? (
+              <View style={styles.errorCard}>
+                <AlertTriangle size={24} color={colors.rose} />
+                <Text style={styles.errorText}>{error}</Text>
+                <Pressable style={styles.retryButton} onPress={() => fetchMaintenance()}>
+                  <RefreshCw size={14} color={colors.textPrimary} />
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {/* LIST */}
+            <View style={styles.listContainer}>
+              <Text style={styles.sectionTitle}>Service Log</Text>
+              {loading && maintenanceRecords.length === 0 ? (
+                <View style={styles.loadingState}>
+                  <ActivityIndicator size="large" color={colors.amber} />
+                  <Text style={styles.loadingText}>Fetching maintenance records...</Text>
+                </View>
+              ) : filteredLogs.length > 0 ? (
+                filteredLogs.map((l: any) => {
+                  const s = STATUS_STYLES[l.status] || STATUS_STYLES.Active;
+                  const isInShop = l.status === 'Active' || l.rawStatus === 'ACTIVE';
+                  const isCompleting = completingId === l.id;
+
+                  return (
+                    <View key={l.id} style={styles.logCard}>
+                      <View style={styles.logHeader}>
+                        <Text style={styles.logVehicle}>{l.vehicle}</Text>
+                        <View style={[styles.statusBadge, { backgroundColor: s.bg, borderColor: s.border }]}>
+                          <Text style={[styles.statusText, { color: s.text }]}>{s.label}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.logBody}>
+                        <View>
+                          <Text style={styles.logLabel}>Service Type</Text>
+                          <Text style={styles.logValue}>{l.service || l.serviceType}</Text>
+                          <Text style={styles.logDateText}>{l.date}</Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={styles.logLabel}>Cost</Text>
+                          <Text style={[styles.logValue, { fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' }]}>
+                            {inr(l.cost)}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {isInShop && (
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.completeButton,
+                            pressed && { opacity: 0.8 },
+                            isCompleting && { opacity: 0.6 },
+                          ]}
+                          disabled={isCompleting}
+                          onPress={() => handleCompleteMaintenance(l)}
+                        >
+                          {isCompleting ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                          ) : (
+                            <CheckCircle2 size={16} color="#FFFFFF" strokeWidth={2.5} />
+                          )}
+                          <Text style={styles.completeButtonText}>
+                            {isCompleting ? 'Completing...' : 'Complete Service'}
+                          </Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  );
+                })
+              ) : (
+                <View style={styles.emptyState}>
+                  <View style={styles.emptyStateIconWrapper}>
+                    <Wrench size={32} color={colors.textMuted} strokeWidth={1.5} />
+                  </View>
+                  <Text style={styles.emptyStateTitle}>No records found</Text>
+                  <Text style={styles.emptyStateText}>
+                    {search ? `No matches for "${search}".` : "Fleet is fully operational. Add your first service record to start tracking vehicle maintenance."}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </>
+        )}
       </ScrollView>
 
       {/* ADD LOG MODAL */}
@@ -550,4 +932,342 @@ const styles = StyleSheet.create({
   dropdownTitle: { color: colors.textMuted, fontSize: rf(12), fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, paddingHorizontal: rf(20), paddingVertical: rf(12), borderBottomWidth: 1, borderBottomColor: colors.borderSoft, marginBottom: rf(8) },
   dropdownOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: rf(14), paddingHorizontal: rf(20) },
   dropdownOptionText: { color: colors.textPrimary, fontSize: rf(15), fontWeight: '600' },
+
+  // Segmented Tab Switcher Styles
+  segmentContainer: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    borderRadius: rf(12),
+    padding: rf(4),
+    marginBottom: rf(16),
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  segmentBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: rf(10),
+    borderRadius: rf(8),
+    gap: rf(6),
+  },
+  segmentBtnActive: {
+    backgroundColor: colors.amber,
+  },
+  segmentBtnText: {
+    fontSize: rf(12),
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  segmentBtnTextActive: {
+    color: '#1a1200',
+  },
+
+  // Forecast Dashboard Styles
+  forecastContainer: {
+    gap: rf(16),
+  },
+  forecastHeroCard: {
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+    borderRadius: rf(16),
+    padding: rf(16),
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+    gap: rf(10),
+  },
+  forecastHeroTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: rf(10),
+  },
+  forecastHeroIconWrap: {
+    width: rf(36),
+    height: rf(36),
+    borderRadius: rf(8),
+    backgroundColor: 'rgba(245, 158, 11, 0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  forecastHeroLabel: {
+    fontSize: rf(11),
+    color: colors.textMuted,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  forecastHeroMonth: {
+    fontSize: rf(15),
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  confidenceBadge: {
+    paddingHorizontal: rf(8),
+    paddingVertical: rf(4),
+    borderRadius: rf(6),
+    borderWidth: 1,
+  },
+  confidenceBadgeText: {
+    fontSize: rf(9),
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  heroAmountRow: {
+    marginVertical: rf(4),
+    gap: rf(6),
+  },
+  heroAmount: {
+    fontSize: rf(28),
+    fontWeight: '900',
+    color: colors.textPrimary,
+    letterSpacing: -0.5,
+  },
+  rangePill: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: rf(10),
+    paddingVertical: rf(4),
+    borderRadius: rf(6),
+    alignSelf: 'flex-start',
+  },
+  rangePillText: {
+    fontSize: rf(11),
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  heroSubtext: {
+    fontSize: rf(11),
+    color: colors.textMuted,
+    lineHeight: rf(15),
+  },
+
+  forecastSectionCard: {
+    backgroundColor: colors.panel,
+    borderRadius: rf(16),
+    padding: rf(16),
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: rf(12),
+  },
+  sectionCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: rf(8),
+  },
+  sectionCardTitle: {
+    fontSize: rf(14),
+    fontWeight: '800',
+    color: colors.textPrimary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  monthlyBarsList: {
+    gap: rf(12),
+  },
+  monthBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: rf(10),
+  },
+  monthBarLabelCol: {
+    width: rf(80),
+  },
+  monthBarMonth: {
+    fontSize: rf(12),
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  monthBarVisits: {
+    fontSize: rf(10),
+    color: colors.textMuted,
+  },
+  monthBarProgressWrap: {
+    flex: 1,
+  },
+  monthBarBg: {
+    height: rf(8),
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: rf(4),
+    overflow: 'hidden',
+  },
+  monthBarFill: {
+    height: '100%',
+    backgroundColor: colors.blue,
+    borderRadius: rf(4),
+  },
+  monthBarAmount: {
+    fontSize: rf(12),
+    fontWeight: '700',
+    color: colors.textPrimary,
+    minWidth: rf(70),
+    textAlign: 'right',
+  },
+  emptyNoticeText: {
+    fontSize: rf(12),
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingVertical: rf(12),
+  },
+
+  vehicleProjectionsList: {
+    gap: rf(10),
+  },
+  vehicleRiskCard: {
+    backgroundColor: colors.surface,
+    borderRadius: rf(12),
+    padding: rf(12),
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    gap: rf(8),
+  },
+  vehicleRiskTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  vehicleRiskName: {
+    fontSize: rf(13),
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  vehicleRiskPlate: {
+    fontSize: rf(11),
+    color: colors.textMuted,
+    marginTop: 1,
+  },
+  riskLevelBadge: {
+    paddingHorizontal: rf(8),
+    paddingVertical: rf(3),
+    borderRadius: rf(12),
+    borderWidth: 1,
+  },
+  riskLevelText: {
+    fontSize: rf(9),
+    fontWeight: '800',
+  },
+  vehicleStatsRow: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: rf(8),
+    padding: rf(8),
+  },
+  vehicleStatCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  vehicleStatLabel: {
+    fontSize: rf(9),
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  vehicleStatVal: {
+    fontSize: rf(12),
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  evidenceWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: rf(4),
+  },
+  evidencePill: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: rf(6),
+    paddingVertical: rf(2),
+    borderRadius: rf(4),
+  },
+  evidencePillText: {
+    fontSize: rf(9),
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  suggestedActionBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: rf(6),
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    padding: rf(6),
+    borderRadius: rf(6),
+  },
+  suggestedActionText: {
+    fontSize: rf(10),
+    color: colors.textSecondary,
+    flex: 1,
+  },
+
+  aiAdvisoryCard: {
+    backgroundColor: 'rgba(245, 158, 11, 0.06)',
+    borderRadius: rf(16),
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+    padding: rf(16),
+    gap: rf(10),
+  },
+  aiAdvisoryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  aiAdvisoryHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: rf(8),
+  },
+  aiAdvisoryTitle: {
+    fontSize: rf(13),
+    fontWeight: '700',
+    color: colors.amber,
+  },
+  aiAdvisoryPill: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    paddingHorizontal: rf(6),
+    paddingVertical: rf(2),
+    borderRadius: rf(4),
+  },
+  aiAdvisoryPillText: {
+    fontSize: rf(8),
+    fontWeight: '700',
+    color: colors.amber,
+  },
+  aiSummaryText: {
+    fontSize: rf(12),
+    color: colors.textPrimary,
+    lineHeight: rf(17),
+  },
+  subheadingText: {
+    fontSize: rf(11),
+    fontWeight: '700',
+    color: colors.textSecondary,
+    marginBottom: rf(4),
+  },
+  costDriversBox: {
+    gap: rf(4),
+  },
+  suggestionsBox: {
+    gap: rf(4),
+  },
+  bulletRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: rf(6),
+  },
+  bulletDot: {
+    width: rf(4),
+    height: rf(4),
+    borderRadius: rf(2),
+    backgroundColor: colors.amber,
+    marginTop: rf(6),
+  },
+  bulletText: {
+    fontSize: rf(11),
+    color: colors.textSecondary,
+    flex: 1,
+    lineHeight: rf(16),
+  },
+  dataQualityFootnote: {
+    fontSize: rf(10),
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingHorizontal: rf(16),
+    lineHeight: rf(14),
+  },
 });

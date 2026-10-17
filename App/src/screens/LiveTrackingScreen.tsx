@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Truck, MapPin, SearchX, Gauge, User, Radio } from 'lucide-react-native';
+import { Truck, MapPin, SearchX, Gauge, User, Radio, Clock } from 'lucide-react-native';
 import useTrackingStore, { LiveVehicle } from '../store/TrackingStore';
 import useTripStore from '../store/TripStore';
 import useVehicleStore from '../store/VehicleStore';
 import FleetMap from '../components/FleetMap';
+import TripDelayInsightsModal from '../components/TripDelayInsightsModal';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
 
@@ -22,6 +23,8 @@ export default function LiveTrackingScreen({ route }: any) {
     subscribeRealtime,
     unsubscribeRealtime,
   } = useTrackingStore();
+
+  const [delayModalTripId, setDelayModalTripId] = useState<string | null>(null);
 
   const getVehicleDisplayName = useCallback((vID: string, fallbackName?: string) => {
     const cleanId = String(vID || '').trim();
@@ -245,6 +248,19 @@ export default function LiveTrackingScreen({ route }: any) {
             </Text>
           </View>
         )}
+
+        <View style={styles.cardActionsRow}>
+          <Pressable
+            style={styles.aiDelayQuickBtn}
+            onPress={(e) => {
+              e.stopPropagation();
+              setDelayModalTripId(item.tripID);
+            }}
+          >
+            <Clock size={12} color={colors.amber} />
+            <Text style={styles.aiDelayQuickBtnText}>AI Delay Insights</Text>
+          </Pressable>
+        </View>
       </Pressable>
     );
   };
@@ -291,6 +307,13 @@ export default function LiveTrackingScreen({ route }: any) {
           </View>
         )}
       </View>
+
+      {/* AI DELAY INSIGHTS MODAL */}
+      <TripDelayInsightsModal
+        visible={Boolean(delayModalTripId)}
+        tripId={delayModalTripId}
+        onClose={() => setDelayModalTripId(null)}
+      />
     </View>
   );
 }
@@ -446,5 +469,29 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: 'center',
     lineHeight: rf(17),
+  },
+  cardActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: rf(8),
+    paddingTop: rf(6),
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  aiDelayQuickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: rf(5),
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    paddingHorizontal: rf(10),
+    paddingVertical: rf(5),
+    borderRadius: rf(6),
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+  },
+  aiDelayQuickBtnText: {
+    fontSize: rf(11),
+    fontWeight: '700',
+    color: colors.amber,
   },
 });

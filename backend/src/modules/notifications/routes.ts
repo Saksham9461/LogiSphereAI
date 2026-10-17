@@ -15,6 +15,8 @@ export function normalizeNotification(n: any) {
     id: String(n.id || ''),
     userId: n.userId || n.userid || null,
     role: n.role || null,
+    type: n.type || null,
+    category: n.category || null,
     title: String(n.title || 'Notification'),
     message: String(n.message || n.body || ''),
     body: String(n.body || n.message || ''),
@@ -31,18 +33,28 @@ notificationRouter.get('/', optionalAuth, async (req, res) => {
     const normalized = (all || []).map(normalizeNotification);
     const userId = req.user?.userId || (req.query.userId as string);
     const role = req.user?.role || (req.query.role as string);
+    const filterType = req.query.type as string;
 
-    if (!userId && !role) {
-      return res.json(normalized);
+    let filtered = normalized;
+    if (userId || role) {
+      filtered = filtered.filter((n: any) => {
+        const nUser = n.userId || n.userid;
+        if (nUser && userId && nUser === userId) return true;
+        if (n.role && role && n.role === role) return true;
+        if (!nUser && !n.role) return true;
+        return false;
+      });
     }
 
-    const filtered = normalized.filter((n: any) => {
-      const nUser = n.userId || n.userid;
-      if (nUser && userId && nUser === userId) return true;
-      if (n.role && role && n.role === role) return true;
-      if (!nUser && !n.role) return true;
-      return false;
-    });
+    if (filterType === 'trip') {
+      filtered = filtered.filter((n: any) => {
+        const title = String(n.title || '').toUpperCase();
+        const body = String(n.body || n.message || '').toUpperCase();
+        const type = String(n.type || '').toUpperCase();
+        if (title.includes('SOS') || title.includes('EMERGENCY') || body.includes('SOS') || type === 'SOS') return false;
+        return Boolean(n.tripId || n.tripid || type === 'TRIP' || title.includes('TRIP') || body.includes('TRIP'));
+      });
+    }
 
     return res.json(filtered);
   } catch (error: any) {

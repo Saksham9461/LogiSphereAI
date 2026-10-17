@@ -1,11 +1,36 @@
-import {Router} from 'express';
-import {db} from '../../config/database';
+import { Router, Request, Response } from 'express';
+import { db } from '../../config/database';
+import { optionalAuth } from '../../middleware/auth';
+import { fail } from '../../utils/http';
+import { calculateMaintenanceForecast } from './maintenanceForecastService';
 
 export const analyticsRouter = Router();
 
+const isManagerOrDispatcher = (role?: string) => {
+  if (!role) return false;
+  const normalized = role.toUpperCase().trim();
+  return (
+    normalized === 'ROLE_MANAGER' ||
+    normalized === 'ROLE_DISPATCHER' ||
+    normalized === 'ROLE_ADMIN' ||
+    normalized === 'MANAGER' ||
+    normalized === 'FLEET_MANAGER' ||
+    normalized === 'DISPATCHER' ||
+    normalized === 'ADMIN'
+  );
+};
+
+/**
+ * GET /api/analytics
+ * Returns overall fleet KPIs and top costliest vehicles.
+ */
 analyticsRouter.get('/', async (_req, res) => {
   const [vehicles, trips, fuel, maint, expenses] = await Promise.all([
-    db.list('vehicles'), db.list('trips'), db.list('fuel_logs'), db.list('maintenance_records'), db.list('expense_records')
+    db.list('vehicles'),
+    db.list('trips'),
+    db.list('fuel_logs'),
+    db.list('maintenance_records'),
+    db.list('expense_records'),
   ]);
   const fuelCost = fuel.reduce((sum: number, f: any) => sum + Number(f.cost ?? f.fuelCost ?? 0), 0);
   const maintCost = maint.reduce((sum: number, m: any) => sum + Number(m.cost ?? 0), 0);
@@ -20,7 +45,7 @@ analyticsRouter.get('/', async (_req, res) => {
     return {
       vehicleID: vId,
       name: v.name || v.registrationNumber || vId,
-      cost: totalCost
+      cost: totalCost,
     };
   }).sort((a: any, b: any) => b.cost - a.cost);
   res.json({
@@ -28,9 +53,73 @@ analyticsRouter.get('/', async (_req, res) => {
       fuelEfficiency: liters ? Number((distance / liters).toFixed(1)) : 0,
       fleetUtilization: vehicles.length ? Math.round((trips.filter((t: any) => t.status === 'DISPATCHED').length / vehicles.length) * 100) : 0,
       operationalCost: fuelCost + maintCost + otherCost,
-      vehicleROI: 14.2
+      vehicleROI: 14.2,
     },
-    monthlyRevenue: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'].map((month, i) => ({month, revenue: Number((12 + i * 1.1).toFixed(1))})),
-    costliestVehicles: costByVehicle.slice(0, 5)
+    monthlyRevenue: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'].map((month, i) => ({ month, revenue: Number((12 + i * 1.1).toFixed(1)) })),
+    costliestVehicles: costByVehicle.slice(0, 5),
   });
+});
+
+/**
+ * GET /api/analytics/maintenance-forecast
+ * Returns next month's deterministic maintenance forecast, historical trends,
+ * vehicle risk classification, and Gemini AI budget explanation.
+ */
+analyticsRouter.get('/maintenance-forecast', optionalAuth, async (req: Request, res: Response) => {
+  try {
+    if (req.user && !isManagerOrDispatcher(req.user.role)) {
+      return fail(res, 403, 'Forbidden: Only managers and dispatchers are authorized to view maintenance forecasts');
+    }
+
+    const forecast = await calculateMaintenanceForecast();
+    return res.json({
+      success: true,
+      data: forecast,
+    });
+  } catch (err: any) {
+    console.error('[Analytics] Maintenance forecast error:', err?.message || err);
+    return fail(res, 500, err?.message || 'Failed to generate maintenance forecast');
+  }
+});
+
+/**
+ * GET /api/analytics/maintenance-forecast/:vehicleId
+ * Returns maintenance forecast and risk assessment for a specific vehicle.
+ */
+analyticsRouter.get('/maintenance-forecast/:vehicleId', optionalAuth, async (req: Request, res: Response) => {
+  try {
+    if (req.user && !isManagerOrDispatcher(req.user.role)) {
+      return fail(res, 403, 'Forbidden: Only managers and dispatchers are authorized to view vehicle maintenance forecasts');
+    }
+
+    const { vehicleId } = req.params;
+    const forecast = await calculateMaintenanceForecast();
+
+    const vehicleProjection = forecast.vehicleProjections.find(
+      (v) => v.vehicleID.toLowerCase() === vehicleId.toLowerCase()
+    );
+
+    if (!vehicleProjection) {
+      return fail(res, 404, `Vehicle ${vehicleId} not found in maintenance projections`);
+    }
+
+    const allRecords = await db.list('maintenance_records');
+    const vehicleRecords = (allRecords || []).filter(
+      (r: any) => String(r.vehicleID || r.vehicleid || '').toLowerCase() === vehicleId.toLowerCase()
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        vehicle: vehicleProjection,
+        fleetNextMonthForecastBudget: forecast.forecastBudget,
+        currency: forecast.currency,
+        maintenanceHistory: vehicleRecords,
+        aiExplanation: forecast.aiExplanation,
+      },
+    });
+  } catch (err: any) {
+    console.error('[Analytics] Single vehicle maintenance forecast error:', err?.message || err);
+    return fail(res, 500, err?.message || 'Failed to generate vehicle maintenance forecast');
+  }
 });

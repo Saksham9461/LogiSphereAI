@@ -70,9 +70,12 @@ export const AcknowledgeAlert = (id: string) => `${BASE_URL}/api/alerts/${id}/ac
 export const ResolveAlert = (id: string) => `${BASE_URL}/api/alerts/${id}/resolve`;
 export const WS_ALERTS_URL = `${WS_URL}/ws/alerts`;
 
-
-
-
-
+// AI Analytics & Forecasting
+export const GetMaintenanceForecast = `${BASE_URL}/api/analytics/maintenance-forecast`;
+export const GetVehicleMaintenanceForecast = (vehicleId: string) => `${BASE_URL}/api/analytics/maintenance-forecast/${vehicleId}`;
+export const GetTripDelayInsights = (tripId: string) => {
+  const cleanId = String(tripId || '').trim().replace(/^#/, '');
+  return `${BASE_URL}/api/trip/${encodeURIComponent(cleanId)}/delay-insights`;
+};
 
 

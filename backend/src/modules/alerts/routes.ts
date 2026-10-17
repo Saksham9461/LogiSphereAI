@@ -74,6 +74,7 @@ export function normalizeAlertRecord(row: any) {
     resolvedByName: row.resolved_by_name || row.resolvedByName || null,
     resolvedAt: row.resolved_at || row.resolvedAt || null,
     resolutionNote: row.resolution_note || row.resolutionNote || null,
+    clientRequestId: row.client_request_id || row.clientRequestId || null,
     createdAt: row.created_at || row.createdAt || new Date().toISOString(),
     updatedAt: row.updated_at || row.updatedAt || new Date().toISOString(),
   };
@@ -99,6 +100,35 @@ async function handleCreateSOS(req: Request, res: Response) {
 
     // Always derive authenticated driver's identity strictly from JWT / session
     const driverId = user.userId;
+
+    const rawClientId = req.body?.clientRequestId || req.body?.client_request_id;
+    const clientRequestId = rawClientId && typeof rawClientId === 'string' ? rawClientId.trim() : null;
+
+    // 1. Idempotency Check: If clientRequestId is provided, check if alert has already been persisted
+    if (clientRequestId) {
+      const existingRaw =
+        (await db.find('emergency_alerts', { client_request_id: clientRequestId })) ||
+        (await db.find('emergency_alerts', { clientRequestId }));
+
+      if (existingRaw) {
+        const existingAlert = normalizeAlertRecord(existingRaw);
+        if (existingAlert) {
+          // Security check: Verify that this alert belongs to the authenticated driver
+          if (String(existingAlert.driverId).toLowerCase() !== driverId.toLowerCase()) {
+            return fail(res, 403, 'Forbidden: clientRequestId belongs to another driver');
+          }
+          console.log(
+            `[SOS Idempotency] Request with clientRequestId "${clientRequestId}" already persisted (${existingAlert.id}). Returning existing alert without duplicating.`
+          );
+          return res.status(200).json({
+            success: true,
+            message: 'Emergency SOS alert already recorded (idempotent)',
+            alert: existingAlert,
+            isDuplicate: true,
+          });
+        }
+      }
+    }
 
     // Fetch user details to get real driver name and business identity
     const dbUser = await db.find('users', { id: driverId });
@@ -155,8 +185,11 @@ async function handleCreateSOS(req: Request, res: Response) {
     }
 
     const nowIso = new Date().toISOString();
+    const eventTime = req.body?.createdAt || nowIso;
     const alertData = {
       id: db.makeId('alt-'),
+      clientRequestId,
+      client_request_id: clientRequestId,
       driverId,
       driverName,
       businessId,
@@ -165,7 +198,7 @@ async function handleCreateSOS(req: Request, res: Response) {
       latitude,
       longitude,
       locationAccuracy: req.body?.accuracy !== undefined && req.body?.accuracy !== null ? Number(req.body.accuracy) : null,
-      locationCapturedAt: req.body?.capturedAt || (latitude !== null ? nowIso : null),
+      locationCapturedAt: req.body?.capturedAt || (latitude !== null ? eventTime : null),
       locationStatus,
       message: req.body?.message || 'EMERGENCY SOS: Driver triggered emergency alert',
       status: 'ACTIVE',
@@ -174,7 +207,7 @@ async function handleCreateSOS(req: Request, res: Response) {
       resolvedBy: null,
       resolvedAt: null,
       resolutionNote: null,
-      createdAt: nowIso,
+      createdAt: eventTime,
       updatedAt: nowIso,
     };
 
@@ -182,9 +215,42 @@ async function handleCreateSOS(req: Request, res: Response) {
       latitude,
       longitude,
       locationStatus,
+      clientRequestId,
     });
 
-    const savedRaw = await db.insert('emergency_alerts', alertData);
+    let savedRaw: any;
+    try {
+      savedRaw = await db.insert('emergency_alerts', alertData);
+    } catch (insertErr: any) {
+      // If concurrent request inserted the same clientRequestId simultaneously
+      if (
+        clientRequestId &&
+        (insertErr?.code === '23505' ||
+          String(insertErr?.message).includes('client_request_id') ||
+          String(insertErr?.message).includes('duplicate key') ||
+          String(insertErr?.message).includes('already exists'))
+      ) {
+        const raceExisting =
+          (await db.find('emergency_alerts', { client_request_id: clientRequestId })) ||
+          (await db.find('emergency_alerts', { clientRequestId }));
+        if (raceExisting) {
+          const normalizedRace = normalizeAlertRecord(raceExisting);
+          if (normalizedRace) {
+            console.log(
+              `[SOS Race Condition Resolved] Concurrent clientRequestId "${clientRequestId}" detected. Returning existing alert ${normalizedRace.id}.`
+            );
+            return res.status(200).json({
+              success: true,
+              message: 'Emergency SOS alert already recorded (idempotent)',
+              alert: normalizedRace,
+              isDuplicate: true,
+            });
+          }
+        }
+      }
+      throw insertErr;
+    }
+
     const persistedAlert = normalizeAlertRecord(savedRaw) || alertData;
 
     // Create system notification entry for managers
@@ -192,6 +258,8 @@ async function handleCreateSOS(req: Request, res: Response) {
       await db.insert('notifications', {
         id: db.makeId('notif-'),
         userId: null,
+        type: 'SOS',
+        category: 'EMERGENCY',
         title: '🚨 EMERGENCY SOS ALERT',
         body: `Driver ${driverName} triggered an emergency SOS alert at ${getBusinessDateString()}!`,
         read: false,
@@ -512,7 +580,7 @@ async function handleAcknowledgeAlert(req: Request, res: Response) {
       ...normalizeAlertRecord(existingRaw),
       ...patch,
     };
-    updatedAlert.acknowledgedBy = managerName;
+    updatedAlert.acknowledgedBy = user.userId;
     updatedAlert.acknowledgedByName = managerName;
 
     broadcastEmergencyAlertUpdated(updatedAlert);
@@ -579,7 +647,7 @@ async function handleResolveAlert(req: Request, res: Response) {
       ...normalizeAlertRecord(existingRaw),
       ...patch,
     };
-    updatedAlert.resolvedBy = managerName;
+    updatedAlert.resolvedBy = user.userId;
     updatedAlert.resolvedByName = managerName;
 
     broadcastEmergencyAlertUpdated(updatedAlert);

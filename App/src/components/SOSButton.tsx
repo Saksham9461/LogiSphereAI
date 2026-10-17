@@ -63,6 +63,22 @@ export const SOSButton: React.FC<SOSButtonProps> = ({ compact = false }) => {
           `Emergency alert registered successfully!\n\nAlert ID: ${res.alert.id}\nTime: ${alertTime}${locInfo}\n\nAuthorized managers and control center have been notified immediately in real time.`,
           [{ text: 'Understood' }]
         );
+      } else if (res.queued) {
+        // Driver is offline or experienced network failure; request is safely queued locally
+        Alert.alert(
+          '🚨 EMERGENCY SOS SAVED OFFLINE',
+          `No internet connection. SOS saved and will be sent automatically when connectivity returns.\n\nStatus: Pending sync\nTracking ID: ${res.clientRequestId || 'Queued'}\n\n⚠️ Notice: Offline SOS has not reached managers yet. If you are in immediate danger, please call emergency telephone services directly.`,
+          [
+            { text: 'Understood' },
+            {
+              text: 'Retry Sync Now',
+              onPress: () => {
+                const { sosSyncWorker } = require('../services/sosSyncWorker');
+                sosSyncWorker.syncPendingSOS('user_retry_press');
+              },
+            },
+          ]
+        );
       } else {
         const errorMsg = res.error || 'Failed to dispatch SOS alert to the server.';
         Alert.alert(
@@ -81,16 +97,9 @@ export const SOSButton: React.FC<SOSButtonProps> = ({ compact = false }) => {
     } catch (err: any) {
       const errorMsg = err?.message || 'Unable to complete SOS request.';
       Alert.alert(
-        '🚨 Emergency SOS Failed',
-        `${errorMsg}\n\nWould you like to retry transmitting the emergency alert immediately?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Retry SOS',
-            style: 'destructive',
-            onPress: executeSOS,
-          },
-        ]
+        '🚨 Emergency SOS Saved Offline',
+        `No internet connection. SOS saved and will be sent automatically when connectivity returns.\n\nStatus: Pending sync\n\n${errorMsg}`,
+        [{ text: 'Understood' }]
       );
     } finally {
       setLoading(false);

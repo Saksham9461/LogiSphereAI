@@ -51,20 +51,25 @@ function getRowKey(table: Table, row: any): string {
     const uId = row.user_id || row.userid || row.userId || '';
     return `${cId}:::${uId}`;
   }
-  return String(
-    row.id ||
-    row.vehicleid ||
-    row.vehicleID ||
-    row.tripid ||
-    row.tripID ||
-    row.fuellogid ||
-    row.fuelLogId ||
-    row.expenseid ||
-    row.expenseId ||
-    row.messageid ||
-    row.messageId ||
-    ''
-  );
+  if (table === 'trips') {
+    return String(row.tripid || row.tripID || row.id || '');
+  }
+  if (table === 'vehicles') {
+    return String(row.vehicleid || row.vehicleID || row.id || '');
+  }
+  if (table === 'fuel_logs') {
+    return String(row.fuellogid || row.fuelLogId || row.id || '');
+  }
+  if (table === 'expense_records') {
+    return String(row.expenseid || row.expenseId || row.id || '');
+  }
+  if (table === 'tracking_locations') {
+    return String(row.id || row.tripid || row.tripID || '');
+  }
+  if (table === 'messages') {
+    return String(row.id || row.messageid || row.messageId || '');
+  }
+  return String(row.id || '');
 }
 
 export const db = {
@@ -104,11 +109,13 @@ export const db = {
 
         for (const row of supaData) {
           const key = getRowKey(table, row);
+          const memMatch = memRows.find(m => getRowKey(table, m) === key);
+          const merged = memMatch ? { ...memMatch, ...row } : row;
           if (key) {
             if (seen.has(key)) continue;
             seen.add(key);
           }
-          combined.push(row);
+          combined.push(merged);
         }
 
         for (const row of memRows) {
@@ -296,6 +303,24 @@ export const db = {
             created_at: data.created_at || data.createdAt || now(),
             updated_at: data.updated_at || data.updatedAt || now(),
           };
+          if (data.client_request_id || data.clientRequestId) {
+            insertPayload.client_request_id = data.client_request_id || data.clientRequestId;
+          }
+        } else if (table === 'tracking_locations') {
+          insertPayload = {
+            id: data.id || `loc-${data.tripID || data.tripid || Date.now()}`,
+            tripid: data.tripID || data.tripid,
+            vehicleid: data.vehicleID || data.vehicleid,
+            driverid: data.driverID || data.driverid,
+            latitude: Number(data.latitude),
+            longitude: Number(data.longitude),
+            speed: Number(data.speed ?? 0),
+            accuracy: data.accuracy !== undefined ? Number(data.accuracy) : null,
+            heading: data.heading !== undefined ? Number(data.heading) : null,
+            devicetimestamp: data.deviceTimestamp || data.devicetimestamp || now(),
+            receivedat: now(),
+            updatedat: now(),
+          };
         }
 
         console.log(`\n--------------------------------------------------`);
@@ -364,6 +389,18 @@ export const db = {
         );
         if (existingUser) {
           const dupErr: any = new Error(`User with email '${email}' already exists`);
+          dupErr.code = '23505';
+          throw dupErr;
+        }
+      }
+    } else if (table === 'emergency_alerts') {
+      const cId = data.client_request_id || data.clientRequestId;
+      if (cId) {
+        const existing = memory.emergency_alerts.find(a =>
+          (a.client_request_id === cId || a.clientRequestId === cId)
+        );
+        if (existing) {
+          const dupErr: any = new Error(`Emergency alert with clientRequestId '${cId}' already exists`);
           dupErr.code = '23505';
           throw dupErr;
         }

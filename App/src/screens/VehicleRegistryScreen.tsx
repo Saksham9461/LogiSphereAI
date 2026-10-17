@@ -22,6 +22,7 @@ import {
   Truck,
 } from 'lucide-react-native';
 import useVehicleStore from '../store/VehicleStore';
+import useAuthStore from '../store/AuthStore';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
 
@@ -93,7 +94,17 @@ const FilterChip = ({ label, value, options, onChange }: any) => {
   );
 };
 
-const VehicleCard = ({ vehicle, onEdit, onDelete }: any) => {
+const VehicleCard = ({
+  vehicle,
+  canManage = false,
+  onEdit,
+  onDelete,
+}: {
+  vehicle: any;
+  canManage?: boolean;
+  onEdit: (vehicle: any) => void;
+  onDelete: (id: string, regNo?: string) => void;
+}) => {
   const statusRaw = vehicle.status || 'Available';
   const displayStatus = statusRaw.includes('_')
     ? statusRaw.replace(/_/g, ' ').replace(/\w\S*/g, (w: string) => (w.replace(/^\w/, (c) => c.toUpperCase())))
@@ -111,14 +122,16 @@ const VehicleCard = ({ vehicle, onEdit, onDelete }: any) => {
         <View style={styles.vehicleCardRegBox}>
           <Text style={styles.vehicleCardReg}>{regNo}</Text>
         </View>
-        <View style={styles.vehicleActions}>
-          <Pressable style={styles.iconButton} onPress={() => onEdit(vehicle)}>
-            <Edit2 size={16} color={colors.textMuted} />
-          </Pressable>
-          <Pressable style={styles.iconButton} onPress={() => onDelete(vehicle.vehicleID || vehicle.id, regNo)}>
-            <Trash2 size={16} color={colors.rose} />
-          </Pressable>
-        </View>
+        {canManage && (
+          <View style={styles.vehicleActions}>
+            <Pressable style={styles.iconButton} onPress={() => onEdit(vehicle)}>
+              <Edit2 size={16} color={colors.textMuted} />
+            </Pressable>
+            <Pressable style={styles.iconButton} onPress={() => onDelete(vehicle.vehicleID || vehicle.id, regNo)}>
+              <Trash2 size={16} color={colors.rose} />
+            </Pressable>
+          </View>
+        )}
       </View>
 
       <View style={styles.vehicleCardBody}>
@@ -156,6 +169,18 @@ const VehicleCard = ({ vehicle, onEdit, onDelete }: any) => {
 // Added a comment to trigger a Metro Bundler Fast Refresh
 export default function VehicleRegistryScreen() {
   const { vehicles, getVehicles, registerVehicle, updateVehicle, deleteVehicle, loading, error } = useVehicleStore();
+  const user = useAuthStore((state) => state.user);
+
+  const userRole = String(user?.role || '').toUpperCase().trim();
+  const canManageVehicles = [
+    'ROLE_MANAGER',
+    'FLEET_MANAGER',
+    'MANAGER',
+    'ROLE_ADMIN',
+    'ADMIN',
+    'ROLE_DISPATCHER',
+    'DISPATCHER',
+  ].includes(userRole);
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('All');
@@ -198,6 +223,7 @@ export default function VehicleRegistryScreen() {
   }, [vehicles, search, typeFilter, statusFilter]);
 
   const openAddModal = () => {
+    if (!canManageVehicles) return;
     setEditingVehicle(null);
     setFormReg('');
     setFormName('');
@@ -210,6 +236,7 @@ export default function VehicleRegistryScreen() {
   };
 
   const openEditModal = (v: any) => {
+    if (!canManageVehicles) return;
     setEditingVehicle(v);
     setFormReg(v.registrationNumber || v.reg || '');
     setFormName(v.name || v.vehicleName || '');
@@ -223,6 +250,10 @@ export default function VehicleRegistryScreen() {
   };
 
   const handleSave = async () => {
+    if (!canManageVehicles) {
+      Alert.alert('Unauthorized', 'You do not have permission to manage vehicles.');
+      return;
+    }
     const regClean = formReg.trim().toUpperCase();
     const nameClean = formName.trim();
     const capNum = Number(formCapacity);
@@ -282,6 +313,7 @@ export default function VehicleRegistryScreen() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const confirmAndDeleteVehicle = (vehicleID: string, regNo?: string, forceConfirm: boolean = false) => {
+    if (!canManageVehicles) return;
     Alert.alert(
       forceConfirm ? 'Delete Vehicle Permanently' : 'Delete Vehicle',
       forceConfirm
@@ -293,7 +325,7 @@ export default function VehicleRegistryScreen() {
           text: forceConfirm ? 'Delete Permanently' : 'Delete',
           style: 'destructive',
           onPress: async () => {
-            if (deletingId) return;
+            if (deletingId || !canManageVehicles) return;
             setDeletingId(vehicleID);
             const result = await deleteVehicle(vehicleID, forceConfirm);
             setDeletingId(null);
@@ -324,6 +356,7 @@ export default function VehicleRegistryScreen() {
   };
 
   const handleDelete = (vehicleID: string, regNo?: string) => {
+    if (!canManageVehicles) return;
     confirmAndDeleteVehicle(vehicleID, regNo, false);
   };
 
@@ -334,10 +367,12 @@ export default function VehicleRegistryScreen() {
         {/* HEADER */}
         <View style={styles.headerRow}>
           <Text style={styles.pageTitle}>Vehicle Registry</Text>
-          <Pressable style={styles.addButton} onPress={openAddModal}>
-            <Plus size={16} color="#1a1200" strokeWidth={2.5} />
-            <Text style={styles.addButtonText}>Add</Text>
-          </Pressable>
+          {canManageVehicles && (
+            <Pressable style={styles.addButton} onPress={openAddModal}>
+              <Plus size={16} color="#1a1200" strokeWidth={2.5} />
+              <Text style={styles.addButtonText}>Add</Text>
+            </Pressable>
+          )}
         </View>
 
         {/* SEARCH & FILTERS */}
@@ -363,6 +398,7 @@ export default function VehicleRegistryScreen() {
               <VehicleCard
                 key={vehicle.vehicleID || vehicle.id}
                 vehicle={vehicle}
+                canManage={canManageVehicles}
                 onEdit={openEditModal}
                 onDelete={handleDelete}
               />
@@ -383,7 +419,7 @@ export default function VehicleRegistryScreen() {
       </ScrollView>
 
       {/* ADD/EDIT MODAL */}
-      <Modal visible={showModal} transparent={true} animationType="slide" onRequestClose={() => setShowModal(false)}>
+      <Modal visible={showModal && canManageVehicles} transparent={true} animationType="slide" onRequestClose={() => setShowModal(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.bottomSheetOverlay}>
           <Pressable style={{ flex: 1 }} onPress={() => setShowModal(false)} />
           <View style={styles.bottomSheet}>

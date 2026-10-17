@@ -5,6 +5,20 @@ import {optionalAuth} from '../../middleware/auth';
 
 export const vehicleRouter = Router();
 
+const isManagerOrDispatcher = (role?: string) => {
+  if (!role) return false;
+  const normalized = role.toUpperCase().trim();
+  return (
+    normalized === 'ROLE_MANAGER' ||
+    normalized === 'ROLE_DISPATCHER' ||
+    normalized === 'ROLE_ADMIN' ||
+    normalized === 'MANAGER' ||
+    normalized === 'FLEET_MANAGER' ||
+    normalized === 'DISPATCHER' ||
+    normalized === 'ADMIN'
+  );
+};
+
 function fromDbVehicle(row: any) {
   if (!row) return row;
   const vehicleID = row.vehicleID ?? row.vehicleid ?? row.id;
@@ -63,8 +77,8 @@ vehicleRouter.get('/', async (_req, res) => {
 vehicleRouter.post('/create', optionalAuth, async (req, res) => {
   try {
     // Check RBAC if authenticated
-    if (req.user && req.user.role === 'ROLE_DRIVER') {
-      return fail(res, 403, 'Drivers are not authorized to create vehicles');
+    if (req.user && !isManagerOrDispatcher(req.user.role)) {
+      return fail(res, 403, 'Only managers and dispatchers are authorized to create vehicles');
     }
 
     const body = req.body ?? {};
@@ -144,8 +158,12 @@ vehicleRouter.post('/create', optionalAuth, async (req, res) => {
   }
 });
 
-vehicleRouter.put('/update/', async (req, res) => {
+vehicleRouter.put('/update/', optionalAuth, async (req, res) => {
   try {
+    if (req.user && !isManagerOrDispatcher(req.user.role)) {
+      return fail(res, 403, 'Only managers and dispatchers are authorized to update vehicles');
+    }
+
     const id = String(req.query.id ?? req.body?.vehicleID ?? req.body?.vehicleid ?? '');
     if (!id) return fail(res, 400, 'Vehicle ID is required');
 
@@ -209,8 +227,8 @@ vehicleRouter.put('/update/', async (req, res) => {
 
 vehicleRouter.delete('/delete/', optionalAuth, async (req, res) => {
   try {
-    if (req.user && req.user.role === 'ROLE_DRIVER') {
-      return fail(res, 403, 'Drivers are not authorized to delete vehicles');
+    if (req.user && !isManagerOrDispatcher(req.user.role)) {
+      return fail(res, 403, 'Only managers and dispatchers are authorized to delete vehicles');
     }
 
     const id = String(req.query.id ?? req.body?.id ?? req.body?.vehicleID ?? req.body?.vehicleid ?? '');

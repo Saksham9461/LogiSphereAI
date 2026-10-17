@@ -209,8 +209,8 @@ export default function CustomTabBar({ state, descriptors, navigation }: any) {
 
       {/* Bottom Tab Bar (Flush with bottom, rounded top) */}
       <View style={[
-        styles.pillContainer, 
-        { 
+        styles.pillContainer,
+        {
           paddingBottom: insets.bottom > 0 ? insets.bottom : 12,
           height: 64 + (insets.bottom > 0 ? insets.bottom : 12)
         }
