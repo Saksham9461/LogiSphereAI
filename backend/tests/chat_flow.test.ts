@@ -243,6 +243,11 @@ describe('Real-Time Chat & 24-Hour Retention Module Flow', { timeout: 15000 }, (
   });
 
   it('8. Verifies real-time unread count calculation and persistence', async () => {
+    // Mark prior messages as read by driver so driver begins test 8 with clean slate
+    await request(app)
+      .post(`/api/chat/conversations/${testConvId}/read`)
+      .set('Authorization', `Bearer ${driverToken}`);
+
     // Send 2 messages from Driver to Fleet Manager
     const resSend1 = await request(app)
       .post(`/api/chat/conversations/${testConvId}/messages`)

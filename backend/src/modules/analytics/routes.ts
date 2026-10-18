@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../../config/database';
-import { optionalAuth } from '../../middleware/auth';
+import { optionalAuth, getTrustedOrgId } from '../../middleware/auth';
 import { fail } from '../../utils/http';
 import { calculateMaintenanceForecast } from './maintenanceForecastService';
+import { calculateFuelAnomalies } from './fuelAnomalyService';
 
 export const analyticsRouter = Router();
 
@@ -24,13 +25,15 @@ const isManagerOrDispatcher = (role?: string) => {
  * GET /api/analytics
  * Returns overall fleet KPIs and top costliest vehicles.
  */
-analyticsRouter.get('/', async (_req, res) => {
+analyticsRouter.get('/', optionalAuth, async (req, res) => {
+  const orgId = getTrustedOrgId(req);
+  const orgFilter = orgId ? { organization_id: orgId } : undefined;
   const [vehicles, trips, fuel, maint, expenses] = await Promise.all([
-    db.list('vehicles'),
-    db.list('trips'),
-    db.list('fuel_logs'),
-    db.list('maintenance_records'),
-    db.list('expense_records'),
+    db.list('vehicles', orgFilter),
+    db.list('trips', orgFilter),
+    db.list('fuel_logs', orgFilter),
+    db.list('maintenance_records', orgFilter),
+    db.list('expense_records', orgFilter),
   ]);
   const fuelCost = fuel.reduce((sum: number, f: any) => sum + Number(f.cost ?? f.fuelCost ?? 0), 0);
   const maintCost = maint.reduce((sum: number, m: any) => sum + Number(m.cost ?? 0), 0);
@@ -123,3 +126,62 @@ analyticsRouter.get('/maintenance-forecast/:vehicleId', optionalAuth, async (req
     return fail(res, 500, err?.message || 'Failed to generate vehicle maintenance forecast');
   }
 });
+
+/**
+ * GET /api/analytics/fuel-anomalies
+ * Returns fleet-wide deterministic fuel anomaly report, baseline metrics,
+ * and optional resilient Gemini advisory.
+ */
+analyticsRouter.get('/fuel-anomalies', optionalAuth, async (req: Request, res: Response) => {
+  try {
+    if (req.user && !isManagerOrDispatcher(req.user.role)) {
+      return fail(res, 403, 'Forbidden: Only managers and dispatchers are authorized to view fuel anomaly analytics');
+    }
+
+    const report = await calculateFuelAnomalies();
+    return res.json({
+      success: true,
+      data: report,
+    });
+  } catch (err: any) {
+    console.error('[Analytics] Fuel anomalies error:', err?.message || err);
+    return fail(res, 500, err?.message || 'Failed to generate fuel anomaly report');
+  }
+});
+
+/**
+ * GET /api/analytics/fuel-anomalies/:vehicleId
+ * Returns vehicle-specific fuel baseline, anomaly history, and efficiency metrics.
+ */
+analyticsRouter.get('/fuel-anomalies/:vehicleId', optionalAuth, async (req: Request, res: Response) => {
+  try {
+    if (req.user && !isManagerOrDispatcher(req.user.role)) {
+      return fail(res, 403, 'Forbidden: Only managers and dispatchers are authorized to view fuel anomaly analytics');
+    }
+
+    const { vehicleId } = req.params;
+    const report = await calculateFuelAnomalies();
+
+    const vehicleProfile = report.vehicles.find(
+      (v) => v.vehicleID.toLowerCase() === vehicleId.toLowerCase()
+    );
+
+    if (!vehicleProfile) {
+      return fail(res, 404, `Vehicle ${vehicleId} not found in fuel anomaly profiles`);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        vehicle: vehicleProfile,
+        anomalies: vehicleProfile.anomalies,
+        fleetSummary: report.fleetSummary,
+        aiAdvisory: report.aiAdvisory,
+      },
+    });
+  } catch (err: any) {
+    console.error('[Analytics] Vehicle fuel anomaly error:', err?.message || err);
+    return fail(res, 500, err?.message || 'Failed to generate vehicle fuel anomaly profile');
+  }
+});
+

@@ -1,0 +1,115 @@
+/* ==============================================================================
+   LogiSphere AI — Web Design System & Theme Tokens
+   Strictly aligned with App/src/theme/colors.ts
+   ============================================================================== */
+
+:root {
+  /* Core Brand Colors from Mobile App */
+  --color-bg: #F3F4F6;
+  --color-panel: #FFFFFF;
+  --color-surface: #F9FAFB;
+  --color-surface-raised: #F3F4F6;
+  --color-border-soft: #E5E7EB;
+  --color-border: #D1D5DB;
+  --color-border-strong: #9CA3AF;
+  --color-text-primary: #111827;
+  --color-text-secondary: #4B5563;
+  --color-text-muted: #6B7280;
+
+  /* Accent & Status Colors */
+  --color-amber: #F59E0B;
+  --color-amber-light: #FEF3C7;
+  --color-teal: #14B8A6;
+  --color-teal-light: #CCFBF1;
+  --color-rose: #F43F5E;
+  --color-rose-light: #FFE4E6;
+  --color-violet: #8B5CF6;
+  --color-violet-light: #EDE9FE;
+  --color-success: #10B981;
+  --color-success-light: #D1FAE5;
+  --color-error: #EF4444;
+  --color-error-light: #FEE2E2;
+  --color-green: #22C55E;
+  --color-blue: #3B82F6;
+  --color-blue-light: #DBEAFE;
+
+  /* Executive Dark Sidebar Tokens for High-Contrast SaaS Hierarchy */
+  --sidebar-bg: #0F172A;
+  --sidebar-panel: #1E293B;
+  --sidebar-border: #334155;
+  --sidebar-text: #F8FAFC;
+  --sidebar-text-muted: #94A3B8;
+  --sidebar-active-bg: rgba(245, 158, 11, 0.15);
+  --sidebar-active-border: #F59E0B;
+
+  /* Elevation Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 9999px;
+
+  /* Typography */
+  --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-family-display: 'Outfit', 'Inter', -apple-system, sans-serif;
+
+  /* Layout dimensions */
+  --sidebar-width: 260px;
+  --header-height: 64px;
+}
+
+/* Global Reset & Base Styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family-sans);
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-family-display);
+  color: var(--color-text-primary);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+/* Scrollbar refinement */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-strong);
+}

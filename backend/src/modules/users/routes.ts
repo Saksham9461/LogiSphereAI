@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import {db} from '../../config/database';
 import {supabase} from '../../config/supabase';
-import {optionalAuth, signToken} from '../../middleware/auth';
+import {optionalAuth, signToken, getTrustedOrgId} from '../../middleware/auth';
 import {fail, mustChangePasswordUsers, publicUser} from '../../utils/http';
 
 export const userRouter = Router();
@@ -82,6 +82,8 @@ userRouter.post('/create', optionalAuth, async (req, res) => {
 
 
 
+  const orgId = getTrustedOrgId(req);
+
   const user = await db.insert('users', {
     id: userId,
     name,
@@ -93,8 +95,24 @@ userRouter.post('/create', optionalAuth, async (req, res) => {
     passwordHash: bcrypt.hashSync(passwordToUse, 10),
     trips: req.body?.trips !== undefined ? Number(req.body.trips) : 0,
     safetyScore: req.body?.safetyScore !== undefined ? Number(req.body.safetyScore) : 95,
-    status: req.body?.status ? String(req.body.status).toUpperCase().replace(/\s+/g, '_') : (req.body?.driverStatus ? String(req.body.driverStatus).toUpperCase().replace(/\s+/g, '_') : (role === 'ROLE_DRIVER' ? 'AVAILABLE' : 'ACTIVE'))
+    status: req.body?.status ? String(req.body.status).toUpperCase().replace(/\s+/g, '_') : (req.body?.driverStatus ? String(req.body.driverStatus).toUpperCase().replace(/\s+/g, '_') : (role === 'ROLE_DRIVER' ? 'AVAILABLE' : 'ACTIVE')),
+    organization_id: orgId,
   });
+
+  // Automatically associate new user account with manager's authorized organization membership
+  try {
+    await db.insert('organization_memberships', {
+      id: crypto.randomUUID(),
+      organization_id: orgId,
+      user_id: userId,
+      role,
+      status: 'active',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+  } catch (mErr) {
+    console.warn('[User Creation] Failed to record organization membership (non-fatal):', mErr);
+  }
 
   const formattedUser = publicUser(user);
   const token = signToken(user);
@@ -118,9 +136,17 @@ userRouter.post('/create', optionalAuth, async (req, res) => {
   return res.status(201).json(responsePayload);
 });
 
-userRouter.get('/', async (req, res) => {
+userRouter.get('/', optionalAuth, async (req, res) => {
+  const orgId = getTrustedOrgId(req);
   const role = req.query.role ? normalizeRole(String(req.query.role)) : undefined;
-  const users = await db.list('users', role ? {role} : undefined);
+  const filter: Record<string, any> = {};
+  if (orgId) {
+    filter.organization_id = orgId;
+  }
+  if (role) {
+    filter.role = role;
+  }
+  const users = await db.list('users', Object.keys(filter).length > 0 ? filter : undefined);
   res.json(users.map(publicUser));
 });
 
@@ -132,6 +158,12 @@ userRouter.put('/update', optionalAuth, async (req, res) => {
 
     const id = String(req.query.id ?? req.body?.id ?? req.body?.userID ?? req.body?.driverID ?? '');
     if (!id) return fail(res, 400, 'User ID is required');
+
+    const orgId = getTrustedOrgId(req);
+    const existing = await db.find('users', { id });
+    if (!existing || (existing.organization_id && existing.organization_id !== orgId)) {
+      return fail(res, 404, 'User not found');
+    }
 
     const body = req.body ?? {};
     const patch: Record<string, any> = {};
@@ -178,8 +210,11 @@ userRouter.delete('/delete', optionalAuth, async (req, res) => {
     const forceConfirm = req.query.confirm === 'true' || req.body?.confirm === true;
     if (!id) return fail(res, 400, 'Driver / User ID is required');
 
+    const orgId = getTrustedOrgId(req);
     const existing = await db.find('users', { id });
-    if (!existing) return fail(res, 404, 'Driver not found');
+    if (!existing || (existing.organization_id && existing.organization_id !== orgId)) {
+      return fail(res, 404, 'Driver not found');
+    }
 
     const driverIdLower = id.toLowerCase();
     const driverEmailLower = String(existing.email || '').toLowerCase();

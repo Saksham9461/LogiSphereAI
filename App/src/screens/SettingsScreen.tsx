@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -15,20 +15,96 @@ import {
   LogOut,
   ChevronRight,
   Shield,
-  User,
   CheckCircle2,
   Mail,
-  Info,
   ArrowLeft,
+  Building,
 } from 'lucide-react-native';
 import useAuthStore from '../store/AuthStore';
+import client from '../api/axiosClient';
+import { GetMyOrganizations, BASE_URL } from '../api/apiPath';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
 
 export default function SettingsScreen({ navigation }: any) {
   const { user, logout, requestResetPassword } = useAuthStore();
   const [sendingReset, setSendingReset] = useState(false);
+  const rawOrg = user?.organizationName || user?.organization_name || user?.organization?.name || '';
+  const isGenericOrg = !rawOrg || rawOrg === 'LogiSphere Fleet' || rawOrg === 'LogiSphere Fleet Operations';
+  const existingOrg = isGenericOrg ? '' : rawOrg;
+  const [orgName, setOrgName] = useState<string>(existingOrg);
+  const [orgLoading, setOrgLoading] = useState<boolean>(!existingOrg);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchOrg = async () => {
+      try {
+        // 1. First attempt: authenticated /my-organizations
+        try {
+          const res = await client.get(GetMyOrganizations);
+          if (!isMounted) return;
+          const list = res.data?.data || res.data;
+          if (Array.isArray(list) && list.length > 0) {
+            const matchedOrg = list.find((o: any) => o.orgStatus === 'approved') || list[0];
+            if (matchedOrg?.name) {
+              setOrgName(matchedOrg.name);
+              // Also sync into auth store so the rest of the app knows the real org
+              if (user && (user.organizationName !== matchedOrg.name || user.organization_name !== matchedOrg.name)) {
+                useAuthStore.setState({
+                  user: {
+                    ...user,
+                    organizationName: matchedOrg.name,
+                    organization_name: matchedOrg.name,
+                    organizationId: matchedOrg.organizationId || user.organizationId,
+                    organization_id: matchedOrg.organizationId || user.organization_id,
+                  },
+                });
+              }
+              return;
+            }
+          }
+        } catch (err: any) {
+          console.warn('[SettingsScreen] /my-organizations failed:', err?.message || err);
+        }
+
+        // 2. Second attempt: public /api/org/status/:slugOrId
+        const orgId = user?.organizationId || user?.organization_id;
+        if (orgId && orgId !== '00000000-0000-0000-0000-000000000001') {
+          try {
+            const res = await client.get(`${BASE_URL}/api/org/status/${orgId}`);
+            if (!isMounted) return;
+            const org = res.data?.data || res.data;
+            if (org?.name) {
+              setOrgName(org.name);
+              if (user && (user.organizationName !== org.name || user.organization_name !== org.name)) {
+                useAuthStore.setState({
+                  user: {
+                    ...user,
+                    organizationName: org.name,
+                    organization_name: org.name,
+                  },
+                });
+              }
+            }
+          } catch {
+            // Keep default fallback
+          }
+        }
+      } finally {
+        if (isMounted) {
+          setOrgLoading(false);
+        }
+      }
+    };
+
+    fetchOrg();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user]);
 
   const handleQuickReset = async () => {
     if (!user?.email) {
@@ -104,9 +180,22 @@ export default function SettingsScreen({ navigation }: any) {
           <View style={styles.profileDetails}>
             <Text style={styles.profileName}>{user?.name || 'Administrator'}</Text>
             <Text style={styles.profileEmail}>{user?.email || 'admin@logisphere.ai'}</Text>
-            <View style={styles.roleBadge}>
-              <Shield size={12} color={colors.amber} />
-              <Text style={styles.roleText}>{user?.role || 'FLEET_MANAGER'}</Text>
+            <View style={styles.badgeRow}>
+              <View style={styles.roleBadge}>
+                <Shield size={12} color={colors.amber} />
+                <Text style={styles.roleText}>{user?.role || 'FLEET_MANAGER'}</Text>
+              </View>
+              {orgLoading ? (
+                <View style={[styles.orgBadge, { paddingHorizontal: 8 }]}>
+                  <Building size={12} color={colors.blue} />
+                  <ActivityIndicator size="small" color={colors.blue} style={{ marginLeft: 5, transform: [{ scale: 0.7 }] }} />
+                </View>
+              ) : orgName ? (
+                <View style={styles.orgBadge}>
+                  <Building size={12} color={colors.blue} />
+                  <Text style={styles.orgBadgeText} numberOfLines={1}>{orgName}</Text>
+                </View>
+              ) : null}
             </View>
           </View>
         </View>
@@ -166,6 +255,19 @@ export default function SettingsScreen({ navigation }: any) {
         {/* SECTION: App Information */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>SYSTEM & PREFERENCES</Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Organization</Text>
+            <View style={styles.orgRowValue}>
+              <Building size={14} color={colors.amber} style={styles.orgIcon} />
+              {orgLoading ? (
+                <ActivityIndicator size="small" color={colors.amber} style={{ marginLeft: 6 }} />
+              ) : (
+                <Text style={styles.infoValue} numberOfLines={1}>
+                  {orgName || 'LogiSphere Fleet'}
+                </Text>
+              )}
+            </View>
+          </View>
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Platform</Text>
             <Text style={styles.infoValue}>LogiSphere AI Fleet Suite</Text>
@@ -401,5 +503,37 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     fontSize: rf(15),
     fontWeight: '700',
+  },
+  orgRowValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+    marginLeft: 12,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginTop: 4,
+  },
+  orgBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    gap: 4,
+  },
+  orgBadgeText: {
+    color: colors.blue,
+    fontSize: rf(10.5),
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    maxWidth: 160,
+  },
+  orgIcon: {
+    marginRight: 6,
   },
 });

@@ -61,6 +61,7 @@ export const ExportAttendancePdf = `${BASE_URL}/api/attendance/report/export-pdf
 export const GetLiveTracking = `${BASE_URL}/api/tracking/live`;
 export const UpdateVehicleLocation = `${BASE_URL}/api/tracking/location`;
 export const WS_TRACKING_URL = `${WS_URL}/ws/tracking`;
+export const GetMyOrganizations = `${BASE_URL}/api/org/my-organizations`;
 
 // Emergency Alerts
 export const GetAlerts = `${BASE_URL}/api/alerts`;

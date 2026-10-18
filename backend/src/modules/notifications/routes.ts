@@ -1,6 +1,6 @@
 import {Router} from 'express';
 import {db} from '../../config/database';
-import {optionalAuth} from '../../middleware/auth';
+import {optionalAuth, getTrustedOrgId} from '../../middleware/auth';
 import {fail} from '../../utils/http';
 
 export const notificationRouter = Router();
@@ -29,7 +29,8 @@ export function normalizeNotification(n: any) {
 
 notificationRouter.get('/', optionalAuth, async (req, res) => {
   try {
-    const all = await db.list('notifications');
+    const orgId = getTrustedOrgId(req);
+    const all = await db.list('notifications', orgId ? { organization_id: orgId } : undefined);
     const normalized = (all || []).map(normalizeNotification);
     const userId = req.user?.userId || (req.query.userId as string);
     const role = req.user?.role || (req.query.role as string);

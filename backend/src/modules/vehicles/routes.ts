@@ -1,7 +1,7 @@
 import {Router} from 'express';
 import {db} from '../../config/database';
 import {fail} from '../../utils/http';
-import {optionalAuth} from '../../middleware/auth';
+import {optionalAuth, getTrustedOrgId} from '../../middleware/auth';
 
 export const vehicleRouter = Router();
 
@@ -44,11 +44,13 @@ function fromDbVehicle(row: any) {
   };
 }
 
-vehicleRouter.get('/', async (_req, res) => {
+vehicleRouter.get('/', optionalAuth, async (req, res) => {
   try {
+    const orgId = getTrustedOrgId(req);
+    const orgFilter = orgId ? { organization_id: orgId } : undefined;
     const [rawVehicles, allMaint] = await Promise.all([
-      db.list('vehicles'),
-      db.list('maintenance_records'),
+      db.list('vehicles', orgFilter),
+      db.list('maintenance_records', orgFilter),
     ]);
 
     const activeMaintVehIds = new Set<string>();
@@ -116,8 +118,9 @@ vehicleRouter.post('/create', optionalAuth, async (req, res) => {
     const allowedStatuses = ['AVAILABLE', 'ON_TRIP', 'IN_SHOP', 'MAINTENANCE', 'RETIRED', 'INACTIVE'];
     const status = allowedStatuses.includes(rawStatus) ? rawStatus : 'AVAILABLE';
 
-    // Duplicate Check
-    const existing = await db.find('vehicles', {registrationNumber});
+    // Duplicate Check scoped to organization
+    const orgId = getTrustedOrgId(req);
+    const existing = await db.find('vehicles', {registrationNumber, organization_id: orgId});
     if (existing) {
       return fail(res, 409, `Vehicle with registration number '${registrationNumber}' already exists`);
     }
@@ -133,7 +136,8 @@ vehicleRouter.post('/create', optionalAuth, async (req, res) => {
       maxloadcapacity: maxLoadCapacity,
       odometer,
       acquisitioncost: acquisitionCost,
-      status
+      status,
+      organization_id: orgId,
     };
 
     const inserted = await db.insert('vehicles', dbPayload);
@@ -167,6 +171,12 @@ vehicleRouter.put('/update/', optionalAuth, async (req, res) => {
     const id = String(req.query.id ?? req.body?.vehicleID ?? req.body?.vehicleid ?? '');
     if (!id) return fail(res, 400, 'Vehicle ID is required');
 
+    const orgId = getTrustedOrgId(req);
+    const existing = (await db.find('vehicles', {vehicleid: id})) || (await db.find('vehicles', {vehicleID: id}));
+    if (!existing || (existing.organization_id && existing.organization_id !== orgId)) {
+      return fail(res, 404, 'Vehicle not found');
+    }
+
     const body = req.body ?? {};
     const patch: Record<string, any> = {};
 
@@ -176,8 +186,8 @@ vehicleRouter.put('/update/', optionalAuth, async (req, res) => {
         const cleanReg = String(reg).trim().toUpperCase();
         patch.registrationNumber = cleanReg;
 
-        // Check if another vehicle already has this registration number
-        const allVehicles = await db.list('vehicles');
+        // Check if another vehicle in this organization already has this registration number
+        const allVehicles = await db.list('vehicles', { organization_id: orgId });
         const conflict = (allVehicles || []).find((v: any) => {
           const vId = String(v.vehicleID || v.vehicleid || v.id || '');
           const vReg = String(v.registrationNumber || v.registrationnumber || v.reg || '').trim().toUpperCase();
@@ -235,8 +245,11 @@ vehicleRouter.delete('/delete/', optionalAuth, async (req, res) => {
     const forceConfirm = req.query.confirm === 'true' || req.body?.confirm === true;
     if (!id) return fail(res, 400, 'Vehicle ID is required');
 
-    const existing = await db.find('vehicles', { vehicleid: id });
-    if (!existing) return fail(res, 404, 'Vehicle not found');
+    const orgId = getTrustedOrgId(req);
+    const existing = (await db.find('vehicles', { vehicleid: id })) || (await db.find('vehicles', { vehicleID: id }));
+    if (!existing || (existing.organization_id && existing.organization_id !== orgId)) {
+      return fail(res, 404, 'Vehicle not found');
+    }
 
     const vehicleIdLower = id.toLowerCase();
 

@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { db } from '../../config/database';
+import { env } from '../../config/env';
 import { optionalAuth } from '../../middleware/auth';
 import { ok, fail } from '../../utils/http';
 import {
@@ -23,14 +25,40 @@ function isManagerRole(role: string = ''): boolean {
   ].includes(norm);
 }
 
-function resolveUser(req: Request) {
+interface ResolvedUser {
+  userId: string;
+  email: string;
+  role: string;
+  businessId?: string;
+  business_id?: string;
+  organizationId?: string;
+  organization_id?: string;
+}
+
+function resolveUser(req: Request): ResolvedUser | null {
   if (req.user?.userId) return req.user;
   const header = req.headers.authorization;
   let token = header?.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token && req.query?.token && typeof req.query.token === 'string') {
     token = req.query.token;
   }
-  if (!token && req.headers['x-user-id']) {
+  if (token) {
+    try {
+      const decoded: any = jwt.verify(token, env.JWT_SECRET);
+      const userId = decoded.userId || decoded.id;
+      const orgId = decoded.organizationId || decoded.organization_id || decoded.businessId || decoded.business_id;
+      return {
+        userId,
+        email: decoded.email || '',
+        role: decoded.role || 'ROLE_DRIVER',
+        organizationId: orgId,
+        organization_id: orgId,
+        businessId: orgId,
+        business_id: orgId,
+      };
+    } catch {}
+  }
+  if (req.headers['x-user-id']) {
     return {
       userId: req.headers['x-user-id'] as string,
       email: '',

@@ -1,10 +1,24 @@
 import request from 'supertest';
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, beforeAll} from 'vitest';
 import {app} from '../src/app';
 
 describe('Maintenance API Integration Flow', () => {
   let createdId = '';
-  let vehicleID = 'veh-van-05';
+  let vehicleID = '';
+
+  beforeAll(async () => {
+    const createRes = await request(app).post('/api/vehicle/create').send({
+      name: `Test Maint Van ${Date.now()}`,
+      type: 'VAN',
+      registrationNumber: `GJ01TM${Date.now().toString().slice(-4)}`,
+      maxLoadCapacity: 1500,
+      odometer: 5000,
+      acquisitionCost: 400000,
+      status: 'AVAILABLE',
+    });
+    const v = createRes.body.vehicle || createRes.body.data || createRes.body;
+    vehicleID = v.vehicleID || v.id;
+  });
 
   it('1. GET /api/maintenance returns maintenance records array', async () => {
     const res = await request(app).get('/api/maintenance');

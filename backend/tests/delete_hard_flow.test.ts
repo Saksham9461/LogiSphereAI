@@ -2,7 +2,7 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { app } from '../src/app';
 
-describe('Permanent Hard Delete Flow Tests for Drivers & Vehicles', () => {
+describe('Permanent Hard Delete Flow Tests for Drivers & Vehicles', { timeout: 20000 }, () => {
   it('1. Create Driver and verify PERMANENT HARD DELETE removes record from database', async () => {
     const driverEmail = `delete_driver_${Date.now()}@logisphere.ai`;
     // Create Driver

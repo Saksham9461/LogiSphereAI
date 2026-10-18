@@ -1,5 +1,6 @@
 import {Router} from 'express';
 import {db} from '../../config/database';
+import {optionalAuth, getTrustedOrgId} from '../../middleware/auth';
 
 export const expenseRouter = Router();
 const decorate = async (r: any) => {
@@ -23,15 +24,18 @@ const decorate = async (r: any) => {
   };
 };
 
-expenseRouter.get('/', async (_req, res) => {
-  const records = await db.list('expense_records');
+expenseRouter.get('/', optionalAuth, async (req, res) => {
+  const orgId = getTrustedOrgId(req);
+  const records = await db.list('expense_records', orgId ? { organization_id: orgId } : undefined);
   const decorated = await Promise.all(records.map(decorate));
   res.json(decorated.filter(Boolean));
 });
 
-expenseRouter.post('/create', async (req, res) => {
+expenseRouter.post('/create', optionalAuth, async (req, res) => {
+  const orgId = getTrustedOrgId(req);
   const created = await db.insert('expense_records', {
     expenseId: db.makeId('exp-'),
+    organization_id: orgId,
     ...req.body,
   });
   const decorated = await decorate(created);

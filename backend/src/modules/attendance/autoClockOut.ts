@@ -194,3 +194,13 @@ export function stopAutoClockOutJob(): void {
     scheduledJobInterval = null;
   }
 }
+
+export function getBusinessEndOfDayISO(dateKey: string): string {
+  try {
+    const [y, m, d] = dateKey.split('-').map(Number);
+    const localMidnight = new Date(Date.UTC(y, m - 1, d, 18, 29, 59));
+    return localMidnight.toISOString();
+  } catch {
+    return `${dateKey}T23:59:59.000Z`;
+  }
+}

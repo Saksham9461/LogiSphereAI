@@ -1,10 +1,17 @@
 import {Router} from 'express';
 import {db} from '../../config/database';
+import {optionalAuth, getTrustedOrgId} from '../../middleware/auth';
 
 export const dashboardRouter = Router();
 
-dashboardRouter.get('/summary', async (_req, res) => {
-  const [vehicles, trips, drivers] = await Promise.all([db.list('vehicles'), db.list('trips'), db.list('users', {role: 'ROLE_DRIVER'})]);
+dashboardRouter.get('/summary', optionalAuth, async (req, res) => {
+  const orgId = getTrustedOrgId(req);
+  const orgFilter = orgId ? { organization_id: orgId } : undefined;
+  const [vehicles, trips, drivers] = await Promise.all([
+    db.list('vehicles', orgFilter),
+    db.list('trips', orgFilter),
+    db.list('users', { role: 'ROLE_DRIVER', ...(orgFilter || {}) }),
+  ]);
   const availableVehicles = vehicles.filter((v: any) => v.status === 'AVAILABLE').length;
   const activeTrips = trips.filter((t: any) => t.status === 'DISPATCHED').length;
   const vehiclesInMaintenance = vehicles.filter((v: any) => v.status === 'IN_SHOP').length;

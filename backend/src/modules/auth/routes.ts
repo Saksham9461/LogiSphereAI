@@ -17,8 +17,55 @@ authRouter.post('/login', async (req, res) => {
   if (!user || !bcrypt.compareSync(password ?? '', user.passwordHash)) return fail(res, 401, 'Invalid credentials');
   if (role && user.role !== role && user.role !== role.replace('FLEET_MANAGER', 'ROLE_MANAGER')) return fail(res, 403, 'Role does not match this account');
 
-  const token = signToken(user);
-  return res.json({success: true, message: 'Login successful', serviceResult: {...publicUser(user), token}});
+  // Multi-organization lookup
+  let orgId = user.organization_id || user.organizationId;
+  let orgName: string | undefined = undefined;
+
+  // Query all memberships for this user to identify their primary organization
+  const memberships = await db.list('organization_memberships', { user_id: user.id });
+  const customActive = memberships.find((m: any) => m.status === 'active' && m.organization_id !== '00000000-0000-0000-0000-000000000001');
+  const anyCustom = memberships.find((m: any) => m.organization_id !== '00000000-0000-0000-0000-000000000001');
+
+  if (customActive) {
+    orgId = customActive.organization_id;
+  } else if (anyCustom) {
+    orgId = anyCustom.organization_id;
+  } else if (!orgId || orgId === '00000000-0000-0000-0000-000000000001') {
+    const active = memberships.find((m: any) => m.status === 'active') || memberships[0];
+    if (active) {
+      orgId = active.organization_id;
+    }
+  }
+
+  if (orgId) {
+    const org = await db.find('organizations', { id: orgId });
+    if (org) {
+      orgName = org.name;
+    }
+  }
+
+  const enrichedUser = {
+    ...user,
+    organization_id: orgId,
+    organizationId: orgId,
+    organizationName: orgName,
+  };
+
+  const token = signToken(enrichedUser);
+  const formattedUser = {
+    ...publicUser(enrichedUser),
+    organization_id: orgId,
+    organizationId: orgId,
+    organizationName: orgName || 'LogiSphere Fleet',
+  };
+
+  return res.json({
+    success: true,
+    message: 'Login successful',
+    serviceResult: {...formattedUser, token},
+    user: formattedUser,
+    token,
+  });
 });
 
 authRouter.post('/change-password', optionalAuth, async (req, res) => {

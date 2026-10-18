@@ -1,5 +1,7 @@
 import { db } from '../../config/database';
 import { env } from '../../config/env';
+import { executeResilientAi } from '../ai/orchestrator';
+import { callGemini } from '../ai/geminiClient';
 
 export interface MonthlyExpenditure {
   month: string; // 'YYYY-MM'
@@ -459,30 +461,28 @@ async function generateAiMaintenanceSummary(data: {
       : 'Fleet maintenance risk is low with no vehicle currently exceeding standard thresholds.',
   };
 
-  if (!geminiApiKey) {
+  const apiKey = env.GEMINI_API_KEY || env.AI_API_KEY;
+  if (!apiKey) {
     return fallback;
   }
 
-  try {
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
+  const promptPayload = {
+    nextMonth: data.nextMonthLabel,
+    forecastBudgetINR: data.forecastBudget,
+    forecastRangeINR: [data.forecastMin, data.forecastMax],
+    confidence: data.confidence,
+    monthlyHistoricalINR: data.historicalMonthly.map((m) => ({ month: m.monthLabel, cost: m.actualCost, services: m.serviceCount })),
+    highRiskVehicles: data.highRiskVehicles.slice(0, 3).map((v) => ({
+      name: v.name,
+      type: v.type,
+      totalCostINR: v.totalHistoricalCost,
+      recent90DaysCostINR: v.recentCost90Days,
+      evidence: v.evidenceReasons,
+    })),
+    totalFleetVehicles: data.totalVehicles,
+  };
 
-    const promptPayload = {
-      nextMonth: data.nextMonthLabel,
-      forecastBudgetINR: data.forecastBudget,
-      forecastRangeINR: [data.forecastMin, data.forecastMax],
-      confidence: data.confidence,
-      monthlyHistoricalINR: data.historicalMonthly.map((m) => ({ month: m.monthLabel, cost: m.actualCost, services: m.serviceCount })),
-      highRiskVehicles: data.highRiskVehicles.slice(0, 3).map((v) => ({
-        name: v.name,
-        type: v.type,
-        totalCostINR: v.totalHistoricalCost,
-        recent90DaysCostINR: v.recentCost90Days,
-        evidence: v.evidenceReasons,
-      })),
-      totalFleetVehicles: data.totalVehicles,
-    };
-
-    const systemPrompt = `
+  const systemPrompt = `
 You are LogiSphere AI's Chief Fleet Maintenance Analyst.
 Analyze the provided maintenance forecast data.
 Rules:
@@ -498,56 +498,52 @@ Rules:
 }
 `;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+  return executeResilientAi<{
+    source: 'gemini' | 'deterministic_fallback';
+    executiveSummary: string;
+    costDrivers: string[];
+    budgetRecommendations: string[];
+    riskSummary: string;
+  }>({
+    feature: 'MAINTENANCE_FORECAST',
+    normalizedInput: {
+      nextMonth: data.nextMonthLabel,
+      forecastBudget: data.forecastBudget,
+      forecastMin: data.forecastMin,
+      forecastMax: data.forecastMax,
+      confidence: data.confidence,
+      highRiskCount: data.highRiskVehicles.length,
+      totalVehicles: data.totalVehicles,
+    },
+    executeGemini: async () => {
+      const response = await callGemini<any>({
+        systemPrompt,
+        userPrompt: `Data Payload: ${JSON.stringify(promptPayload)}`,
+        responseMimeType: 'application/json',
+        temperature: 0.15,
+        maxOutputTokens: 350,
+      });
 
-    const res = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: systemPrompt },
-              { text: `Data Payload: ${JSON.stringify(promptPayload)}` },
-            ],
-          },
-        ],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.15,
-          maxOutputTokens: 350,
-        },
-      }),
-    });
-
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const gData = await res.json();
-      const rawText = gData?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (rawText) {
-        const parsed = JSON.parse(rawText);
-        if (
-          parsed &&
-          typeof parsed.executiveSummary === 'string' &&
-          Array.isArray(parsed.costDrivers) &&
-          Array.isArray(parsed.budgetRecommendations)
-        ) {
-          return {
-            source: 'gemini',
-            executiveSummary: parsed.executiveSummary.trim(),
-            costDrivers: parsed.costDrivers.map((d: any) => String(d).trim()).slice(0, 3),
-            budgetRecommendations: parsed.budgetRecommendations.map((r: any) => String(r).trim()).slice(0, 3),
-            riskSummary: String(parsed.riskSummary || fallback.riskSummary).trim(),
-          };
-        }
+      const parsed = response.data;
+      if (
+        parsed &&
+        typeof parsed.executiveSummary === 'string' &&
+        Array.isArray(parsed.costDrivers) &&
+        Array.isArray(parsed.budgetRecommendations)
+      ) {
+        return {
+          source: 'gemini' as const,
+          executiveSummary: parsed.executiveSummary.trim(),
+          costDrivers: parsed.costDrivers.map((d: any) => String(d).trim()).slice(0, 3),
+          budgetRecommendations: parsed.budgetRecommendations.map((r: any) => String(r).trim()).slice(0, 3),
+          riskSummary: String(parsed.riskSummary || fallback.riskSummary).trim(),
+        };
       }
-    }
-  } catch (err: any) {
-    console.warn('[MaintenanceForecast] Gemini call failed, using deterministic baseline:', err?.message || err);
-  }
-
-  return fallback;
+      throw new Error('Malformed Gemini maintenance forecast response');
+    },
+    validateResponse: (res) =>
+      Boolean(res && res.executiveSummary && Array.isArray(res.costDrivers) && Array.isArray(res.budgetRecommendations)),
+    getFallback: () => fallback,
+  });
 }
+

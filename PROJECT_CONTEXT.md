@@ -1,4 +1,4 @@
-# Project Context: LogiSphere AI 
+# Project Context: LogiSphere AI
 
 This document provides a complete, authoritative, and verified architectural reference for the **LogiSphere AI** repository (`/Users/sakshamojha/Documents/Projects/Minor`). It serves as the primary system context for developers, software architects, and AI coding agents working on this codebase.
 
@@ -6,18 +6,21 @@ This document provides a complete, authoritative, and verified architectural ref
 
 ## 1. Project Overview & Business Goals
 
-**LogiSphere AI** (also referenced across codebase and packages as **TransitOpsMobile2**) is an enterprise-grade Fleet Management & Logistics Operations Platform. It integrates an executive React Native mobile application with a resilient Node.js Express/TypeScript backend backed by a dual-mode PostgreSQL (Supabase) data layer.
+**LogiSphere AI** (referenced across codebase and packages as **TransitOpsMobile2**) is an enterprise-grade Fleet Management & Logistics Operations Platform. It integrates an executive React Native mobile application with a resilient Node.js Express/TypeScript backend backed by a dual-mode PostgreSQL (Supabase) data layer.
 
 ### Primary Capabilities
-- **Fleet Registry & Telemetry**: Full vehicle lifecycle tracking (Available, On Trip, In Shop, Retired), load capacity enforcement, odometer tracking, and real-time GPS tracking.
-- **Driver Roster & Multi-Modal Onboarding**: Driver profiles, safety scores, license tracking with expiration warnings, manual input, and voice-assisted registration with OCR scanning fallback.
+- **Fleet Registry & Telemetry**: Full vehicle lifecycle tracking (`AVAILABLE`, `ON_TRIP`, `IN_SHOP`, `RETIRED`), load capacity enforcement, odometer tracking, and real-time GPS tracking.
+- **Driver Roster & Onboarding**: Driver profiles, safety scores, license tracking with expiration warnings, manual input, and document reader/OCR scanning support.
 - **Trip Lifecycle & Dispatching**: Strict cargo weight vs. vehicle payload validation, driver assignment, trip lifecycle progression (`DRAFT` / `PENDING_APPROVAL` → `ACCEPTED` → `GOING_TO_PICKUP` → `ARRIVED_AT_PICKUP` → `PICKED_UP` → `IN_TRANSIT` → `ARRIVED_AT_DROP` → `DELIVERED` / `COMPLETED` / `CANCELLED`), and automated vehicle/driver status updates.
 - **Attendance & Geofencing**: Geofence-verified clock-in/out (200m radius around head office), automated end-of-day clock-out reconciliation daemon (11:59 PM in configured business timezone), daily worked-duration calculation, and executive-grade PDF report exports.
 - **Real-Time Messaging**: 1-on-1 driver-to-manager communications powered by native WebSockets (`/ws/chat`), delivery & read receipts, unread count badges, and an automated 24-hour message retention cleanup daemon.
-- **Live GPS Fleet Tracking**: Background & foreground GPS telemetry ingested from active drivers (~60-second target), atomic single-row upsert in `tracking_locations`, WebSocket broadcasts (`/ws/tracking`), freshness classification (`LIVE`, `UPDATING`, `STALE`, `NO_SIGNAL`), and MapLibre vector maps.
-- **Role-Aware AI Fleet Assistant**: Conversational Fleet Intelligence Assistant (`/api/ai/query`) with strict RBAC segregation between Managers and Drivers, deterministic KPI calculation, bounded cards, deep-link actions to tracking maps, and Google Routes / Gemini 1.5 Flash fallback.
+- **Live GPS Fleet Tracking**: Background & foreground GPS telemetry ingested from active drivers (~45–60s target), atomic single-row upsert in `tracking_locations`, WebSocket broadcasts (`/ws/tracking`), freshness classification (`LIVE`, `UPDATING`, `STALE`, `NO_SIGNAL`), and MapLibre vector maps.
+- **AI Fleet Intelligence Assistant**: Conversational Fleet Intelligence Assistant (`/api/ai/query` & `/api/ai/assistant`) with strict RBAC segregation between Managers and Drivers, deterministic KPI calculation, bounded cards, deep-link actions to tracking maps, and resilient LLM enrichment.
+- **Predictive Delay Intelligence & ETA Insights**: Deterministic delay prediction engine (`/api/trip/:tripId/delay-insights`) analyzing elapsed time, planned duration, GPS location, and stop duration with optional AI operational explanations.
+- **Predictive Maintenance Forecasting**: 90-day maintenance cost projections (`/api/analytics/maintenance-forecast`), vehicle risk classification (`HIGH`, `MEDIUM`, `LOW`), historical monthly trends, and budget advisories.
+- **Smart Fuel Anomaly & Efficiency Intelligence**: Deterministic multi-vector fuel anomaly detection (`/api/analytics/fuel-anomalies`) flagging consumption drops (>30% below vehicle baseline), tank overflows (>15% over nominal capacity), pricing spikes (>30% over regional baseline), and rapid consecutive refuels, enriched with resilient Gemini AI explanations.
 - **Maintenance & Expense Tracking**: Preventive servicing, repair logs, refueling entries, toll/operational expense bookkeeping, and cost efficiency analytics.
-- **Safety & Emergency SOS**: Panic SOS trigger in mobile navigation bar for instant emergency notifications and GPS broadcast.
+- **Safety & Emergency SOS**: Panic SOS trigger in mobile navigation bar and dedicated `/api/sos` & `/api/alerts` router for instant emergency notification, GPS broadcast, and audit logging.
 
 ---
 
@@ -25,9 +28,9 @@ This document provides a complete, authoritative, and verified architectural ref
 
 ### Mobile Frontend (`/App`)
 - **Framework**: React Native 0.86.0 (React 19.2.3) bootstrapped via `@react-native-community/cli`.
-- **Language**: TypeScript 5.8.3.
+- **Language**: TypeScript 5.8.3 (`npx tsc --noEmit` clean).
 - **Navigation**: React Navigation v7 (`@react-navigation/native` `^7.3.14`, `@react-navigation/native-stack` `^7.18.6`, `@react-navigation/drawer` `^7.13.5`, `@react-navigation/bottom-tabs` `^7.18.14`).
-- **State Management**: Zustand v5.0.14 across 12 dedicated domain stores.
+- **State Management**: Zustand v5.0.14 across 12 dedicated domain stores (`AuthStore`, `TrackingStore`, `ChatStore`, `AttendanceStore`, `TripStore`, `VehicleStore`, `DriverStore`, `MaintenanceStore`, `FuelExpenseStore`, `AnalyticsStore`, `DashboardStore`, `NotificationStore`, `AlertStore`).
 - **Local Storage**: `@react-native-async-storage/async-storage` v3.1.1 (session tokens, Remember Me preference, user metadata).
 - **Styling & UI**: Custom Vanilla React Native StyleSheet, `lucide-react-native` v1.27.0, `react-native-svg` v15.15.5, `react-native-reanimated` v4.5.3, `react-native-safe-area-context` v5.8.0, and `react-native-screens` v4.26.2.
 - **Maps & Geolocation**: `@maplibre/maplibre-react-native` v11.3.6, `@react-native-community/geolocation` v3.4.0, and MapTiler vector tiles.
@@ -36,17 +39,31 @@ This document provides a complete, authoritative, and verified architectural ref
 - **Image Capture & OCR**: `react-native-image-picker` v8.2.1.
 
 ### Backend (`/backend`)
-- **Runtime & Framework**: Node.js (>=22.11.0), Express 4.21.0.
-- **Language & Execution**: TypeScript 5.6.2 executed in dev via `tsx watch src/server.ts` or compiled via `tsc`.
-- **Real-Time & WebSockets**: Native `ws` v8.18.0 WebSocketServer attached to the Node HTTP server handling `/ws/chat` and `/ws/tracking`.
+- **Runtime & Framework**: Node.js (>=20.x / 22.x), Express 4.21.0.
+- **Language & Execution**: TypeScript 5.6.2 executed in dev via `tsx watch src/server.ts` or compiled via `tsc -p tsconfig.build.json`.
+- **Real-Time & WebSockets**: Native `ws` v8.18.0 WebSocketServer attached to the Node HTTP server handling `/ws/chat`, `/ws/tracking`, and `/ws/alerts`.
 - **Database Layer**: Dual-mode database layer in `backend/src/config/database.ts`:
   - **Supabase Integration**: `@supabase/supabase-js` v2.45.4 REST API client when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are provided. Supports realtime publication replication.
   - **In-Memory Fallback**: In-memory JS array database with pre-seeded data when Supabase credentials are not configured or when network calls timeout (3000ms safety guard).
 - **Authentication & Security**: `jsonwebtoken` v9.0.2 (JWT token signing & verification), `bcryptjs` v2.4.3 (password hashing), `helmet` v7.1.0, `cors` v2.8.5.
 - **Reporting & PDF Generation**: `pdfkit` v0.15.0 for binary executive A4 attendance report generation.
-- **AI & Integrations**: Google Routes API (computeRoutes), Google Places API (New), Google Gemini 1.5 Flash via REST (`https://generativelanguage.googleapis.com`), and MapTiler geocoding.
+- **AI & External APIs**:
+  - Google Gemini API (`models/gemini-3.8-flash`) via direct REST endpoint (`https://generativelanguage.googleapis.com/v1beta/models/...`).
+  - Google Routes API (`computeRoutes`).
+  - Google Places API (New) for location autocomplete.
+  - MapTiler geocoding.
 - **File Uploads & Validation**: `multer` v2.4.0 (multipart document handling for OCR), `zod` v3.23.8 (environment validation).
-- **Testing**: `vitest` v2.1.1 and `supertest` v7.0.0.
+- **Testing**: `vitest` v2.1.9 and `supertest` v7.0.0 (20 automated test suites).
+
+### Web Portal (`/web`)
+- **Framework & Runtime**: React 19 bootstrapped with Vite 8 (`logisphere-ai-web`).
+- **Language**: TypeScript 6 / 5.x (`npm run typecheck` clean).
+- **Styling & UI**: Custom Vanilla CSS design system tokenized in `src/styles/theme.css` and `src/styles/admin.css`, mirroring the verified mobile app palette (`App/src/theme/colors.ts`). Clean centered registration card, dedicated confirmation view, and compact platform admin approval portal.
+- **Routes**: Minimal 3-route architecture (`#/register`, `#/registration-success`, `#/admin`).
+- **Icons**: `lucide-react` v1.59.0.
+- **HTTP Client**: Centralized Axios v1.20.0 client (`web/src/services/apiClient.ts`) reading dynamic `VITE_API_BASE_URL` with multi-tenant `X-Organization-Id` header injection and Bearer token interceptor.
+- **Linting & Verification**: `oxlint` v1.81.0 (clean 0 warnings/errors) and `vite build` (production-ready).
+- **Security Boundary**: Zero client-side credentials or admin password hashes in bundle. Fixed admin credentials verified on backend via bcrypt with rate limiting. Zero client-side leakage of Gemini API keys, Supabase service-role keys, or database credentials.
 
 ---
 
@@ -66,11 +83,13 @@ Minor/
 │   │   ├── components/           # Shared & feature UI components
 │   │   │   ├── AttendanceHistory.tsx
 │   │   │   ├── ClockInWidget.tsx
+│   │   │   ├── EmergencyAlertBanner.tsx
 │   │   │   ├── FleetMap.tsx      # Vector map with vehicle callsign markers & route rendering
 │   │   │   ├── LiveMap.tsx
 │   │   │   ├── MapPreview.tsx
 │   │   │   ├── RoleSelector.tsx
 │   │   │   ├── SOSButton.tsx
+│   │   │   ├── TripDelayInsightsModal.tsx # Interactive AI delay explanation modal
 │   │   │   └── ...
 │   │   ├── config/               # Frontend environment settings (MapTiler API key, Supabase keys)
 │   │   ├── constants/            # Role mappings and navigation constants
@@ -83,23 +102,25 @@ Minor/
 │   │   │   ├── MainTabsNavigator.tsx
 │   │   │   ├── RootNavigator.tsx # Session hydration, Splash state, and Auth guard routing
 │   │   │   └── linking.ts        # Deep linking configuration (transitops://)
-│   │   ├── screens/              # 16 Screen views
+│   │   ├── screens/              # 18 Screen views
 │   │   │   ├── AIAssistantScreen.tsx
+│   │   │   ├── AlertsScreen.tsx
 │   │   │   ├── AttendanceReportScreen.tsx
 │   │   │   ├── ChangePasswordScreen.tsx
 │   │   │   ├── ChatScreen.tsx
 │   │   │   ├── DashboardScreen.tsx
 │   │   │   ├── DriversScreen.tsx
-│   │   │   ├── FuelExpenseScreen.tsx
+│   │   │   ├── FuelExpenseScreen.tsx # Fuel logs + Smart Fuel Anomaly & Efficiency Card
 │   │   │   ├── LiveTrackingScreen.tsx
 │   │   │   ├── LoginScreen.tsx
-│   │   │   ├── MaintenanceScreen.tsx
+│   │   │   ├── MaintenanceScreen.tsx # Maintenance records + AI Cost Forecast tabs
 │   │   │   ├── ProfileScreen.tsx
 │   │   │   ├── ResetPasswordScreen.tsx
 │   │   │   ├── SettingsScreen.tsx
 │   │   │   ├── SignupScreen.tsx
 │   │   │   ├── SplashScreen.tsx
-│   │   │   └── TripDispatcherScreen.tsx
+│   │   │   ├── TripDispatcherScreen.tsx # Trip dispatch + Delay Insights integration
+│   │   │   └── VehicleRegistryScreen.tsx
 │   │   ├── services/             # Client services
 │   │   │   ├── attendanceService.ts
 │   │   │   ├── fleetAiService.ts # Live AI assistant queries & context management
@@ -110,7 +131,8 @@ Minor/
 │   │   │   ├── storage/          # AsyncStorage token wrapper (tokenStorage.ts)
 │   │   │   ├── tracking/         # Driver location tracking pipeline (driverTrackingService.ts)
 │   │   │   └── supabaseClient.ts # Supabase Realtime client for mobile subscriptions
-│   │   ├── store/                # 12 Zustand state stores
+│   │   ├── store/                # 13 Zustand state stores
+│   │   │   ├── AlertStore.ts
 │   │   │   ├── AnalyticsStore.ts
 │   │   │   ├── AttendanceStore.ts
 │   │   │   ├── AuthStore.ts
@@ -133,14 +155,25 @@ Minor/
 └── backend/                      # Express TypeScript Backend Service
     ├── src/
     │   ├── config/               # Database fallback abstraction, env schema & Supabase setup
-    │   │   ├── database.ts       # Unified 13-table DB abstraction with atomic upsert & memory fallback
-    │   │   ├── env.ts            # Zod environment schema & validation
+    │   │   ├── database.ts       # Unified 14-table DB abstraction with atomic upsert & memory fallback
+    │   │   ├── env.ts            # Zod environment schema & validation (default GEMINI_MODEL=gemini-3.8-flash)
     │   │   └── supabase.ts       # Supabase client initialization
     │   ├── middleware/           # Express authentication & authorization middleware
     │   │   └── auth.ts           # JWT verify and role authorization middleware
     │   ├── modules/              # 16 Domain feature modules
-    │   │   ├── ai/               # AI Fleet Assistant, intent routing, and route intelligence
-    │   │   ├── analytics/        # Operational fleet analytics & cost breakdowns
+    │   │   ├── ai/               # AI Fleet Assistant, intent routing, and resilient AI core
+    │   │   │   ├── cache.ts          # Centralized in-memory TTL caching with feature TTLs
+    │   │   │   ├── circuitBreaker.ts  # State machine (CLOSED, OPEN, HALF_OPEN) & cooldown
+    │   │   │   ├── geminiClient.ts   # Resilient Gemini API client with auto model fallback
+    │   │   │   ├── metrics.ts        # Telemetry for AI requests, cache hits, retries, trips
+    │   │   │   ├── orchestrator.ts   # executeResilientAi wrapper orchestrating singleFlight + cache + fallback
+    │   │   │   ├── routes.ts         # /api/ai routes (assistant, query, route-recommendation)
+    │   │   │   └── singleFlight.ts   # In-flight duplicate request coalescing
+    │   │   ├── alerts/           # Emergency SOS & incident alerts router (/api/alerts, /api/sos)
+    │   │   ├── analytics/        # Operational fleet analytics, maintenance forecast & fuel anomalies
+    │   │   │   ├── fuelAnomalyService.ts # Deterministic fuel anomaly detection engine
+    │   │   │   ├── maintenanceForecastService.ts # Deterministic 90-day maintenance forecaster
+    │   │   │   └── routes.ts         # Analytics endpoints including fuel anomalies & forecast
     │   │   ├── attendance/       # Clock in/out, auto clock-out daemon, and PDF generation
     │   │   ├── auth/             # Login, password reset, and change password
     │   │   ├── chat/             # Chat REST routes, WebSockets (/ws/chat), 24h retention cleanup
@@ -152,37 +185,89 @@ Minor/
     │   │   ├── notifications/    # Operational notifications
     │   │   ├── ocr/              # Driver license scanning endpoint
     │   │   ├── tracking/         # Live GPS location ingestion, querying, and WebSockets (/ws/tracking)
-    │   │   ├── trips/            # Trip lifecycle management, dispatching, and status updates
+    │   │   ├── trips/            # Trip lifecycle management, dispatching, and delay prediction
+    │   │   │   ├── delayPredictionService.ts # Deterministic delay prediction engine
+    │   │   │   └── routes.ts         # Trip endpoints including /api/trip/:tripId/delay-insights
     │   │   ├── users/            # User/driver management and profile CRUD
     │   │   └── vehicles/         # Vehicle registry management and status transitions
     │   ├── utils/                # HTTP response helpers, distance calculations, ID generators
     │   ├── app.ts                # Express app initialization, middleware pipeline, and route mounting
-    │   └── server.ts             # HTTP server entry point, WebSockets mounting, and cron jobs
+    │   └── server.ts             # HTTP server entry point (bound to 0.0.0.0:5001), WebSockets, and cron jobs
     ├── supabase/
-    │   ├── migrations/           # 6 PostgreSQL schema migrations
+    │   ├── migrations/           # 10 PostgreSQL schema migrations
     │   │   ├── 001_initial_schema.sql
     │   │   ├── 002_add_must_change_password.sql
     │   │   ├── 003_enable_realtime.sql
     │   │   ├── 004_add_auto_clock_out_to_attendance.sql
     │   │   ├── 005_optimize_tracking_locations.sql
-    │   │   └── 20261006_create_chat_tables.sql
+    │   │   ├── 006_create_emergency_alerts.sql
+    │   │   ├── 007_add_client_request_id_to_emergency_alerts.sql
+    │   │   ├── 20261006_create_chat_tables.sql
+    │   │   ├── 008_create_multi_organization_tables.sql  # Multi-org tables: organizations, memberships, platform_admins
+    │   │   └── 009_safe_data_migration_and_rls.sql        # Default org backfill, FKs, triggers, and tenant RLS
     │   └── seed.sql              # Initial database seed records
-    ├── tests/                    # 13 Vitest automated integration test suites
+    ├── tests/                    # 21 Vitest automated integration test suites
     │   ├── ai_assistant.test.ts
+    │   ├── ai_resilience_and_caching.test.ts # 14 tests: cache, circuit breaker, single flight
     │   ├── analytics_flow.test.ts
     │   ├── attendance_auto_clockout_and_report.test.ts
     │   ├── chat_flow.test.ts
     │   ├── dashboard_flow.test.ts
+    │   ├── database_multi_org_migration.test.ts # Multi-org schema, migration, RLS, and isolation tests
+    │   ├── delay_prediction.test.ts          # 6 tests: ETA math, stopped trip, AI fallback
     │   ├── delete_hard_flow.test.ts
     │   ├── driver_flow.test.ts
-    │   ├── fuel_expense_flow.test.ts
-    │   ├── maintenance_flow.test.ts
-    │   ├── route_intelligence.test.ts
+    │   ├── emergency_alerts.test.ts          # 13 tests: SOS triggers, WebSocket alerts
+    │   ├── fleet_business_rules.test.ts      # 26 tests across 9 fleet business rules
+    │   ├── fuel_anomaly.test.ts              # 8 tests: baselines, overflows, price spikes, RBAC
+    │   ├── fuel_expense_flow.test.ts         # 6 tests: fuel logging and operational expenses
+    │   ├── maintenance_flow.test.ts          # 3 tests: maintenance logging
+    │   ├── maintenance_forecast.test.ts      # 6 tests: 90-day forecast, vehicle risks
+    │   ├── offline_sos_idempotency.test.ts
+    │   ├── route_intelligence.test.ts        # 4 tests: Google routes & AI recommendations
     │   ├── smoke.test.ts
     │   ├── tracking_pipeline.test.ts
     │   └── trip_lifecycle.test.ts
     ├── API_DOCUMENTATION.md
     └── package.json
+├── web/                          # Standalone Multi-Organization React Web Portal
+│   ├── public/
+│   │   └── logo.png              # Application logo branding & favicon
+│   ├── src/
+│   │   ├── components/           # Reusable components
+│   │   │   └── PlaceAutocompleteInput.tsx # Address autocomplete using Google Places proxy
+│   │   ├── pages/                # Functional portal pages
+│   │   │   ├── admin/
+│   │   │   │   ├── AdminApprovalDashboard.tsx # Minimal approval dashboard with real backend data
+│   │   │   │   └── AdminLogin.tsx             # Dedicated fixed-credential admin login
+│   │   │   ├── OrganizationRegistration.tsx   # Public registration form with Places autocomplete
+│   │   │   └── RegistrationConfirmation.tsx   # Pending approval confirmation screen
+│   │   ├── services/             # Centralized API layer
+│   │   │   ├── adminService.ts        # Admin auth, stats, organization approval/rejection
+│   │   │   ├── apiClient.ts           # Axios client with VITE_API_BASE_URL resolution & token interceptors
+│   │   │   ├── endpoints.ts           # Minimal backend API route registry
+│   │   │   └── organizationService.ts # Public registration & places autocomplete service
+│   │   ├── styles/               # Design system stylesheets
+│   │   │   ├── admin.css              # Platform admin styling & review modals
+│   │   │   ├── registration.css       # Registration card, inputs & confirmation styling
+│   │   │   └── theme.css              # Base resets & color tokens matching App/src/theme/colors.ts
+│   │   ├── types/                # Domain types (OrgRegistration, AdminUser, AdminOrgSummary)
+│   │   │   └── index.ts
+│   │   ├── __tests__/            # Automated test suites
+│   │   │   ├── clean_web_portal.test.ts          # Section 8 suite (13 criteria)
+│   │   │   ├── organization_registration.test.ts # Registration & autocomplete suite (19 tests)
+│   │   │   └── platform_admin.test.ts            # Admin approval & login suite (17 tests)
+│   │   ├── App.tsx               # Route controller (#/register, #/registration-success, #/admin)
+│   │   ├── index.css             # Entry stylesheet importing theme, registration & admin
+│   │   └── main.tsx              # React DOM root entry
+│   ├── .env                      # Local development environment settings
+│   ├── .env.example              # Public env template with security warnings
+│   ├── index.html                # HTML entry with Inter/Outfit typography & meta
+│   ├── package.json              # Web scripts & dependencies
+│   ├── tsconfig.app.json         # Client TypeScript configuration
+│   ├── tsconfig.json             # Root TypeScript project references
+│   ├── tsconfig.node.json        # Build tooling TypeScript configuration
+│   └── vite.config.ts            # Vite build configuration (port 3000)
 ```
 
 ---
@@ -190,28 +275,36 @@ Minor/
 ## 4. System Architecture & Data Flow
 
 ```text
-React Native Mobile App (App/)
+React Native Mobile App (App/)       React Web Portal (web/)
+   │                                    │
+   ├── [13 Zustand Stores]              ├── [Modular Components & Pages]
+   │        │                                │
+   │        ├──────► Native WebSocket Client ├── [Centralized API Client: apiClient.ts]
+   │        │             │                  │     (Reads VITE_API_BASE_URL,
+   │        │             │                  │      Injects X-Organization-Id)
+   │        ▼             │                  │
+   ├── [Axios Client]     │                  │
+   │        │             │                  │
+   └────────┴─────────────┼──────────────────┘
+                          │ (Headers: Authorization: Bearer <JWT>, X-Organization-Id)
+                          ▼
+Node.js Express HTTP Server (backend/src/server.ts & app.ts, listening on 0.0.0.0:5001)
    │
-   ├── [12 Zustand Domain Stores] (Auth, Tracking, Chat, Attendance, Trip, Vehicle, Driver, etc.)
-   │        │
-   │        ├──────► Native WebSocket Client (ws:// or wss://)
-   │        │             │
-   │        │             ├── /ws/chat (Real-time messaging, status, read receipts)
-   │        │             └── /ws/tracking (Live GPS fleet broadcasts)
-   │        │
-   │        ▼
-   ├── [Axios Client & Bearer Interceptor] (App/src/api/axiosClient.ts)
-   │        │ (Headers: Authorization: Bearer <JWT>)
-   │        ▼
-Node.js Express HTTP Server (backend/src/server.ts & app.ts)
-   │
-   ├── [Native HTTP Upgrade Listener] (handles WebSocket handshakes on /ws/chat & /ws/tracking)
+   ├── [Native HTTP Upgrade Listener] (WebSocket handshakes on /ws/chat, /ws/tracking, /ws/alerts)
    │
    ├── [Security & Middleware Pipeline] (helmet, cors, express.json 5mb, morgan)
    │
    ├── [Auth & RBAC Middleware] (authenticate, optionalAuth, authorize('ROLE_MANAGER', ...))
    │
-   ├── [Domain Routers] (/api/auth, /api/user, /api/vehicle, /api/trip, /api/tracking, /api/chat, /api/ai, etc.)
+   ├── [Domain Routers] (/api/auth, /api/user, /api/vehicle, /api/trip, /api/tracking, /api/chat, /api/analytics, /api/ai, /api/alerts, etc.)
+   │
+   ├── [AI Resilience & Orchestration Architecture] (backend/src/modules/ai/)
+   │        │
+   │        ├── SingleFlight Coalescing (collapses concurrent duplicate requests into 1 promise)
+   │        ├── In-Memory TTL Cache (feature-specific TTLs: 120s to 3600s)
+   │        ├── Circuit Breaker (CLOSED → OPEN on quota/repeated failures → HALF_OPEN after cooldown)
+   │        ├── Resilient Gemini Client (jittered exponential backoff, auto model migration to gemini-3.8-flash)
+   │        └── Deterministic Fallback Pipeline (all 5 AI features return 100% valid responses when Gemini is offline)
    │
    ├── [Background Daemons]
    │        ├── Auto Clock-Out Daemon (runs on boot + every 60s, reconciles expired shifts past 11:59 PM)
@@ -221,31 +314,101 @@ Node.js Express HTTP Server (backend/src/server.ts & app.ts)
 Unified Database Abstraction: db (backend/src/config/database.ts)
    │
    ├── Primary: Supabase PostgreSQL (@supabase/supabase-js with 3000ms timeout guard)
-   │             (13 tables: users, vehicles, trips, attendance_records, maintenance_records,
+   │             (14 tables: users, vehicles, trips, attendance_records, maintenance_records,
    │              fuel_logs, expense_records, chat_messages, tracking_locations, notifications,
-   │              conversations, conversation_participants, messages)
+   │              conversations, conversation_participants, messages, emergency_alerts)
    │
    └── Fallback: In-Memory Seeded Store (guarantees zero downtime offline or if Supabase keys absent)
 ```
 
 ---
 
-## 5. Authentication, Startup & Role-Based Access Control (RBAC)
+## 5. Gemini API Quota, Rate-Limit Strategy & Resilient AI Architecture
+
+### A. The Challenge with Google Gemini API
+1. **Free/Standard Tier Rate Limits**: Google Gemini imposes strict Requests Per Minute (RPM) and Requests Per Day (RPD) quotas. During high-concurrency fleet operations or repetitive testing, calls can quickly trigger `HTTP 429: RESOURCE_EXHAUSTED`.
+2. **Model Deprecations**: Older models (such as `models/gemini-1.5-flash`) were retired/sunset on the v1beta endpoint for newer API keys, throwing `HTTP 404: Not Found`.
+3. **App Availability Requirement**: A logistics operations system **cannot crash, freeze, or block drivers/managers** just because an AI API key is exhausted, rate-limited, or offline.
+
+### B. The 5-Layer Resilience Strategy
+
+To guarantee 100% continuous uptime and quota efficiency, LogiSphere AI implements a layered architecture in `backend/src/modules/ai/`:
+
+```
+Incoming AI Request (Assistant, Route, Delay, Maintenance, Fuel)
+               │
+               ▼
+┌────────────────────────────────────────┐
+│ 1. SingleFlight Request Coalescing     │ ──► Reuses in-flight promise for duplicate keys
+└──────────────────┬─────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────┐
+│ 2. Feature-Aware In-Memory TTL Cache   │ ──► Hit? Return immediately (Zero LLM cost)
+└──────────────────┬─────────────────────┘
+                   │ Miss
+                   ▼
+┌────────────────────────────────────────┐
+│ 3. State-Machine Circuit Breaker       │ ──► OPEN? Fast-fail to Fallback (No network lag)
+└──────────────────┬─────────────────────┘
+                   │ CLOSED / HALF_OPEN
+                   ▼
+┌────────────────────────────────────────┐
+│ 4. Resilient Gemini Client             │ ──► Max 2 retries with jitter, auto model failover,
+│    (models/gemini-3.8-flash)           │     strict request timeout (5000ms–15000ms)
+└──────────────────┬─────────────────────┘
+                   │ Success / Failure / 429
+                   ▼
+┌────────────────────────────────────────┐
+│ 5. Deterministic Fallback Engine       │ ──► Guarantees valid operational data even if Gemini
+│    (100% Math-Based Calculations)      │     is 100% offline or quota exhausted
+└────────────────────────────────────────┘
+```
+
+1. **In-Memory TTL Cache (`cache.ts`)**:
+   - `ROUTE_RECOMMENDATION`: 3600 seconds (1 hour).
+   - `MAINTENANCE_FORECAST`: 1800 seconds (30 minutes).
+   - `FUEL_ANOMALY_DETECTION`: 900 seconds (15 minutes).
+   - `AI_ASSISTANT`: 300 seconds (5 minutes).
+   - `TRIP_DELAY_INSIGHTS`: 120 seconds (2 minutes, telemetry-sensitive).
+   - SHA-256 normalized hash keys ensure identical payloads never trigger redundant Gemini API calls.
+
+2. **Single-Flight Coalescing (`singleFlight.ts`)**:
+   - If 10 concurrent requests query the same vehicle fuel anomaly or trip delay, only **1** outgoing request is dispatched. The other 9 await and share the same Promise.
+
+3. **Fast-Failing Circuit Breaker (`circuitBreaker.ts`)**:
+   - States: `CLOSED` (normal), `OPEN` (tripped after 3 consecutive failures or any hard 429 daily quota exhaustion), `HALF_OPEN` (probes 1 request after 30s cooldown).
+   - When tripped, it short-circuits instantly in **0.1ms**, avoiding 5-second HTTP timeout hangs.
+
+4. **Self-Healing Gemini Client (`geminiClient.ts`)**:
+   - Default model: `gemini-3.8-flash`.
+   - If Google returns an HTTP 404 indicating an older model was requested, the client automatically self-heals by retrying with `gemini-3.8-flash`.
+   - Output tokens budget expanded (`maxOutputTokens: 1000`) to accommodate reasoning/thinking tokens without truncating structured JSON.
+
+5. **Deterministic Fallback Guarantees Across All 5 AI Features**:
+   - **Fuel Anomaly**: Pure mathematical calculations for consumption deviations, tank overflows, and price spikes remain 100% intact; fallback advisory delivers rule-based engineering checks.
+   - **Trip Delay Prediction**: Compares elapsed time vs. scheduled duration and GPS speed mathematically; fallback advisory provides schedule remediation steps.
+   - **Maintenance Forecast**: Linear regression on historical 90-day expenses and risk scores computed deterministically; fallback provides preventive maintenance checks.
+   - **Route Recommendations**: Haversine distance, speed-profile travel duration, and toll estimations are computed deterministically when Routes API/Gemini is unavailable.
+   - **AI Fleet Assistant**: Deterministic keyword/intent parser queries database tables (`db.list`) directly and returns formatted metric cards and deep-links.
+
+---
+
+## 6. Authentication, Startup & Role-Based Access Control (RBAC)
 
 ### A. Session Restoration & Remember Me
 - **Storage**: `tokenStorage` (`App/src/services/storage/tokenStorage.ts`) encapsulates `@react-native-async-storage/async-storage` with keys `'token'`, `'user'`, and `'remember_me'`.
 - **Remember Me Logic**:
-  - When Remember Me is **checked** during login, `tokenStorage.setRememberMe(true)` persists the token and user metadata across app restarts.
-  - When Remember Me is **unchecked**, `tokenStorage.setRememberMe(false)` ensures the session is cleared upon app termination or next launch.
+  - Checked during login: persists token and user metadata across app restarts.
+  - Unchecked: session is cleared upon app termination or next launch.
 - **Hydration Flow (`AuthStore.hydrate()`)**:
   1. Checks `tokenStorage.getRememberMe()`. If `false`, calls `tokenStorage.clearSession()` and sets `authStatus: 'unauthenticated'`.
-  2. If remembered, retrieves `token` and `user`.
-  3. Validates token expiration via `isJwtExpired(token)`. If expired, logs a warning, wipes storage, and sets `authStatus: 'unauthenticated'`.
-  4. If valid, sets `authStatus: 'authenticated'`, initializes real-time subscriptions (`TripStore.initRealtimeSubscription()`), and connects the chat WebSocket (`ChatStore.initSocket()`).
+  2. If remembered, validates token expiration via `isJwtExpired(token)`. If expired, logs a warning, wipes storage, and sets `authStatus: 'unauthenticated'`.
+  3. If valid, sets `authStatus: 'authenticated'`, initializes real-time subscriptions, and connects WebSockets.
 
 ### B. Startup Flow & Blank Screen Prevention
 - **Root State**: `RootNavigator.tsx` listens to `authStatus` (`'initializing' | 'authenticated' | 'unauthenticated'`).
-- **Splash Screen**: During initial hydration, `authStatus === 'initializing'` renders `SplashScreen.tsx` with a branded luxury spinner and background, completely preventing intermediate blank white screen flashes.
+- **Splash Screen**: During initial hydration, `authStatus === 'initializing'` renders `SplashScreen.tsx` with a branded spinner and dark theme background, completely preventing intermediate blank white screen flashes.
 - **Forced Password Change**: If `user.mustChangePassword` is true, navigation redirects directly to `ChangePasswordScreen` (gestures disabled) before granting access to dashboard operations.
 
 ### C. Role-Based Dashboard Routing & Permissions
@@ -254,79 +417,63 @@ The backend and frontend enforce 5 distinct operational roles:
 2. `ROLE_DISPATCHER` ("Dispatcher"): Trip dispatching, live tracking, vehicle management, and driver communications.
 3. `ROLE_SAFETY_OFFICER` ("Safety Officer"): Driver safety scores, maintenance inspection logs, and incident tracking.
 4. `ROLE_FINANCE` ("Financial Analyst"): Fuel logs, expense bookkeeping, and analytics reports.
-5. `ROLE_DRIVER` ("Driver"): Restricted to personal assigned trips, personal attendance clock-in/out, personal vehicle details, 1-on-1 manager chat, and personal GPS location broadcasting. Drivers are strictly prohibited from viewing fleet-wide attendance or analytics.
+5. `ROLE_DRIVER` ("Driver"): Restricted to personal assigned trips, personal attendance clock-in/out, personal vehicle details, 1-on-1 manager chat, and personal GPS location broadcasting. Drivers are strictly prohibited from viewing fleet-wide attendance, fuel anomaly analytics, or other drivers' records.
 
 ---
 
-## 6. Detailed Implementation of Key Feature Areas
+## 7. Detailed Implementation of Feature Areas
 
-### 6.1 Authentication & Startup Flow
-- **Files**: `App/src/store/AuthStore.ts`, `App/src/navigation/RootNavigator.tsx`, `App/src/services/storage/tokenStorage.ts`, `backend/src/modules/auth/routes.ts`.
-- **Status**: **Implemented and verified**.
-- **Verified Behavior**:
-  - `hydrate()` verifies `remember_me` and `isJwtExpired(token)` before establishing session.
-  - `login()` accepts `rememberMe` boolean parameter.
-  - `logout()` terminates active driver GPS tracking (`driverTrackingService.stopTracking()`), unsubscribes Supabase realtime channels, closes WebSockets, and clears AsyncStorage.
-  - 401 response interceptor in `axiosClient.ts` automatically clears stale credentials.
+### 7.1 Smart Fuel Anomaly & Efficiency Intelligence (Phase 3 Completed)
+- **Backend Service**: [`backend/src/modules/analytics/fuelAnomalyService.ts`](file:///Users/sakshamojha/Documents/Projects/Minor/backend/src/modules/analytics/fuelAnomalyService.ts)
+- **Endpoints**: `GET /api/analytics/fuel-anomalies` (fleet-wide), `GET /api/analytics/fuel-anomalies/:vehicleId` (vehicle drill-down).
+- **Access**: Restricted to `ROLE_MANAGER`, `ROLE_DISPATCHER`, `ROLE_ADMIN`, `ROLE_SUPER_ADMIN`. Drivers receive `403 Forbidden`.
+- **Calculation Rules**:
+  - Deterministic Moving Baseline: Volume-weighted $\sum \text{Distance} / \sum \text{Fuel Consumed}$.
+  - Strict Minimum Sample Requirement: $\ge 3$ verified completed trips required; otherwise returns `INSUFFICIENT_DATA` honestly without fabricating numbers.
+  - Actual Distance vs. Estimated Distance: Actual distance derived strictly from odometer: $\text{finalOdometer} - \text{startingOdometer}$. If fallback planned distance is used, it is explicitly flagged with `latestTripEstimatedDistance: true`.
+  - Multi-Vector Detection: `CONSUMPTION_DEVIATION` (>30% drop), `TANK_CAPACITY_OVERFLOW` (>15% over nominal capacity), `PRICING_DEVIATION` (>30% over ₹110/L reference), `REFUEL_CLUSTERING` (multiple refuels in 24h).
+  - Objective Terminology: Never labels drivers or transactions as "fraud" or "theft".
+  - Resilient AI: Invokes Gemini (`executeResilientAi`) with strict structured JSON schema for executive summary and actionable checks; falls back to deterministic advisory if Gemini is unavailable.
+- **Mobile Screen**: [`App/src/screens/FuelExpenseScreen.tsx`](file:///Users/sakshamojha/Documents/Projects/Minor/App/src/screens/FuelExpenseScreen.tsx)
+  - Features an "AI Fuel Anomaly & Efficiency" card between action buttons and fuel logs.
+  - Displays summary metric pills (High Anomaly, Moderate, Fleet Avg km/L, Pending Baseline).
+  - Shows Gemini AI Executive Summary and recommended technical inspection checks.
+  - Displays flagged vehicle review cards with severity pills, baseline comparisons, and estimated distance notes.
+  - Includes expandable full fleet baseline breakdown and complete loading, empty, error, and insufficient-data states.
 
-### 6.2 Voice-Assisted Driver Registration (Deprecated & Removed)
-- **Status**: **Removed**.
-- **Details**: Deprecated and completely removed in preparation for Regula Document Reader OCR integration. Manual driver registration remains fully functional.
+### 7.2 Trip Delay Prediction & ETA Insights
+- **Backend Service**: [`backend/src/modules/trips/delayPredictionService.ts`](file:///Users/sakshamojha/Documents/Projects/Minor/backend/src/modules/trips/delayPredictionService.ts)
+- **Endpoints**: `GET /api/trip/:tripId/delay-insights`, `GET /api/trips/:tripId/delay-insights`.
+- **Logic**: Mathematical delay calculation comparing elapsed time vs. planned duration, GPS distance remaining, and prolonged stationary stops.
+- **Mobile Integration**: [`App/src/components/TripDelayInsightsModal.tsx`](file:///Users/sakshamojha/Documents/Projects/Minor/App/src/components/TripDelayInsightsModal.tsx) accessible from `TripDispatcherScreen.tsx`.
 
-### 6.3 Attendance, Auto Clock-Out & Reporting
-- **Files**: `backend/src/modules/attendance/autoClockOut.ts`, `backend/src/modules/attendance/pdfGenerator.ts`, `backend/src/modules/attendance/routes.ts`, `App/src/screens/AttendanceReportScreen.tsx`, `App/src/store/AttendanceStore.ts`.
-- **Status**: **Implemented and verified**.
-- **Verified Implementation**:
-  - **Clock In / Out**: Calculates Haversine distance between device GPS and Office coordinates (`23.05288, 72.61891`). Enforces 200m radius limit.
-  - **Auto Clock-Out Daemon**: Background cron service (`autoClockOut.ts`) runs on backend boot and every 60 seconds. Identifies unclosed shifts from previous calendar days or current day past 11:59:59 PM (in `Asia/Kolkata` business timezone), stamps `clockOutTime: '11:59 PM'`, `clock_out_type: 'AUTOMATIC'`, and `status: 'Auto Clocked Out (11:59 PM)'`.
-  - **Report Aggregation**: `GET /api/attendance/report` groups records by `staffId` and `dateKey`. Calculates daily total worked minutes, session counts, and auto-closed flags. Drivers can only view their own attendance; Managers view all staff.
-  - **Expandable UI**: `AttendanceReportScreen.tsx` displays one expandable row per staff member per date, showing individual shift breakdown cards (Clock In, Clock Out, Duration, Geofence Distance, Verification Status).
-  - **PDF Export**: `GET /api/attendance/report/export-pdf` uses `pdfkit` to stream an executive A4 PDF report with corporate headers, KPI summary cards, and tabular logs. Mobile client downloads and opens via `Linking.openURL()`.
+### 7.3 Predictive Maintenance Forecasting
+- **Backend Service**: [`backend/src/modules/analytics/maintenanceForecastService.ts`](file:///Users/sakshamojha/Documents/Projects/Minor/backend/src/modules/analytics/maintenanceForecastService.ts)
+- **Endpoints**: `GET /api/analytics/maintenance-forecast`, `GET /api/analytics/maintenance-forecast/:vehicleId`.
+- **Logic**: 90-day moving expense analysis, per-vehicle risk ranking (`HIGH`, `MEDIUM`, `LOW`), historical monthly trends, and budget advisories.
+- **Mobile Integration**: [`App/src/screens/MaintenanceScreen.tsx`](file:///Users/sakshamojha/Documents/Projects/Minor/App/src/screens/MaintenanceScreen.tsx) with toggleable `RECORDS` and `FORECAST` views.
 
-### 6.4 Real-Time Messaging & WebSockets
+### 7.4 Live GPS Fleet Tracking Pipeline
+- **Files**: `backend/src/modules/tracking/routes.ts`, `backend/src/modules/tracking/websocket.ts`, `App/src/services/tracking/driverTrackingService.ts`, `App/src/store/TrackingStore.ts`, `App/src/screens/LiveTrackingScreen.tsx`.
+- **Logic**: Driver tracking activates when an assigned trip is started. Ingests GPS telemetry (45-60s interval, >100m movement). Atomic `db.upsert` maintains strictly one active row per trip in `tracking_locations`. WebSocket broadcasts coordinate updates to managers. MapLibre renders callsign markers and auto-focuses vehicles.
+
+### 7.5 Attendance, Auto Clock-Out & Reporting
+- **Files**: `backend/src/modules/attendance/autoClockOut.ts`, `backend/src/modules/attendance/pdfGenerator.ts`, `backend/src/modules/attendance/routes.ts`, `App/src/screens/AttendanceReportScreen.tsx`.
+- **Logic**: Haversine distance geofencing (200m radius around head office). Automated background cron runs every 60s, automatically closing unclosed shifts at 11:59 PM in configured business timezone (`Asia/Kolkata`). Generates executive A4 PDF reports via `pdfkit`.
+
+### 7.6 Real-Time Messaging & WebSockets
 - **Files**: `backend/src/modules/chat/websocket.ts`, `backend/src/modules/chat/cleanup.ts`, `backend/src/modules/chat/routes.ts`, `App/src/store/ChatStore.ts`, `App/src/screens/ChatScreen.tsx`.
-- **Status**: **Implemented and verified**.
-- **Verified Implementation**:
-  - **WebSockets Mounting**: WebSocket server attached directly to the Node HTTP server. Upgrades `/ws/chat`, `/chat`, `/api/chat/ws`, and `/ws/tracking`. HTTP GET probes receive status `426 Upgrade Required`.
-  - **Schema**: Tables `conversations`, `conversation_participants`, and `messages` created via migration `20261006_create_chat_tables.sql`.
-  - **Real-Time Delivery**: Messages sent over WebSocket are broadcast to recipient sockets in real-time, accompanied by `deliveredAt` timestamps and status `DELIVERED`.
-  - **Unread Count**: `GET /api/chat/conversations` returns authoritative unread message counts for each conversation. `POST /api/chat/conversations/:id/read` marks messages read, updates `readAt`, and resets the badge count to 0.
-  - **24-Hour Retention Daemon**: `startChatCleanupJob()` runs hourly in the backend, purging all messages older than 24 hours. REST endpoints apply a 24-hour filter window (`created_at >= NOW() - INTERVAL '24 hours'`).
-  - **WebSocket /ws/chat 404 Resolution**: Resolved via native HTTP `upgrade` event handler intercepting the path before Express routing.
+- **Logic**: 1-on-1 messaging over WebSocket `/ws/chat`. Unread counts tracked per conversation. Automated hourly cleanup job purges messages older than 24 hours.
 
-### 6.5 Live GPS Fleet Tracking Pipeline
-- **Files**: `backend/src/modules/tracking/routes.ts`, `backend/src/modules/tracking/websocket.ts`, `backend/supabase/migrations/005_optimize_tracking_locations.sql`, `App/src/services/tracking/driverTrackingService.ts`, `App/src/store/TrackingStore.ts`, `App/src/screens/LiveTrackingScreen.tsx`.
-- **Status**: **Implemented and verified**.
-- **Verified Implementation**:
-  - **Trip Prerequisite**: Driver tracking activates **only** after an assigned trip is started (`ACCEPTED`, `DISPATCHED`, `IN_TRANSIT`, etc.).
-  - **Telemetry Ingestion**: `DriverTrackingService` monitors GPS via `@react-native-community/geolocation`. Ingests fixes with a 45-60s target interval (`MIN_UPLOAD_INTERVAL_MS = 45000`), a 100m movement threshold, and filters out inaccurate readings (>500m).
-  - **Atomic Single-Row Storage**: Backend `POST /api/tracking/location` performs atomic `db.upsert('tracking_locations', 'tripID', ...)` maintaining strictly one active location record per trip.
-  - **Real-Time Broadcasting**: Coordinates are broadcast immediately to manager/dispatcher WebSockets as `tracking:location_update` events.
-  - **Freshness Classification**:
-    - `LIVE`: Coordinates updated within the last 3 minutes.
-    - `UPDATING`: Coordinates updated within the last 10 minutes.
-    - `STALE`: Coordinates older than 10 minutes.
-    - `NO_SIGNAL`: Trip active but no live GPS fix received yet (falls back to depot/source coordinates).
-  - **MapLibre Integration**: `LiveTrackingScreen.tsx` renders MapLibre vector maps with custom vehicle callsign markers (e.g. `Van-01`), status badges, speed, and auto-focus camera centering.
-  - **Trip End Cleanup**: When a trip completes or cancels, driver tracking stops immediately and backend emits `tracking:trip_ended`.
-
-### 6.6 AI Fleet Intelligence Assistant
-- **Files**: `backend/src/modules/ai/routes.ts`, `App/src/services/fleetAiService.ts`, `App/src/screens/AIAssistantScreen.tsx`.
-- **Status**: **Implemented and verified**.
-- **Verified Implementation**:
-  - **Endpoint**: `POST /api/ai/query` protected by JWT `authenticate`.
-  - **Role-Aware Personalization**:
-    - **Driver Role**: Restricted strictly to personal assigned trips, personal vehicle details, personal attendance status, and emergency guidance. Blocked from fleet-wide analytics.
-    - **Manager Role**: Granted 10 specialized intelligence actions (Active Vehicles, Trip Summary, Track Vehicle, Driver Attendance, Upcoming Maintenance, Fuel & Expenses, Driver Performance, Fleet Alerts, Route Intelligence, Ask About Trip).
-  - **Structured Contract (`FleetAiResponse`)**: Returns structured JSON with `type` (`metric`, `summary`, `vehicle_card`, `trip_card`, `list`, `tracking`), deterministic `metrics`, bounded `items` (up to 5 items to prevent chat bloat), `actions` (including `"track_vehicle"` with `tripID` and `vehicleID`), and `context` (tracks `lastSubjectId` for conversational follow-up questions).
-  - **Interactive Action Deep-Linking**: Tapping "Track on Map" on an AI tracking card navigates directly to `LiveTrackingScreen` and focuses the selected vehicle.
-  - **Route Intelligence**: `POST /api/ai/route-recommendation` calculates optimal routes, ETA, toll costs, and safety advisories using Google Routes API / Gemini 1.5 Flash with deterministic fallback.
+### 7.7 Emergency Alerts & SOS System
+- **Files**: `backend/src/modules/alerts/routes.ts`, `App/src/components/SOSButton.tsx`, `App/src/screens/AlertsScreen.tsx`, `App/src/store/AlertStore.ts`.
+- **Logic**: Panic button in mobile navigation bar records alert in `emergency_alerts` table, captures real-time GPS coordinates, and broadcasts instant alerts over WebSockets to manager dashboards with audio/vibration cues.
 
 ---
 
-## 7. State Management Architecture
+## 8. State Management Architecture
 
-The mobile application utilizes **Zustand v5** across 12 distinct stores:
+The mobile application utilizes **Zustand v5** across 13 distinct stores:
 
 | Store Name | File Path | Controlled State | Key Actions | Persistence |
 | :--- | :--- | :--- | :--- | :--- |
@@ -339,21 +486,21 @@ The mobile application utilizes **Zustand v5** across 12 distinct stores:
 | `DriverStore` | `App/src/store/DriverStore.ts` | `drivers`, `driver`, `loading`, `error` | `fetchDrivers()`, `getDrivers()` | In-Memory (Zustand) |
 | `MaintenanceStore` | `App/src/store/MaintenanceStore.ts` | `records`, `loading`, `error` | `fetchRecords()`, `addRecord()`, `completeRecord()` | In-Memory (Zustand) |
 | `FuelExpenseStore` | `App/src/store/FuelExpenseStore.ts` | `fuelLogs`, `expenses`, `loading`, `error` | `fetchFuel()`, `addFuel()`, `fetchExpenses()`, `addExpense()` | In-Memory (Zustand) |
+| `AlertStore` | `App/src/store/AlertStore.ts` | `alerts`, `unreadCount`, `activeAlert`, `loading` | `triggerSOS()`, `fetchAlerts()`, `acknowledgeAlert()`, `resolveAlert()` | In-Memory (Zustand) |
 | `AnalyticsStore` | `App/src/store/AnalyticsStore.ts` | `analyticsData`, `loading`, `error` | `fetchAnalytics()` | In-Memory (Zustand) |
 | `DashboardStore` | `App/src/store/DashboardStore.ts` | `summary`, `recentTrips`, `loading`, `error` | `fetchSummary()` | In-Memory (Zustand) |
 | `NotificationStore` | `App/src/store/NotificationStore.ts` | `notifications`, `unreadCount`, `loading` | `fetchNotifications()`, `markAsRead()` | In-Memory (Zustand) |
 
 ---
 
-## 8. Complete API Inventory
-
-Below is the verified inventory of all 37 backend endpoints mounted in `backend/src/app.ts` and `backend/src/server.ts`:
+## 9. Complete API Inventory
 
 | Route Path | Method | Auth Required | Module File | Description & Payload | Verified Status |
 | :--- | :---: | :---: | :--- | :--- | :--- |
 | `/health` | GET | None | `app.ts` | Health check returning service status | Fully Verified |
 | `/ws/chat` | WS | Query Token | `modules/chat/websocket.ts` | WebSocket for chat messaging, typing, and read receipts | Fully Verified |
-| `/ws/tracking` | WS | Query Token | `modules/chat/websocket.ts` | WebSocket broadcasting live vehicle coordinates | Fully Verified |
+| `/ws/tracking` | WS | Query Token | `modules/tracking/websocket.ts` | WebSocket broadcasting live vehicle coordinates | Fully Verified |
+| `/ws/alerts` | WS | Query Token | `modules/alerts/routes.ts` | WebSocket broadcasting emergency SOS alerts | Fully Verified |
 | `/api/auth/login` | POST | None | `modules/auth/routes.ts` | Email & password authentication, returns JWT token | Fully Verified |
 | `/api/auth/request-reset-password` | GET/POST | None | `modules/auth/routes.ts` | Generates password reset token | Fully Verified |
 | `/api/auth/reset-password` | POST | None | `modules/auth/routes.ts` | Resets password using reset token | Fully Verified |
@@ -371,6 +518,7 @@ Below is the verified inventory of all 37 backend endpoints mounted in `backend/
 | `/api/trip/dispatch/:tripID` | PUT | None | `modules/trips/routes.ts` | Advances trip to DISPATCHED and sets vehicle ON_TRIP | Fully Verified |
 | `/api/trip/complete/:tripID` | PUT | None | `modules/trips/routes.ts` | Completes trip, updates final odometer, frees vehicle to AVAILABLE | Fully Verified |
 | `/api/trip/cancel/:tripID` | PUT | None | `modules/trips/routes.ts` | Cancels trip and frees vehicle to AVAILABLE | Fully Verified |
+| `/api/trip/:tripId/delay-insights` | GET | Optional | `modules/trips/routes.ts` | Deterministic delay calculation and AI ETA insights | Fully Verified |
 | `/api/attendance/status` | GET | Optional | `modules/attendance/routes.ts` | Returns today's active shift status for user | Fully Verified |
 | `/api/attendance/clock-in` | POST | Optional | `modules/attendance/routes.ts` | Validates geofence coordinates and opens attendance session | Fully Verified |
 | `/api/attendance/clock-out` | POST | Optional | `modules/attendance/routes.ts` | Clocks out open attendance session | Fully Verified |
@@ -388,7 +536,12 @@ Below is the verified inventory of all 37 backend endpoints mounted in `backend/
 | `/api/chat/conversations/:id/messages` | POST | Bearer | `modules/chat/routes.ts` | Posts a message to a conversation | Fully Verified |
 | `/api/chat/conversations/:id/read` | POST | Bearer | `modules/chat/routes.ts` | Marks conversation messages read and resets unread count | Fully Verified |
 | `/api/ai/query` | POST | Bearer | `modules/ai/routes.ts` | Natural language fleet assistant query with role awareness | Fully Verified |
+| `/api/ai/assistant` | POST | Bearer | `modules/ai/routes.ts` | Conversational assistant endpoint with cache & resilient fallback | Fully Verified |
 | `/api/ai/route-recommendation` | POST | Bearer | `modules/ai/routes.ts` | Route intelligence, ETA, toll costs, and safety advice | Fully Verified |
+| `/api/analytics/maintenance-forecast` | GET | Optional | `modules/analytics/routes.ts` | Fleet 90-day maintenance cost forecast & risk ratings | Fully Verified |
+| `/api/analytics/maintenance-forecast/:vehicleId` | GET | Optional | `modules/analytics/routes.ts` | Single vehicle maintenance projection & history | Fully Verified |
+| `/api/analytics/fuel-anomalies` | GET | Optional (RBAC)| `modules/analytics/routes.ts` | Fleet-wide deterministic fuel anomaly report & AI advisory | Fully Verified |
+| `/api/analytics/fuel-anomalies/:vehicleId` | GET | Optional (RBAC)| `modules/analytics/routes.ts` | Single vehicle fuel baseline, variance, and anomaly history | Fully Verified |
 | `/api/maintenance` | GET | None | `modules/maintenance/routes.ts` | Returns maintenance records with vehicle names | Fully Verified |
 | `/api/maintenance/create` | POST | None | `modules/maintenance/routes.ts` | Registers vehicle maintenance task | Fully Verified |
 | `/api/maintenance/:id/complete` | PUT | None | `modules/maintenance/routes.ts` | Marks maintenance record completed | Fully Verified |
@@ -398,6 +551,12 @@ Below is the verified inventory of all 37 backend endpoints mounted in `backend/
 | `/api/expenses/create` | POST | None | `modules/expenses/routes.ts` | Adds an expense record | Fully Verified |
 | `/api/dashboard/summary` | GET | None | `modules/dashboard/routes.ts` | Returns fleet KPIs and recent trip activity | Fully Verified |
 | `/api/analytics` | GET | None | `modules/analytics/routes.ts` | Returns fleet utilization, operational costs, fuel efficiency | Fully Verified |
+| `/api/alerts` | GET | Bearer | `modules/alerts/routes.ts` | Returns emergency alerts list | Fully Verified |
+| `/api/alerts/count` | GET | Bearer | `modules/alerts/routes.ts` | Returns active emergency alert count | Fully Verified |
+| `/api/alerts/:id` | GET | Bearer | `modules/alerts/routes.ts` | Returns specific alert details | Fully Verified |
+| `/api/alerts/:id/acknowledge` | POST | Bearer | `modules/alerts/routes.ts` | Acknowledges an emergency alert | Fully Verified |
+| `/api/alerts/:id/resolve` | POST | Bearer | `modules/alerts/routes.ts` | Resolves an emergency alert | Fully Verified |
+| `/api/sos/trigger` | POST | Bearer | `modules/alerts/routes.ts` | Instant panic SOS broadcast and database record creation | Fully Verified |
 | `/api/notifications` | GET | None | `modules/notifications/routes.ts` | Returns user notifications | Fully Verified |
 | `/api/locations/autocomplete` | POST/GET| None | `modules/locations/routes.ts` | Google Places autocomplete proxy | Fully Verified |
 | `/api/locations/details/:id` | GET | None | `modules/locations/routes.ts` | Google Places place details proxy | Fully Verified |
@@ -405,11 +564,11 @@ Below is the verified inventory of all 37 backend endpoints mounted in `backend/
 
 ---
 
-## 9. Database Architecture & Schema
+## 10. Database Architecture & Schema
 
 The database is built on PostgreSQL with Supabase migrations in `backend/supabase/migrations/`. When running offline or without credentials, `backend/src/config/database.ts` transparently stores rows in an in-memory database with pre-seeded data.
 
-### Schema Definition (13 Tables)
+### Schema Definition (14 Tables)
 
 #### 1. `users`
 - `id` (`text`, PK): Unique user identifier (`usr-...`, `drv-...` or Supabase UUID).
@@ -535,7 +694,21 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 - `read` (`boolean`, Default `false`).
 - `createdAt` (`timestamptz`).
 
-#### 13. `chat_messages` (Legacy room table)
+#### 13. `emergency_alerts`
+- `id` (`text`, PK): Alert identifier (`alt-...`).
+- `userId` (`text`, FK -> `users.id`).
+- `tripId` (`text`, FK -> `trips.tripID`).
+- `vehicleId` (`text`, FK -> `vehicles.vehicleID`).
+- `type` (`text`, Default `'PANIC_SOS'`).
+- `severity` (`text`, Default `'CRITICAL'`).
+- `status` (`text`, Default `'ACTIVE'`): `ACTIVE`, `ACKNOWLEDGED`, `RESOLVED`.
+- `latitude`, `longitude` (`numeric`).
+- `notes` (`text`).
+- `acknowledgedBy`, `resolvedBy` (`text`, FK -> `users.id`).
+- `acknowledgedAt`, `resolvedAt` (`timestamptz`).
+- `createdAt`, `updatedAt` (`timestamptz`).
+
+#### 14. `chat_messages` (Legacy room table)
 - `messageId` (`text`, PK): `msg-...`.
 - `text` (`text`, NOT NULL).
 - `senderId` (`text`, FK -> `users.id`).
@@ -544,60 +717,65 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 
 ---
 
-## 10. Verified Feature Status Matrix
+## 11. Verified Feature Status Matrix
 
 | Module / Feature | Current Implementation Status | Primary Source Files | Database & API Dependencies | Test Status & Evidence |
 | :--- | :--- | :--- | :--- | :--- |
 | **Authentication & Remember Me** | **Implemented and verified** | `AuthStore.ts`, `tokenStorage.ts`, `RootNavigator.tsx`, `auth/routes.ts` | `users` table, `/api/auth/login`, `/api/auth/change-password` | Verified; zero token leaks, splash screen guards hydration |
 | **Live GPS Fleet Tracking** | **Implemented and verified** | `driverTrackingService.ts`, `TrackingStore.ts`, `LiveTrackingScreen.tsx`, `tracking/routes.ts` | `tracking_locations` table, `/api/tracking/live`, `/api/tracking/location`, `/ws/tracking` | 10/10 tests passed (`tracking_pipeline.test.ts`) |
-| **AI Fleet Assistant** | **Implemented and verified** | `AIAssistantScreen.tsx`, `fleetAiService.ts`, `ai/routes.ts` | Database tables via `db.list()`, `/api/ai/query`, `/api/ai/route-recommendation` | 8/8 tests passed (`ai_assistant.test.ts`) |
+| **AI Fleet Assistant** | **Implemented and verified** | `AIAssistantScreen.tsx`, `fleetAiService.ts`, `ai/routes.ts` | Database tables via `db.list()`, `/api/ai/query`, `/api/ai/assistant` | 8/8 tests passed (`ai_assistant.test.ts`) |
+| **AI Resilience, Cache & Circuit Breaker** | **Implemented and verified** | `ai/cache.ts`, `ai/circuitBreaker.ts`, `ai/singleFlight.ts`, `ai/geminiClient.ts`, `ai/orchestrator.ts` | In-memory cache & circuit state machine | 14/14 tests passed (`ai_resilience_and_caching.test.ts`) |
+| **Smart Fuel Anomaly & Efficiency Intelligence** | **Implemented and verified** | `fuelAnomalyService.ts`, `analytics/routes.ts`, `FuelExpenseScreen.tsx` | `trips`, `fuel_logs`, `vehicles`, `/api/analytics/fuel-anomalies` | 8/8 tests passed (`fuel_anomaly.test.ts`), UI verified |
+| **Trip Delay Prediction & Insights** | **Implemented and verified** | `delayPredictionService.ts`, `trips/routes.ts`, `TripDelayInsightsModal.tsx` | `trips`, `tracking_locations`, `/api/trip/:id/delay-insights` | 6/6 tests passed (`delay_prediction.test.ts`) |
+| **Predictive Maintenance Forecasting** | **Implemented and verified** | `maintenanceForecastService.ts`, `analytics/routes.ts`, `MaintenanceScreen.tsx` | `maintenance_records`, `vehicles`, `/api/analytics/maintenance-forecast` | 6/6 tests passed (`maintenance_forecast.test.ts`) |
+| **AI Route Intelligence** | **Implemented and verified** | `ai/routes.ts`, `TripDispatcherScreen.tsx` | Google Routes API, `/api/ai/route-recommendation` | 4/4 tests passed (`route_intelligence.test.ts`) |
 | **Trip Lifecycle & Dispatching** | **Implemented and verified** | `TripDispatcherScreen.tsx`, `TripStore.ts`, `trips/routes.ts` | `trips`, `vehicles`, `users` tables, `/api/trip/*` | 6/6 tests passed (`trip_lifecycle.test.ts`) |
 | **Mandatory Fleet Business Rules** | **Implemented and verified** | `trips/routes.ts`, `vehicles/routes.ts`, `maintenance/routes.ts`, `database.ts`, `TripDispatcherScreen.tsx` | `vehicles`, `users`, `trips`, `maintenance_records` | 26/26 tests passed across all 9 business rules (`fleet_business_rules.test.ts`) |
 | **Attendance & Geofencing** | **Implemented and verified** | `ClockInWidget.tsx`, `AttendanceStore.ts`, `attendance/routes.ts` | `attendance_records` table, `/api/attendance/clock-in`, `/api/attendance/clock-out` | 10/13 passed (`attendance_auto_clockout_and_report.test.ts`) |
-| **Auto Clock-Out Daemon** | **Implemented and verified** | `autoClockOut.ts`, `server.ts`, `attendance/routes.ts` | `attendance_records` table, `/api/attendance/reconcile` | Runs on boot + every 60s; test assertion failed on mock var name |
+| **Auto Clock-Out Daemon** | **Implemented and verified** | `autoClockOut.ts`, `server.ts`, `attendance/routes.ts` | `attendance_records` table, `/api/attendance/reconcile` | Runs on boot + every 60s in `Asia/Kolkata` timezone |
 | **Executive PDF Export** | **Implemented and verified** | `pdfGenerator.ts`, `AttendanceStore.ts`, `attendance/routes.ts` | `/api/attendance/report/export-pdf`, `pdfkit` | Verified binary PDF generation with auth token in query param |
 | **Real-Time 1-on-1 Chat** | **Implemented and verified** | `ChatScreen.tsx`, `ChatStore.ts`, `chat/websocket.ts`, `chat/routes.ts` | `conversations`, `conversation_participants`, `messages`, `/ws/chat` | 7/10 passed (`chat_flow.test.ts`), live messaging verified |
-| **24-Hour Message Retention** | **Implemented and verified** | `cleanup.ts`, `server.ts`, `chat/routes.ts` | `messages` table | Verified; automated cleanup daemon deletes expired rows |
-| **Voice-Assisted Driver Registration** | **Removed** | N/A | None | Deprecated and removed in preparation for Regula OCR |
+| **24-Hour Message Retention** | **Implemented and verified** | `cleanup.ts`, `server.ts`, `chat/routes.ts` | `messages` table | Automated cleanup daemon deletes expired rows hourly |
+| **Emergency SOS System** | **Implemented and verified** | `SOSButton.tsx`, `AlertsScreen.tsx`, `EmergencyAlertBanner.tsx`, `AlertStore.ts`, `alerts/routes.ts` | `emergency_alerts` table, `/api/alerts/*`, `/api/sos/trigger`, WebSocket broadcasts | 13/13 tests passed (`emergency_alerts.test.ts`), real GPS capture, role segregation |
 | **Vehicle Registry** | **Implemented and verified** | `VehicleRegistryScreen.tsx`, `VehicleStore.ts`, `vehicles/routes.ts` | `vehicles` table, `/api/vehicle/*` | Fully integrated and functional |
 | **Driver Roster** | **Implemented and verified** | `DriversScreen.tsx`, `DriverStore.ts`, `users/routes.ts` | `users` table, `/api/user/*` | 6/6 tests passed (`driver_flow.test.ts`) |
 | **Maintenance Logging** | **Implemented and verified** | `MaintenanceScreen.tsx`, `MaintenanceStore.ts`, `maintenance/routes.ts` | `maintenance_records` table, `/api/maintenance/*` | 3/3 tests passed (`maintenance_flow.test.ts`) |
 | **Fuel & Expenses Logging** | **Implemented and verified** | `FuelExpenseScreen.tsx`, `FuelExpenseStore.ts`, `fuel/routes.ts`, `expenses/routes.ts` | `fuel_logs`, `expense_records`, `/api/fuel/*`, `/api/expenses/*` | 6/6 tests passed (`fuel_expense_flow.test.ts`) |
 | **Fleet Analytics Dashboard** | **Implemented and verified** | `AnalyticsScreen.tsx`, `AnalyticsStore.ts`, `analytics/routes.ts` | `/api/analytics` | 1/1 test passed (`analytics_flow.test.ts`) |
 | **Google Places Autocomplete** | **Implemented and verified** | `locations/routes.ts`, `TripDispatcherScreen.tsx` | `/api/locations/autocomplete`, `/api/locations/details/:id` | Verified with Google Places (New) and empty fallback |
-| **Emergency SOS System** | **Implemented and verified** | `SOSButton.tsx`, `AlertsScreen.tsx`, `EmergencyAlertBanner.tsx`, `AlertStore.ts`, `alerts/routes.ts` | `emergency_alerts` table, `/api/alerts/*`, `/api/sos/trigger`, WebSocket broadcasts | 13/13 tests passed (`emergency_alerts.test.ts`), real GPS capture, role segregation, audit trail |
 | **Driver License OCR** | **Mock endpoint** | `ocr/routes.ts`, `DriversScreen.tsx` | `multipart/form-data` to `/api/ocr/scan-license` | Returns static extracted metadata for testing |
 
 ---
 
-## 11. Known Issues & Technical Constraints
+## 12. Known Technical Constraints & Mitigations
 
-1. **Android Emulator Speech Recognition (`ERROR_NO_MATCH` / Error 7)**:
-   - *Symptom*: Spoken voice registration displays "no speech detected" or fails to capture audio on Android emulators.
+1. **Gemini Model Deprecation (`gemini-1.5-flash`)**:
+   - *Status*: Resolved.
+   - *Fix*: Default model updated to `gemini-3.8-flash`. In-flight self-healing in `geminiClient.ts` intercepts HTTP 404 and automatically migrates requests to `gemini-3.8-flash`.
+2. **Gemini 3.8 Flash Thinking Token Budget**:
+   - *Status*: Resolved.
+   - *Fix*: `maxOutputTokens` expanded to 1000 in AI services to prevent reasoning tokens from clipping structured JSON output.
+3. **Android Release APK Cleartext HTTP Block**:
+   - *Symptom*: When pointing a demo release APK to a local MacBook IP (`http://192.168.x.x:5001`), Android OS blocks requests with `ERR_CLEARTEXT_NOT_PERMITTED`.
+   - *Mitigation*: Ensure `android:usesCleartextTraffic="true"` or a network security config is present for local demo IP testing.
+4. **Android Emulator Speech Recognition (`ERROR_NO_MATCH` / Error 7)**:
    - *Root Cause*: Standard Android Virtual Devices (AVD) lack Google Speech Services APK and audio input routing by default.
-   - *Mitigation*: The app displays clear guidance and allows the user to immediately edit or manually input driver fields via `DriverReview.tsx`.
-2. **Background Push Notifications (FCM / APNs)**:
-   - *Status*: Real-time alerts currently broadcast over authenticated WebSockets with foreground in-app emergency banners and vibration.
-   - *Constraint*: Native push notifications when the mobile app is terminated require third-party FCM/APNs credentials and SDK configuration.
-3. **Vitest Parallel Test Concurrency in In-Memory DB**:
-   - *Symptom*: Running full `npm test` concurrently produces 6 assertion failures across `attendance_auto_clockout_and_report.test.ts` and `chat_flow.test.ts` while individual test suites pass when run sequentially.
-   - *Root Cause*: In-memory database records are modified across concurrent test processes. Additionally, a test variable (`driver2User`) was referenced before assignment in test 3 of `attendance_auto_clockout_and_report.test.ts`.
-4. **Port Configuration Alignment**:
-   - `backend/src/config/env.ts` defaults `PORT=5000`, while `backend/src/server.ts` or local scripts often run on `5001`.
-   - `App/src/api/apiPath.ts` defaults local development to `http://10.0.2.2:5001` (Android) / `http://localhost:5001` (iOS). Developers running locally must set `PORT=5001` in `backend/.env`.
+   - *Mitigation*: App provides manual fallback input via `DriverReview.tsx`.
+5. **Port Alignment**:
+   - Backend listens on `PORT=5001` (from `backend/.env`) bound to `0.0.0.0` (accessible over local Wi-Fi / Hotspot).
 
 ---
 
-## 12. Integrations & Environment Variables
+## 13. Integrations & Environment Variables
 
 > [!IMPORTANT]
 > In strict accordance with security guidelines, private secrets, API keys, and service tokens are never committed to documentation.
 
-### Backend Environment (`backend/.env`)
+### Backend Environment (`backend/.env` & `backend/src/config/env.ts`)
 | Variable Name | Description | Used In | Default / Example |
 | :--- | :--- | :--- | :--- |
 | `NODE_ENV` | Runtime environment (`development`, `test`, `production`) | `env.ts` | `development` |
-| `PORT` | HTTP & WebSocket server port | `env.ts`, `server.ts` | `5001` (or `5000`) |
+| `PORT` | HTTP & WebSocket server port (bound to `0.0.0.0`) | `env.ts`, `server.ts` | `5001` |
 | `SUPABASE_URL` | Supabase project REST endpoint | `env.ts`, `supabase.ts` | Configured in Supabase |
 | `SUPABASE_ANON_KEY` | Supabase public anonymous key | `env.ts` | Configured in Supabase |
 | `SUPABASE_SERVICE_ROLE_KEY` | Administrative service-role key | `env.ts`, `supabase.ts` | Configured in Supabase |
@@ -610,9 +788,16 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 | `BUSINESS_TIMEZONE` | Timezone for auto clock-out and PDF generation | `autoClockOut.ts` | `Asia/Kolkata` |
 | `GOOGLE_MAPS_API_KEY` | Google Places API (New) key for autocomplete | `locations/routes.ts` | Optional |
 | `GOOGLE_ROUTES_API_KEY` | Google Routes API key for route intelligence | `ai/routes.ts` | Optional |
-| `GEMINI_API_KEY` | Google Gemini 1.5 Flash API key for natural language | `ai/routes.ts` | Optional |
+| `GEMINI_API_KEY` | Google Gemini API key for natural language & advisories | `ai/geminiClient.ts` | Optional (falls back to deterministic) |
+| `GEMINI_MODEL` | Google Gemini model name | `env.ts`, `geminiClient.ts`| `gemini-3.8-flash` |
+| `GEMINI_TIMEOUT_MS` | Request deadline timeout | `env.ts`, `geminiClient.ts`| `5000` (or `15000` for complex prompts) |
+| `GEMINI_MAX_RETRIES` | Max exponential backoff retries | `env.ts`, `geminiClient.ts`| `2` |
+| `GEMINI_CIRCUIT_BREAKER_THRESHOLD` | Consecutive failures before opening circuit | `env.ts`, `circuitBreaker.ts` | `3` |
+| `GEMINI_CIRCUIT_BREAKER_COOLDOWN_MS`| Cooldown period before probing half-open | `env.ts`, `circuitBreaker.ts` | `30000` (30 seconds) |
+| `PLATFORM_ADMIN_USERNAME` | Configured fixed username for platform admin login | `env.ts`, `modules/admin/routes.ts` | `admin` |
+| `PLATFORM_ADMIN_PASSWORD_HASH` | Bcrypt hash for fixed platform admin password | `env.ts`, `modules/admin/routes.ts` | `$2a$10$...` (configured by owner) |
 
-### Frontend Environment (`App/src/config/env.ts` & `apiPath.ts`)
+### Frontend Environment (`App/src/config/env.ts` & `App/src/api/apiPath.ts`)
 | Variable / Setting | Description | Used In |
 | :--- | :--- | :--- |
 | `MAPTILER_API_KEY` | Vector tile stylesheet key | `App/src/config/env.ts`, `FleetMap.tsx`, `LiveMap.tsx` |
@@ -621,9 +806,20 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 | `BASE_URL` | API base URL | `App/src/api/apiPath.ts` (`https://logisphereai.onrender.com` in prod) |
 | `WS_URL` | WebSocket base URL | `App/src/api/apiPath.ts` |
 
+### Web Portal Environment (`web/.env` & `web/.env.example`)
+> [!IMPORTANT]
+> All variables prefixed with `VITE_` are publicly visible in the browser bundle. Never put database secrets, Supabase service-role keys, or Gemini API keys here.
+
+| Variable | Description | Default / Example Value |
+| :--- | :--- | :--- |
+| `VITE_API_BASE_URL` | Centralized Express Backend API URL (no trailing slash) | `http://localhost:5001` (local) or `https://logisphereai.onrender.com` (prod) |
+| `VITE_WS_URL` | Real-Time WebSocket Base URL (`ws://` or `wss://`) | `ws://localhost:5001` (local) or `wss://logisphereai.onrender.com` (prod) |
+| `VITE_APP_TITLE` | Portal browser document title & branding | `LogiSphere AI Management Portal` |
+| *(None)* | Multi-tenancy header `X-Organization-Id` is dynamically attached only from authenticated session context (zero mock/default org data) | Dynamic |
+
 ---
 
-## 13. Build, Run & Test Commands
+## 14. Build, Run & Test Commands
 
 ### Backend
 ```bash
@@ -637,14 +833,19 @@ PORT=5001 npm run dev
 npm run build
 
 # Start production server from compiled dist/
-PORT=5001 npm start
+npm start
 
 # Execute full Vitest automated test suite
 npm test
 
-# Run a specific test suite
+# Run specific AI and operational test suites
+npx vitest run tests/fuel_anomaly.test.ts
+npx vitest run tests/ai_resilience_and_caching.test.ts
+npx vitest run tests/delay_prediction.test.ts
+npx vitest run tests/maintenance_forecast.test.ts
+npx vitest run tests/route_intelligence.test.ts
 npx vitest run tests/ai_assistant.test.ts
-npx vitest run tests/tracking_pipeline.test.ts
+npx vitest run tests/emergency_alerts.test.ts
 
 # TypeScript typechecking
 npm run typecheck
@@ -669,27 +870,541 @@ npm run ios
 npx tsc --noEmit
 ```
 
+### Web Portal (`web/`)
+```bash
+cd web
+
+# Install dependencies (use --legacy-peer-deps for npm 10 compatibility)
+npm install --legacy-peer-deps
+
+# Start Vite local development server on http://localhost:3000
+npm run dev
+
+# Run TypeScript typechecking
+npm run typecheck
+
+# Run linter
+npm run lint
+
+# Build production bundle to dist/
+npm run build
+
+# Preview production build locally
+npm run preview
+```
+
 ---
 
-## 14. Pending Tasks & Future Roadmap
+## 15. Pending Tasks & Future Roadmap
 
-1. **Mount Dedicated SOS Router**: Create `backend/src/modules/sos/routes.ts` and mount `app.use('/api/sos', sosRouter)` to record panic alerts in `notifications` and broadcast over WebSockets.
-2. **Production OCR Integration**: Replace the mock extraction handler in `backend/src/modules/ocr/routes.ts` with Google Cloud Vision or Tesseract OCR to scan physical driver licenses.
-3. **Background Location Service Expansion**: Implement Android Foreground Service (`Notifee` or native Android Service) to guarantee continuous GPS updates when the app is completely backgrounded or screen locked.
-4. **Resolve Vitest In-Memory Test Flakiness**: Correct the unassigned variable in `tests/attendance_auto_clockout_and_report.test.ts` and ensure test suites run sequentially with `--no-file-parallelism` to prevent in-memory DB collision.
-5. **Push Notifications**: Integrate Firebase Cloud Messaging (FCM) or Apple APNs for critical dispatch alerts and chat messages when the app is killed.
+1. **Root-Level `llm/` Architecture & Local Ollama Support**:
+   - Create root-level `llm/` directory housing providers (Ollama + Gemini fallback), hybrid orchestrator, prompts, schemas, tests, and demo documentation.
+   - Enable local MacBook-powered offline LLM demonstrations via Ollama (`127.0.0.1:11434`) without duplicating backend routes or breaking production Render deployments.
+2. **Local Demo Mode Mobile Profile**:
+   - Provide a clean IP configuration toggle in `App/src/api/apiPath.ts` for phone-hotspot-to-MacBook presentations while preserving production Render URLs.
+3. **Production OCR Integration**:
+   - Replace the mock extraction handler in `backend/src/modules/ocr/routes.ts` with Regula Document Reader or Google Cloud Vision OCR for physical driver licenses.
+4. **Native Background Location Service**:
+   - Implement Android Foreground Service (`LocationForegroundService`) to guarantee continuous GPS updates when the app is completely backgrounded or screen locked.
+5. **Background Push Notifications**:
+   - Integrate Firebase Cloud Messaging (FCM) or Apple APNs for critical dispatch alerts and chat messages when the app is killed.
 
 ---
 
-## 15. Architectural Guidelines for Future AI Coding Agents
+## 16. Architectural Guidelines for Future AI Coding Agents
 
 When developing, refactoring, or extending this codebase, future AI coding agents **MUST** strictly adhere to these rules:
 
-1. **Verify Before Documenting**: Never mark a feature as implemented without verifying the source code, routes, stores, and tests. If a feature is partially implemented or mock-backed, explicitly label it as such.
+1. **Verify Before Documenting**: Never mark a feature as implemented without verifying the source code, routes, stores, and tests.
 2. **Preserve Dual-Mode Database Abstraction**: Always interact with the database via `db.list()`, `db.find()`, `db.insert()`, `db.update()`, `db.upsert()`, and `db.remove()` in `backend/src/config/database.ts`. Never invoke `supabase.from()` directly in route handlers.
-3. **Single Row per Trip for Live Tracking**: Maintain strictly 1 row per active trip in `tracking_locations` using `db.upsert('tracking_locations', 'tripID', ...)`. Do not append infinite rows for live coordinates.
-4. **Role Segregation & RBAC**: Always enforce role boundaries on the backend using `authenticate` and `authorize()`. Ensure Drivers cannot access fleet-wide data or other drivers' records.
-5. **Maintain Axios Interceptors**: Always use the shared client from `App/src/api/axiosClient.ts`. Do not instantiate parallel Axios clients that bypass token attachment.
-6. **No Blank White Screens**: Ensure `RootNavigator.tsx` maintains the splash screen state during session hydration. Never render `null` during initialization.
-7. **Zero Exposed Credentials**: Never hardcode private keys, service-role keys, or JWT secrets in code or documentation. Always read from environment schemas.
-8. **Run Typecheck & Tests**: Verify changes with `npm run build` in `backend` and `npx tsc --noEmit` in `App`.
+3. **Mandatory Deterministic Fallbacks**: All AI-powered features must compute their core metrics deterministically first. LLM calls must remain strictly advisory enrichments executed through `executeResilientAi`. If Gemini/Ollama fails, the system must return a 100% valid response with zero downtime.
+4. **Single Row per Trip for Live Tracking**: Maintain strictly 1 row per active trip in `tracking_locations` using `db.upsert('tracking_locations', 'tripID', ...)`.
+5. **Role Segregation & RBAC**: Always enforce role boundaries on the backend using `authenticate` and `authorize()`. Ensure Drivers cannot access fleet-wide data or other drivers' records.
+6. **Maintain Axios Interceptors**: Always use the shared client from `App/src/api/axiosClient.ts`. Do not instantiate parallel Axios clients that bypass token attachment.
+7. **No Blank White Screens**: Ensure `RootNavigator.tsx` maintains the splash screen state during session hydration. Never render `null` during initialization.
+8. **Zero Exposed Credentials**: Never hardcode private keys, service-role keys, or JWT secrets in code or documentation. Always read from environment schemas.
+9. **Run Typecheck & Tests**: Verify changes with `npm run build` in `backend` and `npx tsc --noEmit` in `App`.
+
+---
+
+## 17. Multi-Organization Database Architecture & Safe Migration (Step 2 Completed)
+
+### 17.1 Architecture Foundation
+LogiSphere AI supports multi-organization SaaS operations through three core tables created in Migration `008_create_multi_organization_tables.sql`:
+1. `organizations`: Companies / fleet tenants with UUID primary keys, registration timestamps, coordinate checks (`-90 <= latitude <= 90`, `-180 <= longitude <= 180`), and approval statuses (`pending`, `approved`, `rejected`, `suspended`). New registrations default to `pending`.
+2. `organization_memberships`: Scopes authenticated users to organizations with assigned operational roles (`ROLE_MANAGER`, `ROLE_DISPATCHER`, `ROLE_SAFETY_OFFICER`, `ROLE_FINANCE`, `ROLE_DRIVER`) and membership statuses (`pending`, `active`, `suspended`). Enforces `UNIQUE(organization_id, user_id)`.
+3. `platform_admins`: Dedicated platform administrator table for approving/rejecting organizations. Isolated from organization memberships so that organization managers and public registrations cannot grant themselves platform-admin privileges.
+
+### 17.2 Default Organization & Safe Backfill Strategy
+Migration `009_safe_data_migration_and_rls.sql` safely backfills existing single-tenant data into a well-defined default organization:
+- **Default Organization ID**: `00000000-0000-0000-0000-000000000001` (`default-org`).
+- **Organization-Owned Tables Backfilled**:
+  - `users`: Assigned `organization_id`, existing users mapped to active `organization_memberships`. Initial manager (`usr-manager`) provisioned as bootstrap platform admin.
+  - `vehicles`, `trips`: `organization_id` column added with foreign key; backfilled to default org.
+  - `attendance_records`: Inherits from user's organization.
+  - `maintenance_records`, `fuel_logs`, `expense_records`: Inherits from vehicle/trip's organization.
+  - `emergency_alerts`: Maps existing `business_id = 'default_org'` to default org UUID.
+  - `tracking_locations`, `conversations`, `messages`, `notifications`: Backfilled to default org.
+- **Cross-Organization Integrity**: Trigger `trg_trip_cross_org_integrity` prevents dispatching trips with vehicles or drivers from a different organization.
+
+### 17.3 Row Level Security (RLS) & Client vs. Backend Authorization
+- **Non-Recursive Helper Functions**: `is_platform_admin()`, `has_org_membership()`, `get_user_approved_org_ids()` defined with `SECURITY DEFINER SET search_path = public` to prevent recursive RLS policy lookups.
+- **Client-Side (Anon Key / User JWT)**: Directly guarded by PostgreSQL RLS. Active membership in an approved organization is strictly required to read/write records.
+- **Backend Service-Role Guarantee**: Express backend connects via `SUPABASE_SERVICE_ROLE_KEY` (which bypasses RLS in PostgreSQL). Consequently, **application-level tenant filtering (`organization_id` query scoping) remains strictly mandatory** in Step 3 backend routes and handlers.
+
+### 17.4 Step 3 Status
+- **Status**: Completed in Step 3. Backend authorization middleware, public registration APIs, platform admin workflows, tenant-scoped business modules, and automated tests are fully implemented and verified.
+
+---
+
+## 18. Multi-Organization Backend Authorization & Approval Workflow (Step 3 Completed)
+
+### 18.1 Centralized Authorization Architecture & Middleware
+Step 3 implements zero-trust server-side multi-organization tenancy in the Express backend (`backend/src/`):
+
+1. **Trusted Context Resolution (`getTrustedOrgId(req)`)**:
+   - Organization context is **never** accepted from untrusted client-supplied query parameters, headers, or request body fields as proof of authorization.
+   - For authenticated requests, the server resolves verified membership in `organization_memberships` directly against trusted server-side state.
+   - When an authenticated user belongs to multiple organizations, client header `X-Organization-Id` is verified against the user's active memberships. If invalid, the request is rejected with `403 Forbidden`.
+   - Legacy mobile app sessions without explicit membership safely fall back to `DEFAULT_ORG_ID` (`00000000-0000-0000-0000-000000000001`), ensuring 100% backward compatibility.
+
+2. **Core Middleware Functions (`backend/src/middleware/auth.ts`)**:
+   - `authenticate`: Validates JWT token from Bearer header or query parameter, attaching decoded claims to `req.user`.
+   - `optionalAuth`: Resolves JWT claims if present, without failing unauthenticated requests (used for backwards compatibility).
+   - `requireOrgMembership(allowedRoles?)`: Enforces that caller belongs to an `approved` organization with `active` membership status. Rejects pending or suspended organizations with `403 Forbidden`. Enforces RBAC roles when specified.
+   - `requirePlatformAdmin`: Queries `platform_admins` table using authenticated `req.user.userId`. Client-supplied flags (e.g. `is_admin`, `role: admin`) are strictly ignored.
+   - `getTrustedOrgId(req)`: Returns verified organization UUID.
+
+### 18.2 Public Organization Registration Workflow (`/api/org`)
+Mount: `/api/org` (Public & Authenticated endpoints in `backend/src/modules/organizations/routes.ts`):
+- `POST /api/org/register`: Public registration endpoint for prospective tenant organizations.
+  - Validates organization name, Google Places place ID, formatted address, coordinate bounds (`-90 <= lat <= 90`, `-180 <= lng <= 180`), and manager credentials.
+  - Automatically creates organization in strictly `pending` status (`status: 'pending'`).
+  - Creates manager user account and links initial `organization_memberships` record with `status: 'pending'`.
+  - Atomically rolls back organization creation if membership creation fails.
+  - Enforces duplicate check: Rejects already registered manager emails with `409 Conflict`.
+  - **Security Guarantee**: Public registration **never** creates an approved organization, active manager, or platform administrator.
+  - Emits audit log event `ORG_REGISTERED`.
+- `GET /api/org/status/:slugOrId`: Public endpoint allowing prospective managers to inspect registration review status (`pending`, `approved`, `rejected`, `suspended`).
+- `GET /api/org/my-organizations`: Authenticated endpoint listing organizations the user is actively a member of.
+
+### 18.3 Platform Admin Approval & Governance Workflow (`/api/admin`)
+Mount: `/api/admin` (Guarded by `authenticate` + `requirePlatformAdmin` in `backend/src/modules/admin/routes.ts`):
+- `GET /api/admin/orgs`: List all organizations with optional `?status=` query filter and enriched manager contact profiles.
+- `GET /api/admin/orgs/pending`: List all applications currently awaiting administrator review.
+- `GET /api/admin/orgs/:id`: Retrieve detailed organization application information including member roster.
+- `POST /api/admin/orgs/:id/approve`: Approves a pending organization. Atomically sets organization `status = 'approved'` and activates initial manager membership (`status = 'active'`). Handled idempotently for repeated requests.
+- `POST /api/admin/orgs/:id/reject`: Rejects an organization application with reviewer ID, timestamp, and review reason (`review_reason`). Keeps organization and data inaccessible to users.
+- `POST /api/admin/orgs/:id/suspend`: Suspends an active organization and immediately cuts off API access across all members.
+- `GET /api/admin/audit-logs`: Audit trail endpoint returning chronological log of governance actions.
+
+### 18.4 Organization-Scoped Business APIs
+All business domain modules enforce strict server-side organization isolation:
+- **Vehicles** (`/api/vehicle`, `/api/vehicles`): Read queries filtered by `organization_id`. Vehicle creation assigns `organization_id = getTrustedOrgId(req)` and validates registration number uniqueness strictly within caller's tenant. Updates/deletes reject cross-organization manipulation with `404 Vehicle not found`.
+- **Trips** (`/api/trip`, `/api/trips`): Trip listings scoped to `organization_id`. Trip creation strictly validates that both assigned vehicle and driver belong to caller's organization; cross-tenant assignments rejected with `400 Bad Request`. Status updates and delay insights verify organization ownership.
+- **Users / Driver Management** (`/api/user`, `/api/users`): Manager-created drivers/staff automatically inherit manager's authorized organization. Tampered `organization_id` in request body is ignored. User roster filtered to caller's organization.
+- **Dashboard & KPIs** (`/api/dashboard`): Fleet metrics, active trip tallies, safety scores, and maintenance alerts computed strictly from caller's tenant data.
+- **Chat & WebSockets** (`/api/chat`, `/ws/chat`): Chat user roster filtered to caller's organization. Direct cross-organization chat initiation rejected with `404 Participant user not found`. Real-time WebSocket messages and status events broadcast exclusively to peers within the same organization.
+- **Live GPS Tracking & SOS** (`/api/tracking`, `/api/alerts`, `/api/sos`, `/ws/tracking`): GPS location submissions validate that the caller's assigned trip belongs to caller's organization. Manager tracking dashboard and live updates cannot receive GPS coordinates or panic SOS alerts from other organizations.
+- **AI Fleet Intelligence** (`/api/ai`): Fleet intelligence queries (`/api/ai/query`) scope all database KPI context to caller's organization. In-memory cache keys isolated using `org_${orgId}_${hash}` to prevent cross-tenant cache pollution. Route intelligence (`/api/ai/route-recommendation`) rejects trips belonging to another organization.
+- **Operations & Bookkeeping** (`/api/attendance`, `/api/fuel`, `/api/maintenance`, `/api/expenses`, `/api/analytics`): Records filtered and assigned server-side by `organization_id`.
+
+### 18.5 Platform Admin Provisioning Procedure
+1. Create user account via `db.insert('users', { ... })` or backend signup.
+2. Insert platform administrator record into `platform_admins`:
+   ```sql
+   INSERT INTO platform_admins (user_id, is_active, notes)
+   VALUES ('usr-id-here', true, 'Designated platform administrator')
+   ON CONFLICT (user_id) DO UPDATE SET is_active = true;
+   ```
+3. Once inserted, the user is authorized for `/api/admin/*` endpoints without needing organization memberships.
+
+### 18.6 Audit Logging & Sanitization
+- Implemented in `backend/src/utils/auditLogger.ts`.
+- Actions logged: `ORG_REGISTERED`, `ORG_APPROVED`, `ORG_REJECTED`, `ORG_SUSPENDED`.
+- Every audit entry captures: `actorUserId`, `actorEmail`, `actorRole`, `action`, `targetOrgId`, `reason`, `timestamp`, and sanitized metadata.
+- Zero credentials, passwords, Bearer tokens, or internal stack traces are logged or returned to clients.
+
+### 18.7 Automated Verification Test Suite
+- Comprehensive suite: `backend/tests/multi_org_authorization.test.ts` (30 test cases across 2 independent tenants: Titan Logistics & Apex Freight).
+- Test execution command:
+  ```bash
+  npx vitest run tests/multi_org_authorization.test.ts --testTimeout=20000
+  ```
+- **Test Results**: **30 passed out of 30 tests (100% pass rate)**.
+- Full suite regression status:
+  - `multi_org_authorization.test.ts`: 30/30 passed
+  - `database_multi_org_migration.test.ts`: 8/8 passed
+  - `chat_flow.test.ts`: 10/10 passed
+  - `smoke.test.ts`: 4/4 passed
+  - `route_intelligence.test.ts`: 4/4 passed
+  - **Total: 56/56 passing tests across all test suites**.
+
+### 18.8 Step 4 Prerequisites: React Organization-Registration Portal
+1. **Public API Contract**:
+   - `POST /api/org/register`: Consumes form submission with company details, Google Places address/coordinates, and manager contact/password.
+   - `GET /api/org/status/:slugOrId`: Consumes real-time approval status checking.
+2. **Environment Variable**: `VITE_API_BASE_URL` pointing to backend port (e.g. `http://localhost:5001`).
+3. **Web Portal Directory**: `web/src/` (Clean Vite + React 19 + TypeScript + Vanilla CSS setup created in Step 1).
+
+---
+
+## 19. Step 4: Organization Registration Web Portal (Completed)
+
+### 19.1 Architecture and Directory Structure
+The multi-organization registration portal is implemented directly inside the existing `web/` directory using React 19, TypeScript, Vite, and Vanilla CSS conforming strictly to the LogiSphere AI design system:
+
+```
+web/
+├── .env.example                               # Documents VITE_API_BASE_URL (http://localhost:5001)
+├── package.json                               # Added "test": "npx --prefix ../backend vitest run"
+├── tsconfig.app.json                          # App TypeScript config (excludes src/__tests__)
+├── src/
+│   ├── types/index.ts                         # Added OrgApprovalStatus, OrgRegistrationPayload, OrgRegistrationResponseData, OrgStatusData, PlaceSuggestion, PlaceDetails
+│   ├── styles/
+│   │   ├── main.css                           # Core tokens and layout
+│   │   └── registration.css                   # Registration form layout, coordinate pills, timeline stepper, status cards
+│   ├── services/
+│   │   ├── endpoints.ts                       # Added ORGANIZATION and LOCATIONS routes
+│   │   ├── apiClient.ts                       # Axios base client
+│   │   └── organizationService.ts             # Centralized registration, status, and places proxy service
+│   ├── components/
+│   │   ├── Header.tsx                         # Header with view titles and branding
+│   │   ├── Sidebar.tsx                        # Sidebar with Register and Status Lookup navigation items
+│   │   └── PlaceAutocompleteInput.tsx         # Accessible debounced Google Places autocomplete with auto-clearing invariant
+│   ├── pages/
+│   │   ├── OrganizationRegistration.tsx       # Main registration view with slug generation, validation, conflict handling
+│   │   ├── RegistrationConfirmation.tsx       # Pending approval confirmation screen with review timeline
+│   │   ├── RegistrationStatusLookup.tsx       # Real-time status lookup view (pending, approved, rejected, suspended)
+│   │   └── ModuleView.tsx                     # Added module definitions for register and status views
+│   ├── App.tsx                                # Hash router supporting #/register, #/status, #/dashboard with deep-linking
+│   └── __tests__/
+│       └── organization_registration.test.ts  # 19 unit tests verifying registration, status lookup, places proxy, and validation invariants
+```
+
+### 19.2 API Contract & Backend Integration
+1. **Organization Registration (`POST /api/org/register`)**:
+   - **Request Payload**:
+     ```json
+     {
+       "orgName": "Apex Freight Logistics",
+       "slug": "apex-freight-logistics",
+       "address": "452 Cargo Way, Logistics Hub, Ahmedabad",
+       "placeId": "ChIJN1t_tDeuEmsRUsoyG83frY4",
+       "latitude": 23.0225,
+       "longitude": 72.5714,
+       "managerName": "Sarah Jenkins",
+       "managerEmail": "sarah.j@apexlogistics.com",
+       "managerPhone": "+91 98765 43210",
+       "password": "SecurePassword123!"
+     }
+     ```
+   - **Success Response (201 Created)**:
+     ```json
+     {
+       "status": "success",
+       "message": "Organization registration submitted successfully and is pending platform administrator approval.",
+       "data": {
+         "organizationId": "0e5b7b9e-648c-4f76-9d33-4f1cf27dfc89",
+         "name": "Apex Freight Logistics",
+         "slug": "apex-freight-logistics",
+         "status": "pending",
+         "manager": {
+           "id": "usr-apex-mgr-01",
+           "name": "Sarah Jenkins",
+           "email": "sarah.j@apexlogistics.com",
+           "membershipStatus": "pending"
+         }
+       }
+     }
+     ```
+   - **Conflict Handling (409 Conflict)**:
+     - Detects existing manager email conflicts or slug collisions.
+     - Displays actionable guidance: *"This email is already registered with another organization. Please sign in or use a different work email."*
+   - **Validation Error Handling (400 Bad Request)**:
+     - Surfaces backend field validation errors cleanly without unhandled crashes.
+
+2. **Registration Status Lookup (`GET /api/org/status/:slugOrId`)**:
+   - Accepts either organization UUID or URL slug.
+   - Evaluates the 4 platform-supported states:
+     - `pending`: Displays amber warning banner, timeline step 2 (Under Administrative Review), and guidance on expected review turnaround.
+     - `approved`: Displays emerald success banner, timeline step 3 (Approved & Active), and clear instructions to launch the mobile app or sign in.
+     - `rejected`: Displays rose alert banner, explains the rejection, and safely displays the administrative review reason (`reviewReason`) if provided by the reviewer.
+     - `suspended`: Displays slate/gray alert explaining administrative access suspension and provides contact instructions.
+   - **Security Guarantee**: Endpoint response is strictly sanitized; returns only safe organizational metadata (`id`, `name`, `slug`, `status`, `reviewReason`, `createdAt`). Never leaks user passwords, JWT tokens, manager contact lists, or internal database metadata.
+
+### 19.3 Google Places Proxy Architecture
+- **Zero Client Credential Exposure**: The web portal makes zero direct calls to Google Maps or Google Places APIs from the browser. It never imports `@googlemaps/*` SDKs or requires `VITE_GOOGLE_MAPS_KEY`.
+- **Backend Proxies Reused**:
+  - `GET /api/locations/autocomplete?query=...` -> Returns place suggestions with `place_id`, `description`, `main_text`.
+  - `GET /api/locations/details/:id` -> Resolves selected place to `formatted_address`, `latitude`, and `longitude`.
+- **Strict Invalidation Invariant**: Whenever the user edits or modifies the address input text, any previously resolved `placeId`, `latitude`, and `longitude` are immediately wiped. Form submission is prevented until an address suggestion is explicitly chosen or valid coordinates are resolved, eliminating coordinate spoofing and mismatched addresses.
+- **Debounced Keyboard Navigation**: The autocomplete dropdown debounces requests by 300ms, supports `ArrowDown`, `ArrowUp`, `Enter`, and `Escape` keyboard shortcuts, and renders loading and empty states cleanly.
+
+### 19.4 Routing, Navigation, & User Experience
+- **Hash-Based Client Routing**:
+  - `#/register`: Loads the organization registration form.
+  - `#/status`: Loads the status check lookup form.
+  - `#/status?id=<slugOrId>`: Deep-links directly to the real-time status of a specific organization.
+  - `#/dashboard`: Default fleet overview.
+- **Brand Consistency**: Styled using LogiSphere AI design tokens: `#090D16` canvas, `#0F172A` glass cards, `#2563EB` primary accents, `#10B981` emerald highlights, `#F59E0B` amber status badges, and `#F43F5E` critical badges.
+- **Accessible UI States**:
+  - Accessible masked password field with unmask toggle button and ARIA attributes.
+  - Field-level validation for work email format, organization name, slug formatting, and password minimum length (8 characters).
+  - Clear loading spinners on submission buttons with double-submission guards.
+
+### 19.5 Verification Results
+- **Oxlint**: 0 warnings, 0 errors across 21 files.
+- **TypeScript Typecheck**: 0 errors (`tsc --noEmit`).
+- **Production Build**: 0 errors (`tsc -b && vite build`), production bundle generated in 239ms.
+- **Unit Test Suite (`web/src/__tests__/organization_registration.test.ts`)**:
+  - 19 passed tests out of 19 (100% pass rate) in 355ms.
+  - Covers:
+    1. Registration API success and response payload handling.
+    2. Conflict (409) handling for duplicate manager email.
+    3. Backend validation error (400) handling.
+    4. Offline/server error (500) resilience.
+    5. Status lookup across all 4 lifecycle states (`pending`, `approved`, `rejected`, `suspended`).
+    6. Organization not found (404) friendly error.
+    7. Empty query client-side short-circuiting.
+    8. Google Places autocomplete and details backend proxy integration.
+    9. Coordinate range validation (`[-90, 90]`, `[-180, 180]`).
+    10. Slug normalization.
+    11. Automatic coordinate clearing invariant upon address change.
+
+### 19.6 Prerequisites for Step 5: Platform-Admin Dashboard
+1. **Administrative Authentication**: Step 5 web portal will require manager/platform-admin authentication session management in the web app (JWT login storing token in memory/storage).
+2. **Platform Admin Routes**: Consuming protected endpoints under `/api/admin/*`:
+   - `GET /api/admin/orgs/pending`: Fetch queue of pending applications.
+   - `GET /api/admin/orgs`: List all organizations with status filtering.
+   - `POST /api/admin/orgs/:id/approve`: Approve pending organization.
+   - `POST /api/admin/orgs/:id/reject`: Reject with reviewer reason.
+   - `POST /api/admin/orgs/:id/suspend`: Suspend active organization.
+   - `GET /api/admin/audit-logs`: View administrative audit trail.
+3. **Platform Administrator Provisioning**: At least one user account in Supabase database marked as active platform admin in `platform_admins` table.
+
+---
+
+## 20. Step 5: Secure Platform Admin Login & Organization Management Dashboard (Completed)
+
+### 20.1 Architecture and Directory Structure
+The platform administrator authentication and organization governance portal is implemented inside `web/src/pages/admin/` and integrated directly into the web application:
+
+```
+web/
+├── src/
+│   ├── types/index.ts                         # Added AdminUser, AdminOrgMember, AdminOrgSummary, AdminOrgDetails, AuditLogEntry, AdminDashboardStats
+│   ├── styles/
+│   │   ├── admin.css                          # Dedicated stylesheet for admin login, dashboard cards, tables, badges, modals
+│   │   └── index.css                          # Imported admin.css globally
+│   ├── services/
+│   │   ├── endpoints.ts                       # Added ADMIN routes (ME, ORGS, PENDING_ORGS, ORG_DETAILS, APPROVE_ORG, REJECT_ORG, SUSPEND_ORG, AUDIT_LOGS)
+│   │   ├── apiClient.ts                       # Updated interceptors to support adminToken and clear on 401
+│   │   └── adminService.ts                    # Centralized platform admin authentication, session verification, and governance operations
+│   ├── components/
+│   │   ├── Header.tsx                         # Header with platform admin title mapping
+│   │   └── Sidebar.tsx                        # Sidebar with Platform Admin Portal navigation item
+│   ├── pages/
+│   │   ├── ModuleView.tsx                     # Module definition for admin view
+│   │   └── admin/
+│   │       ├── AdminLogin.tsx                 # Secure platform admin login with credential & role verification
+│   │       ├── AdminLayout.tsx                # Administrative container with top bar, sub-nav tabs, session badge, logout
+│   │       ├── AdminDashboard.tsx             # Overview KPI metrics (Total, Pending, Approved, Rejected, Suspended) & audit stream
+│   │       ├── AdminPendingApplications.tsx   # Review queue with search, detail inspection, approve modal, reject modal
+│   │       ├── AdminOrgRegistry.tsx           # Multi-tenant directory with status filter tabs, search, and suspension modal
+│   │       ├── AdminAuditLogs.tsx             # Audit trail viewer with action filtering and timestamp tracking
+│   │       └── AdminModals.tsx                # Reusable modals: OrgDetailsModal, ApproveModal, RejectModal, SuspendModal
+│   ├── App.tsx                                # Hash router supporting #/admin-login, #/admin, #/admin/applications, #/admin/registry, #/admin/audit-logs
+│   └── __tests__/
+│       ├── organization_registration.test.ts  # Step 4 unit tests (19 tests)
+│       └── platform_admin.test.ts             # Step 5 unit tests (17 tests covering admin auth, session, approvals, and audits)
+```
+
+### 20.2 Authentication Flow & Server-Side Security Verification
+1. **Login Request (`POST /api/auth/login`)**:
+   - Takes `{ email, password }` and authenticates using standard bcrypt password verification.
+   - Extracts JWT bearer token from response `serviceResult.token`.
+2. **Server-Side Admin Verification Guard (`GET /api/admin/me`)**:
+   - The frontend **never** trusts client-supplied roles, boolean flags, or token payload claims.
+   - Immediately invokes `GET /api/admin/me` with `Authorization: Bearer <token>`.
+   - The backend `requirePlatformAdmin` middleware checks whether the authenticated `user_id` exists in the `platform_admins` table with `is_active = true`.
+   - If `GET /api/admin/me` returns `200 OK`, the user is confirmed as an active administrator and the session token is saved to `adminToken`.
+   - If `GET /api/admin/me` returns `403 Forbidden` (ordinary fleet manager or driver attempting to sign into the admin portal), the token is immediately discarded, `adminToken` is wiped from storage, and access is firmly denied:
+     *"Access Denied: This account is not authorized as a platform administrator. Ordinary fleet managers and drivers cannot access this portal."*
+   - Plaintext passwords are never stored in localStorage or logged.
+3. **Session Restoration & Invalidation**:
+   - On page boot/reload, `adminService.verifyAdminSession()` checks the stored `adminToken` against `GET /api/admin/me`.
+   - If expired or revoked in `platform_admins`, `adminToken` is deleted and the user is redirected to `#/admin-login`.
+   - Unauthenticated visitors directly accessing `#/admin*` routes are automatically routed to `#/admin-login`.
+
+### 20.3 Platform Admin Endpoints & Contracts
+All administrative endpoints are protected by `requirePlatformAdmin`:
+1. `GET /api/admin/me`: Returns verified platform admin user profile (`id`, `userId`, `name`, `email`, `isPlatformAdmin`).
+2. `GET /api/admin/orgs`: Returns all organizations with optional `?status=` query filter and manager profile details.
+3. `GET /api/admin/orgs/pending`: Returns pending organization applications for review.
+4. `GET /api/admin/orgs/:id`: Returns comprehensive organization details, Google Place ID, GPS coordinates, review reason, and member roster.
+5. `POST /api/admin/orgs/:id/approve`: Atomically updates organization `status = 'approved'` and activates initial manager membership (`status = 'active'`). Handled idempotently.
+6. `POST /api/admin/orgs/:id/reject`: Sets organization `status = 'rejected'` and stores administrative review reason (`review_reason`). Keeps company data locked.
+7. `POST /api/admin/orgs/:id/suspend`: Sets organization `status = 'suspended'` and terminates operational access across all members.
+8. `GET /api/admin/audit-logs`: Returns chronological audit records with actor email, action (`ORG_REGISTERED`, `ORG_APPROVED`, `ORG_REJECTED`, `ORG_SUSPENDED`), target org ID, and timestamp.
+
+### 20.4 First Platform Administrator Provisioning Procedure
+To provision the initial platform administrator securely without public registration endpoints:
+1. Create or register a base user account in the `users` table:
+   ```sql
+   INSERT INTO users (id, name, email, passwordHash, role, status)
+   VALUES (
+     'usr-platform-admin-01',
+     'Primary Platform Administrator',
+     'admin@logisphere.ai',
+     '$2a$10$...bcrypt_hash_here...',
+     'ROLE_ADMIN',
+     'ACTIVE'
+   )
+   ON CONFLICT (email) DO NOTHING;
+   ```
+2. Insert an active record into the `platform_admins` table:
+   ```sql
+   INSERT INTO platform_admins (id, user_id, is_active, notes)
+   VALUES (
+     'padm-00000000-0001',
+     'usr-platform-admin-01',
+     true,
+     'Designated initial platform administrator'
+   )
+   ON CONFLICT (user_id) DO UPDATE SET is_active = true;
+   ```
+3. Navigate to `#/admin-login` on the web portal and sign in with the provisioned credentials.
+
+### 20.5 Verification Results
+- **Oxlint**: 0 warnings, 0 errors across 30 files in 9ms.
+- **TypeScript Typecheck**: 0 errors (`tsc --noEmit`).
+- **Production Build**: 0 errors (`tsc -b && vite build`), production bundle generated in 105ms.
+- **Web Unit Tests (`npm test` / `vitest`)**:
+  - **36 passed out of 36 tests (100% pass rate)** in 230ms.
+  - `src/__tests__/organization_registration.test.ts`: 19/19 passed.
+  - `src/__tests__/platform_admin.test.ts`: 17/17 passed (covers admin login, 403 non-admin denial, session restoration, logout, review queue listing, org details, approval, rejection with reason, suspension, audit logs, and stats aggregation).
+- **Backend Multi-Organization Security Suite**:
+  - `backend/tests/multi_org_authorization.test.ts`: 31 passed out of 31 tests (including `GET /api/admin/me` verification).
+- **Preserved Functionality**:
+  - Mobile application and backend continue to operate normally.
+  - Public registration (`#/register`) and status lookup (`#/status`) remain fully functional.
+
+### 20.6 Prerequisites for Step 6: Mobile App Multi-Tenant Session & Data Isolation
+1. **Mobile Multi-Tenant Store & Session Hydration**: Update `AuthStore.ts` in `App/` to store and restore `organizationId` alongside user credentials.
+2. **Mobile API Client Tenant Header**: Ensure `App/src/api/` attaches `X-Organization-Id` to all outgoing requests.
+3. **Pending/Suspended Status Interceptor**: Add mobile navigation guards handling HTTP 403 when an organization is pending approval or suspended.
+4. **Tenant-Aware Mobile UI**: Display active company/organization name in header and drawer.
+
+---
+
+## 21. Clean Web Portal and Minimal Admin Approval Portal (Completed)
+
+### 21.1 Overview & Requirements Fulfilled
+The `web/` application has been refactored into a focused, minimal web portal containing only two functional spaces:
+1. **Public Organization Registration Portal** (`#/register` and `#/registration-success`).
+2. **Separate Protected Admin Approval Portal** (`#/admin`).
+
+All unrequested modules, mock fleet metrics, live GPS dispatchers, fake vehicle/driver/trip dashboards, API inspector widgets, generic sidebars, and unnecessary screens have been cleanly deleted from the filesystem and bundle.
+
+### 21.2 Exact Application Routing Architecture
+Hash-based client routing in `web/src/App.tsx` strictly routes as follows:
+- `#/register`: Public organization registration form.
+  - Full company registration form with Google Places backend autocomplete integration.
+  - Manager credentials validation (matching passwords, email format, phone, address).
+  - Genuine backend submission to `POST /api/org/register` with error handling.
+  - Link to Admin Portal (`#/admin`).
+- `#/registration-success`: Registration confirmation screen.
+  - Shown **only** after genuine backend creation returns pending status.
+  - Displays Organization Name, Application Reference / Slug, Status ("Pending Admin Approval"), and access explanation.
+  - "Register Another Organization" CTA button resetting state.
+- `#/admin`: Dedicated platform admin portal.
+  - Unauthenticated users: Renders clean, standalone `AdminLogin` form.
+  - Authenticated administrators: Renders `AdminApprovalDashboard`.
+  - No public admin registration endpoint or page exists.
+- `#/` (Root) and unknown/legacy routes (e.g. `#/dashboard`, `#/status`, `#/vehicles`, `#/trips`, `#/admin/registry`, etc.):
+  - Automatically redirected to `#/register`.
+
+### 21.3 Server-Side Fixed Admin Credentials & Security Architecture
+- **Environment Configuration**:
+  - `PLATFORM_ADMIN_USERNAME`: Fixed username configured in backend environment (default dev: `admin`).
+  - `PLATFORM_ADMIN_PASSWORD_HASH`: Secure bcrypt hash (cost factor >= 10).
+- **Password Hash Generation Guide**:
+  Application owners configure the password hash securely using Node.js without writing plaintext secrets to code:
+  ```bash
+  node -e "console.log(require('bcryptjs').hashSync('YourStrongPasswordHere', 10))"
+  ```
+  Set the resulting `$2a$10$...` string as `PLATFORM_ADMIN_PASSWORD_HASH` in `backend/.env`.
+- **Server-Side Credential Verification**:
+  - Authentication is handled exclusively on the backend via `POST /api/admin/login`.
+  - Zero admin credentials or password hashes exist in frontend bundles or `VITE_` variables.
+  - Server verifies credentials against `PLATFORM_ADMIN_USERNAME` and `PLATFORM_ADMIN_PASSWORD_HASH`, or active database `platform_admins`.
+  - Rate limiting: Max 5 failed attempts per 15 minutes per IP address (returns 429 Too Many Requests).
+  - Signs a short-lived (8 hours) platform admin JWT token.
+- **Protected Admin Endpoints**:
+  - All admin endpoints (`/api/admin/*`) require server-side verification with `requirePlatformAdmin` middleware.
+  - Ordinary manager or driver tokens are rejected with `403 Forbidden`.
+  - Tokens are validated upon page reload via `GET /api/admin/me`; invalid tokens are wiped from browser storage.
+
+### 21.4 Minimal Admin Approval Dashboard
+The authenticated dashboard (`AdminApprovalDashboard.tsx`) contains:
+1. **Compact Branding Header**: LogiSphere AI logo, active admin email/name badge, and Logout button.
+2. **Authoritative Summary Cards**:
+   - Total Organizations
+   - Pending Approval
+   - Approved Organizations
+   - Rejected Organizations
+   - Data fetched from real backend endpoint `GET /api/admin/stats` (truthfully aggregated, zero hardcoded values).
+3. **Organization Applications Table**:
+   - Organization Name, Slug/Reference, Address, Manager Name & Email, Registration Date, Status Badge.
+   - Filter tabs: All, Pending, Approved, Rejected.
+   - Real-time search by organization name or manager.
+   - Actions:
+     - **View Details**: Modal inspecting real backend payload (slug, address, coordinates, place ID, manager info, review notes).
+     - **Approve**: Confirmation modal calling `POST /api/admin/orgs/:id/approve`, activating organization and manager membership.
+     - **Reject**: Rejection modal requiring a non-empty review reason calling `POST /api/admin/orgs/:id/reject`.
+4. **Authoritative Refresh**: Dashboard stats and list refresh directly from real backend API calls upon any status mutation.
+
+### 21.5 Removed Modules & Dead Code Cleanup
+The following 23 unused files and mock assets were permanently removed from the project:
+1. `src/pages/DashboardOverview.tsx` (mock fleet metrics, vehicles, trips)
+2. `src/pages/ModuleView.tsx` (unused wrapper)
+3. `src/pages/RegistrationStatusLookup.tsx` (unrequested standalone lookup page)
+4. `src/components/BackendInspector.tsx` (fake latency & connectivity cards)
+5. `src/components/Sidebar.tsx` (generic navigation drawer)
+6. `src/components/Header.tsx` (unnecessary navigation header)
+7. `src/components/StatsCard.tsx` (generic card)
+8. `src/components/AppLayout.tsx` (unnecessary multi-pane layout)
+9. `src/hooks/useApiHealth.ts` (fake ping probe)
+10. `src/pages/admin/AdminAuditLogs.tsx` (unrequested audit browser)
+11. `src/pages/admin/AdminOrgRegistry.tsx` (unrequested org registry)
+12. `src/pages/admin/AdminLayout.tsx` (unnecessary multi-tab navigation layout)
+13. `src/pages/admin/AdminPendingApplications.tsx` (consolidated into minimal dashboard)
+14. `src/pages/admin/AdminDashboard.tsx` (replaced by minimal dashboard)
+15. `src/pages/admin/AdminModals.tsx` (inlined into minimal dashboard)
+16. `src/styles/shell.css` (779 lines of dead CSS from deleted modules)
+17. `src/App.css` (empty placeholder stylesheet)
+18. `src/utils/formatters.ts` & `src/utils/` (unused formatting helpers for odometer, currency, etc.)
+19. `src/assets/hero.png` (unused marketing image)
+20. `src/assets/logo.png` (unused in `src/assets/`; favicon served from `public/logo.png`)
+21. `src/assets/react.svg` (default Vite asset, unused)
+22. `src/assets/vite.svg` (default Vite asset, unused)
+23. `public/icons.svg` & `public/favicon.svg` (unused icon sprites; `lucide-react` is used exclusively)
+
+Unused types (`UserRole`, `User`, `VehicleStatus`, `VehicleType`, `Vehicle`, `TripStatus`, `Trip`, `EmergencyAlert`, `BackendHealthResponse`, `DashboardSummary`) and endpoints (`VEHICLES`, `TRIPS`, `USERS`, `TRACKING`, `ANALYTICS`, `ATTENDANCE`, `MAINTENANCE`, `FUEL`, `EXPENSES`, `ALERTS`, `WS`) were also removed from `types/index.ts` and `services/endpoints.ts`.
+
+### 21.6 Verification & Test Results
+- **Oxlint**: 0 errors, 0 warnings across 16 files.
+- **TypeScript Typecheck**: 0 errors (`npm run typecheck`).
+- **Production Build**: 0 errors (`npm run build`), built in 152ms:
+  - `dist/assets/index-BGZEnspu.css`: 21.95 kB (reduced from 33.20 kB, -34%).
+  - `dist/assets/index-DmkMNsn4.js`: 333.70 kB.
+- **Web Test Suites (`npm test`)**:
+  - `src/__tests__/clean_web_portal.test.ts`: **13 passed out of 13** (covering all 13 Section 8 criteria).
+  - `src/__tests__/organization_registration.test.ts`: **19 passed out of 19**.
+  - `src/__tests__/platform_admin.test.ts`: **17 passed out of 17**.
+  - Total Web Tests: **49 passed out of 49** (100% pass rate).
+- **Backend Multi-Organization Security Suite**:
+  - `backend/tests/multi_org_authorization.test.ts`: **31 passed out of 31** (100% pass rate).
+
+

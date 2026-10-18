@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { env } from '../../config/env';
 import { db } from '../../config/database';
 import { distanceMeters } from '../../utils/distance';
-import { optionalAuth } from '../../middleware/auth';
+import { optionalAuth, getTrustedOrgId } from '../../middleware/auth';
 import { fail, ok } from '../../utils/http';
 import {
   BUSINESS_TIMEZONE,
@@ -50,7 +50,7 @@ function normalizeRecord(row: any) {
 export function parseTimeToMinutes(timeStr: string): number | null {
   if (!timeStr) return null;
   const trimmed = timeStr.trim().toUpperCase();
-  const match12 = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/);
+  const match12 = trimmed.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/);
   if (match12) {
     let hours = parseInt(match12[1], 10);
     const minutes = parseInt(match12[2], 10);
@@ -221,12 +221,14 @@ attendanceRouter.post('/clock-in', optionalAuth, async (req, res) => {
     }
 
     // 4. Create Attendance Record
+    const orgId = getTrustedOrgId(req);
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-IN');
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     const newRecordData = {
       id: db.makeId('att-'),
+      organization_id: orgId,
       userId,
       date: dateStr,
       clockInTime: timeStr,
@@ -396,8 +398,11 @@ async function buildGroupedAttendanceReport(
   // 1. Run reconciliation to ensure any open sessions past 11:59 PM are cleanly closed
   await runAutoClockOutReconciliation();
 
+  const orgId = getTrustedOrgId(req);
+  const orgFilter = orgId ? { organization_id: orgId } : undefined;
+
   // 2. Load users to get accurate names, emails, roles
-  const allUsers = await db.list('users');
+  const allUsers = await db.list('users', orgFilter);
   const userMap = new Map<string, any>();
   allUsers.forEach((u: any) => {
     const id = u.id || u.userID || u.driverID;
@@ -405,7 +410,7 @@ async function buildGroupedAttendanceReport(
   });
 
   // 3. Load attendance records
-  const allRecords = (await db.list('attendance_records'))
+  const allRecords = (await db.list('attendance_records', orgFilter))
     .map(normalizeRecord)
     .filter((r): r is NonNullable<ReturnType<typeof normalizeRecord>> => Boolean(r));
 

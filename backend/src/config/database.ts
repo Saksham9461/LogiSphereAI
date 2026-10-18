@@ -16,7 +16,10 @@ type Table =
   | 'conversations'
   | 'conversation_participants'
   | 'messages'
-  | 'emergency_alerts';
+  | 'emergency_alerts'
+  | 'organizations'
+  | 'organization_memberships'
+  | 'platform_admins';
 
 const now = () => new Date().toISOString();
 
@@ -35,7 +38,12 @@ const memory: Record<Table, any[]> = {
   conversation_participants: [],
   messages: [],
   emergency_alerts: [],
+  organizations: [],
+  organization_memberships: [],
+  platform_admins: [],
 };
+
+const knownMissingColumns = new Set<string>();
 
 const withTimeout = <T>(promise: PromiseLike<T>, ms = 3000): Promise<T> => {
   return Promise.race([
@@ -50,6 +58,17 @@ function getRowKey(table: Table, row: any): string {
     const cId = row.conversation_id || row.conversationid || row.conversationId || '';
     const uId = row.user_id || row.userid || row.userId || '';
     return `${cId}:::${uId}`;
+  }
+  if (table === 'organization_memberships') {
+    const oId = row.organization_id || row.organizationid || '';
+    const uId = row.user_id || row.userid || '';
+    return row.id ? String(row.id) : `${oId}:::${uId}`;
+  }
+  if (table === 'platform_admins') {
+    return String(row.id || row.user_id || row.userid || '');
+  }
+  if (table === 'organizations') {
+    return String(row.id || row.slug || '');
   }
   if (table === 'trips') {
     return String(row.tripid || row.tripID || row.id || '');
@@ -74,14 +93,21 @@ function getRowKey(table: Table, row: any): string {
 
 export const db = {
   async list(table: Table, filter?: Record<string, any>) {
+    const defaultOrgId = '00000000-0000-0000-0000-000000000001';
     const entries = Object.entries(filter ?? {});
     const norm = (s: string) => s.replace(/_/g, '').toLowerCase();
     const getMemoryRows = () => memory[table].filter(row =>
       entries.every(([k, v]) => {
         const targetNormKey = norm(k);
         const matchPropKey = Object.keys(row).find(rk => norm(rk) === targetNormKey);
-        if (!matchPropKey) return false;
+        if (!matchPropKey) {
+          if (targetNormKey === 'organizationid' && v === defaultOrgId) return true;
+          return false;
+        }
         const val = row[matchPropKey];
+        if (targetNormKey === 'organizationid' && v === defaultOrgId) {
+          return !val || val === defaultOrgId || String(val) === String(v);
+        }
         return val === v || String(val) === String(v);
       })
     );
@@ -89,20 +115,43 @@ export const db = {
     if (supabase) {
       try {
         let q = supabase.from(table).select('*');
+        let hasOrgFilter = false;
         for (const [k, v] of Object.entries(filter ?? {})) {
-          q = q.eq(k, v);
+          if ((k === 'organization_id' || k === 'organizationId') && v === defaultOrgId) {
+            hasOrgFilter = true;
+            q = q.or(`organization_id.eq.${defaultOrgId},organization_id.is.null`);
+          } else {
+            q = q.eq(k, v);
+          }
         }
-        const { data, error } = await withTimeout(q);
+        let { data, error } = await withTimeout(q);
+        if (error && hasOrgFilter && (error.code === 'PGRST204' || error.message?.includes('organization_id') || error.code === '42703')) {
+          let retryQ = supabase.from(table).select('*');
+          for (const [k, v] of Object.entries(filter ?? {})) {
+            if (k !== 'organization_id' && k !== 'organizationId') {
+              retryQ = retryQ.eq(k, v);
+            }
+          }
+          const retryRes = await withTimeout(retryQ);
+          data = retryRes.data;
+          error = retryRes.error;
+        }
+
         let supaData = !error && data ? data : [];
         if (supaData.length === 0) {
           let qLower = supabase.from(table).select('*');
           for (const [k, v] of Object.entries(filter ?? {})) {
-            qLower = qLower.eq(k.toLowerCase(), v);
+            if ((k === 'organization_id' || k === 'organizationId') && v === defaultOrgId) {
+              qLower = qLower.or(`organization_id.eq.${defaultOrgId},organization_id.is.null`);
+            } else {
+              qLower = qLower.eq(k.toLowerCase(), v);
+            }
           }
           const resLower = await withTimeout(qLower);
           if (!resLower.error && resLower.data) supaData = resLower.data;
         }
 
+        const isGlobalTable = table === 'organizations' || table === 'platform_admins';
         const memRows = getMemoryRows();
         const seen = new Set<string>();
         const combined: any[] = [];
@@ -111,20 +160,22 @@ export const db = {
           const key = getRowKey(table, row);
           const memMatch = memRows.find(m => getRowKey(table, m) === key);
           const merged = memMatch ? { ...memMatch, ...row } : row;
+          const finalRow = !isGlobalTable && !merged.organization_id ? { ...merged, organization_id: defaultOrgId } : merged;
           if (key) {
             if (seen.has(key)) continue;
             seen.add(key);
           }
-          combined.push(merged);
+          combined.push(finalRow);
         }
 
         for (const row of memRows) {
           const key = getRowKey(table, row);
+          const finalRow = !isGlobalTable && !row.organization_id ? { ...row, organization_id: defaultOrgId } : row;
           if (key) {
             if (seen.has(key)) continue;
             seen.add(key);
           }
-          combined.push(row);
+          combined.push(finalRow);
         }
 
         if (combined.length > 0) return combined;
@@ -132,7 +183,8 @@ export const db = {
         console.error(`[db.list] Error querying Supabase for table ${table}:`, err);
       }
     }
-    return getMemoryRows();
+    const isGlobalTable = table === 'organizations' || table === 'platform_admins';
+    return getMemoryRows().map(row => (!isGlobalTable && !row.organization_id ? { ...row, organization_id: defaultOrgId } : row));
   },
 
   async find(table: Table, filter: Record<string, any>) {
@@ -161,17 +213,46 @@ export const db = {
   },
 
   async insert(table: Table, data: any) {
-    const row = { ...data, createdAt: data.createdAt ?? now(), updatedAt: data.updatedAt ?? now() };
+    const isGlobalTable = table === 'organizations' || table === 'platform_admins';
+    const defaultOrgId = '00000000-0000-0000-0000-000000000001';
+    const orgId = data.organization_id || data.organizationId || data.businessId || data.business_id || (isGlobalTable ? undefined : defaultOrgId);
+
+    const row = {
+      ...data,
+      ...(orgId ? { organization_id: orgId } : {}),
+      createdAt: data.createdAt ?? now(),
+      updatedAt: data.updatedAt ?? now(),
+    };
+
+    if (table === 'emergency_alerts') {
+      const cId = data.client_request_id || data.clientRequestId;
+      if (cId) {
+        const existing = memory.emergency_alerts.find(a =>
+          (a.client_request_id === cId || a.clientRequestId === cId)
+        );
+        if (existing) {
+          const dupErr: any = new Error(`Emergency alert with clientRequestId '${cId}' already exists`);
+          dupErr.code = '23505';
+          throw dupErr;
+        }
+        memory.emergency_alerts.unshift(row);
+      }
+    }
+
     if (supabase) {
       try {
-        let insertPayload: Record<string, any> = { ...data };
+        let insertPayload: Record<string, any> = {
+          ...data,
+          ...(orgId ? { organization_id: orgId } : {}),
+        };
         if (table === 'notifications') {
           insertPayload = {
             id: data.id || `notif-${Date.now()}`,
-            userid: data.userId || data.userid || data.id,
+            userid: data.userId || data.userid || null,
             title: data.title || 'Notification',
             body: data.body || data.message || '',
             read: Boolean(data.read),
+            ...(orgId ? { organization_id: orgId } : {}),
           };
         } else if (table === 'maintenance_records') {
           insertPayload = {
@@ -216,18 +297,19 @@ export const db = {
             name: data.name,
             email: data.email,
             phoneNo: data.phoneNo || data.phoneno,
-            passwordHash: data.passwordHash || data.passwordhash,
+            passwordHash: data.passwordHash || data.passwordhash || '$2a$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW',
             role: data.role,
             licenseNo: data.licenseNo || data.licenseno || null,
             licenseExpiryDate: data.licenseExpiryDate || data.licenseexpirydate || null,
             trips: Number(data.trips ?? 0),
             safetyScore: Number(data.safetyScore ?? data.safetyscore ?? 95),
             status: data.status || 'ACTIVE',
+            ...(orgId ? { organization_id: orgId } : {}),
           };
         } else if (table === 'attendance_records') {
           insertPayload = {
             id: data.id || `att-${Date.now()}`,
-            userid: data.userId || data.userid || data.id,
+            userid: data.userId || data.userid || null,
             date: data.date || new Date().toLocaleDateString('en-IN'),
             clockintime: data.clockInTime || data.clockintime,
             clockouttime: data.clockOutTime || data.clockouttime || null,
@@ -323,6 +405,12 @@ export const db = {
           };
         }
 
+        for (const col of Object.keys(insertPayload)) {
+          if (knownMissingColumns.has(`${table}.${col}`)) {
+            delete (insertPayload as any)[col];
+          }
+        }
+
         console.log(`\n--------------------------------------------------`);
         console.log(`[DB Insert] Table: "${table}"`);
         console.log(`[DB Insert] Supabase Insert Payload:`, JSON.stringify(insertPayload, null, 2));
@@ -333,7 +421,8 @@ export const db = {
         while (error && (error.code === 'PGRST204' || error.message?.includes('schema cache'))) {
           const match = error.message.match(/Could not find the '([^']+)' column/i);
           if (match && match[1] && (insertPayload as any)[match[1]] !== undefined) {
-            console.warn(`[DB Insert] Column '${match[1]}' not found in Supabase '${table}' schema cache. Retrying without it.`);
+            knownMissingColumns.add(`${table}.${match[1]}`);
+            console.warn(`[DB Insert] Column '${match[1]}' not found in Supabase '${table}' schema cache. Cached and retrying without it.`);
             delete (insertPayload as any)[match[1]];
             const retryRes = await supabase.from(table).insert(insertPayload).select('*').single();
             created = retryRes.data;
@@ -343,11 +432,26 @@ export const db = {
           }
         }
 
+        // Handle foreign key constraint failure on organization_id if the referenced org is not in PostgreSQL
+        if (error && (error.code === '23503' || error.message?.includes('foreign key constraint')) && error.message?.includes('organization_id')) {
+          console.warn(`[DB Insert] Foreign key violation on organization_id in '${table}'. Retrying without organization_id.`);
+          delete (insertPayload as any).organization_id;
+          const retryRes = await supabase.from(table).insert(insertPayload).select('*').single();
+          created = retryRes.data;
+          error = retryRes.error;
+        }
+
         if (!error && created) {
           console.log(`[DB Insert SUCCESS] Saved to Supabase table "${table}":`, JSON.stringify(created, null, 2));
           console.log(`--------------------------------------------------\n`);
           const merged = { ...row, ...created };
-          memory[table].unshift(merged);
+          if (table === 'emergency_alerts' && (data.client_request_id || data.clientRequestId)) {
+            const idx = memory.emergency_alerts.findIndex(a => a.id === row.id);
+            if (idx >= 0) memory.emergency_alerts[idx] = merged;
+            else memory[table].unshift(merged);
+          } else {
+            memory[table].unshift(merged);
+          }
           return merged;
         }
 
@@ -415,7 +519,18 @@ export const db = {
   async update(table: Table, key: Record<string, any>, patch: any) {
     if (supabase) {
       try {
-        const timeField = (table === 'users') ? 'updatedAt' : (table === 'conversations' || table === 'messages' || table === 'conversation_participants' ? 'updated_at' : 'updatedat');
+        const timeField =
+          table === 'users'
+            ? 'updatedAt'
+            : table === 'conversations' ||
+              table === 'messages' ||
+              table === 'conversation_participants' ||
+              table === 'organizations' ||
+              table === 'organization_memberships' ||
+              table === 'platform_admins' ||
+              table === 'emergency_alerts'
+            ? 'updated_at'
+            : 'updatedat';
         let cleanPatch: Record<string, any> = { ...patch, [timeField]: now() };
         if (table === 'attendance_records') {
           cleanPatch = {};
@@ -485,7 +600,17 @@ export const db = {
         for (const [k, v] of Object.entries(key)) q = q.eq(k.toLowerCase(), v);
         let { data, error } = await q;
 
-        while (error && (error.code === 'PGRST204' || error.message?.includes('schema cache'))) {
+        while (error && (error.code === 'PGRST204' || error.message?.includes('schema cache') || error.code === '23503')) {
+          if (error.code === '23503' && cleanPatch.reviewed_by !== undefined) {
+            console.warn(`[DB Update] Column 'reviewed_by' violates foreign key in '${table}'. Retrying without it.`);
+            delete cleanPatch.reviewed_by;
+            let retryQ = supabase.from(table).update(cleanPatch).select('*');
+            for (const [k, v] of Object.entries(key)) retryQ = retryQ.eq(k.toLowerCase(), v);
+            const retryRes = await retryQ;
+            data = retryRes.data;
+            error = retryRes.error;
+            continue;
+          }
           const match = error.message.match(/Could not find the '([^']+)' column/i);
           if (match && match[1] && cleanPatch[match[1]] !== undefined) {
             console.warn(`[DB Update] Column '${match[1]}' not found in Supabase '${table}' schema cache. Retrying without it.`);
@@ -510,7 +635,15 @@ export const db = {
         for (const [k, v] of Object.entries(key)) qLower = qLower.eq(k, v);
         let resLower = await qLower;
 
-        while (resLower.error && (resLower.error.code === 'PGRST204' || resLower.error.message?.includes('schema cache'))) {
+        while (resLower.error && (resLower.error.code === 'PGRST204' || resLower.error.message?.includes('schema cache') || resLower.error.code === '23503')) {
+          if (resLower.error.code === '23503' && cleanPatch.reviewed_by !== undefined) {
+            console.warn(`[DB Update] Column 'reviewed_by' violates foreign key in '${table}'. Retrying without it.`);
+            delete cleanPatch.reviewed_by;
+            let retryQLower = supabase.from(table).update(cleanPatch).select('*');
+            for (const [k, v] of Object.entries(key)) retryQLower = retryQLower.eq(k, v);
+            resLower = await retryQLower;
+            continue;
+          }
           const match = resLower.error.message.match(/Could not find the '([^']+)' column/i);
           if (match && match[1] && cleanPatch[match[1]] !== undefined) {
             console.warn(`[DB Update] Column '${match[1]}' not found in Supabase '${table}' schema cache. Retrying without it.`);

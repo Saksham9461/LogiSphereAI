@@ -1,8 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../../config/database';
 import { env } from '../../config/env';
-import { authenticate } from '../../middleware/auth';
+import { authenticate, getTrustedOrgId } from '../../middleware/auth';
 import { ok, fail } from '../../utils/http';
+import { executeResilientAi } from './orchestrator';
+import { callGemini } from './geminiClient';
+import { aiMetrics } from './metrics';
+import { aiCache } from './cache';
+import { aiCircuitBreaker } from './circuitBreaker';
+import { singleFlight } from './singleFlight';
 
 export const aiRouter = Router();
 
@@ -107,20 +113,22 @@ aiRouter.post('/query', authenticate, async (req: Request, res: Response) => {
     const reqContext = req.body?.context || {};
     const userRole = String(req.user?.role ?? 'ROLE_DRIVER').toUpperCase();
     const userId = req.user?.userId;
+    const orgId = getTrustedOrgId(req);
+    const orgFilter = orgId ? { organization_id: orgId } : undefined;
 
     const isDriver = userRole === 'ROLE_DRIVER' || userRole === 'DRIVER';
     const isManager = ['ROLE_MANAGER', 'FLEET_MANAGER', 'ROLE_DISPATCHER', 'DISPATCHER', 'ADMIN'].includes(userRole);
 
-    // Fetch minimal fleet state concurrently
+    // Fetch minimal fleet state concurrently, strictly isolated by caller's organization
     const [vehicles, trips, drivers, fuel, maintenance, attendance, tracking, notifications] = await Promise.all([
-      db.list('vehicles'),
-      db.list('trips'),
-      db.list('users', { role: 'ROLE_DRIVER' }),
-      db.list('fuel_logs'),
-      db.list('maintenance_records'),
-      db.list('attendance_records'),
-      db.list('tracking_locations'),
-      db.list('notifications'),
+      db.list('vehicles', orgFilter),
+      db.list('trips', orgFilter),
+      db.list('users', { role: 'ROLE_DRIVER', ...(orgFilter || {}) }),
+      db.list('fuel_logs', orgFilter),
+      db.list('maintenance_records', orgFilter),
+      db.list('attendance_records', orgFilter),
+      db.list('tracking_locations', orgFilter),
+      db.list('notifications', orgFilter),
     ]);
 
     // Active trip status set
@@ -1010,20 +1018,30 @@ aiRouter.post('/query', authenticate, async (req: Request, res: Response) => {
     }
 
     // --- 3. GEMINI AI SUMMARIZATION OR SMART CONCISE FALLBACK ---
+    const activeTripsCount = trips.filter((t: any) => activeTripStatuses.includes(String(t.status || '').toUpperCase())).length;
+    const defaultFallback = {
+      success: true,
+      intent: 'FLEET_STATUS',
+      type: 'summary' as const,
+      message: `${vehicles.filter((v: any) => v.status !== 'RETIRED').length} active vehicles in fleet (${activeTripsCount} on route).`,
+      metrics: {
+        'Fleet Size': vehicles.length,
+        'On Route': activeTripsCount,
+        'Drivers': drivers.length,
+      },
+      suggestions: isDriver ? DRIVER_SUGGESTIONS : MANAGER_SUGGESTIONS,
+    };
+
     const geminiApiKey = env.GEMINI_API_KEY || env.AI_API_KEY;
     if (geminiApiKey && rawQuery.length > 5) {
-      try {
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
-        const activeCount = trips.filter((t: any) => activeTripStatuses.includes(String(t.status || '').toUpperCase())).length;
-        const availableVehiclesCount = vehicles.filter((v: any) => String(v.status || '').toUpperCase() === 'AVAILABLE').length;
-
-        const systemPrompt = `
+      const availableVehiclesCount = vehicles.filter((v: any) => String(v.status || '').toUpperCase() === 'AVAILABLE').length;
+      const systemPrompt = `
 You are LogiSphere AI, a smart Fleet Intelligence Assistant.
 User Role: ${userRole}.
 Fleet facts:
-- Total vehicles: ${vehicles.length} (${availableVehiclesCount} available, ${activeCount} on route)
+- Total vehicles: ${vehicles.length} (${availableVehiclesCount} available, ${activeTripsCount} on route)
 - Active vehicles list: ${vehicles.filter((v: any) => v.status === 'ON_TRIP').map((v: any) => v.name || v.registrationNumber).join(', ') || 'Van-01'}
-- Total trips: ${trips.length} (${activeCount} currently active)
+- Total trips: ${trips.length} (${activeTripsCount} currently active)
 - Registered drivers: ${drivers.length}
 - Maintenance records: ${maintenance.length}
 
@@ -1038,62 +1056,45 @@ Strict Rules:
 }
 `;
 
-        const geminiRes = await fetch(geminiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: systemPrompt },
-                  { text: `User query: "${rawQuery}"` },
-                ],
-              },
-            ],
-            generationConfig: {
-              responseMimeType: 'application/json',
-              temperature: 0.1,
-              maxOutputTokens: 150,
-            },
-          }),
-        });
+      const aiResponse = await executeResilientAi({
+        feature: 'AI_ASSISTANT_QUERY',
+        tenantOrUserId: isDriver ? `driver_${orgId}_${userId}` : `org_${orgId}`,
+        normalizedInput: {
+          query: query.trim(),
+          userRole,
+          isDriver,
+          orgId,
+        },
+        executeGemini: async () => {
+          const geminiRes = await callGemini<any>({
+            systemPrompt,
+            userPrompt: `User query: "${rawQuery}"`,
+            responseMimeType: 'application/json',
+            temperature: 0.1,
+            maxOutputTokens: 150,
+          });
 
-        if (geminiRes.ok) {
-          const gData = await geminiRes.json();
-          const rawText = gData?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (rawText) {
-            const parsed = JSON.parse(rawText);
-            if (parsed && parsed.message) {
-              return res.json({
-                success: true,
-                intent: 'NATURAL_LANGUAGE',
-                type: parsed.type || 'summary',
-                message: String(parsed.message).trim(),
-                metrics: parsed.metrics || undefined,
-                suggestions: isDriver ? DRIVER_SUGGESTIONS : MANAGER_SUGGESTIONS,
-              });
-            }
+          const parsed = geminiRes.data;
+          if (parsed && typeof parsed.message === 'string' && parsed.message.trim().length > 0) {
+            return {
+              success: true,
+              intent: 'NATURAL_LANGUAGE',
+              type: (parsed.type || 'summary') as any,
+              message: String(parsed.message).trim(),
+              metrics: parsed.metrics || undefined,
+              suggestions: isDriver ? DRIVER_SUGGESTIONS : MANAGER_SUGGESTIONS,
+            };
           }
-        }
-      } catch (err: any) {
-        console.warn('[AIAssistant] Gemini fallback error:', err?.message || err);
-      }
+          throw new Error('Malformed AI assistant response');
+        },
+        validateResponse: (res) => Boolean(res && res.message && typeof res.message === 'string'),
+        getFallback: () => defaultFallback,
+      });
+
+      return res.json(aiResponse);
     }
 
-    // Default concise fallback
-    const activeTripsCount = trips.filter((t: any) => activeTripStatuses.includes(String(t.status || '').toUpperCase())).length;
-    return res.json({
-      success: true,
-      intent: 'FLEET_STATUS',
-      type: 'summary',
-      message: `${vehicles.filter((v: any) => v.status !== 'RETIRED').length} active vehicles in fleet (${activeTripsCount} on route).`,
-      metrics: {
-        'Fleet Size': vehicles.length,
-        'On Route': activeTripsCount,
-        'Drivers': drivers.length,
-      },
-      suggestions: isDriver ? DRIVER_SUGGESTIONS : MANAGER_SUGGESTIONS,
-    });
+    return res.json(defaultFallback);
   } catch (error: any) {
     console.error('[AIAssistant] Query error:', error?.message || error);
     return fail(res, 500, 'Unable to process fleet query. Please try again.');
@@ -1187,8 +1188,10 @@ aiRouter.post('/route-recommendation', authenticate, async (req: Request, res: R
       return fail(res, 400, 'tripID is required');
     }
 
+    const orgId = getTrustedOrgId(req);
+
     // Fetch trip
-    const trips = await db.list('trips');
+    const trips = await db.list('trips', orgId ? { organization_id: orgId } : undefined);
     const targetId = String(tripID).trim().toLowerCase();
     const trip = trips.find(
       (t: any) =>
@@ -1196,7 +1199,7 @@ aiRouter.post('/route-recommendation', authenticate, async (req: Request, res: R
           .trim()
           .toLowerCase() === targetId
     );
-    if (!trip) {
+    if (!trip || (trip.organization_id && trip.organization_id !== orgId)) {
       return fail(res, 404, 'Trip not found');
     }
 
@@ -1350,13 +1353,16 @@ aiRouter.post('/route-recommendation', authenticate, async (req: Request, res: R
       return a.distanceMeters - b.distanceMeters;
     });
     const bestDeterministicId = sortedRoutes[0].id;
+    const deterministicFallback = {
+      routeId: bestDeterministicId,
+      reason: 'Lowest estimated travel time with optimal traffic conditions.',
+      confidence: 'high',
+      source: 'fallback' as const,
+    };
 
     const geminiApiKey = env.GEMINI_API_KEY || env.AI_API_KEY;
     if (geminiApiKey) {
-      try {
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
-
-        const promptText = `
+      const promptText = `
 You are an expert logistics fleet routing assistant for LogiSphere AI.
 Compare the following candidate routes for trip "${tripID}" (Cargo Weight: ${trip.cargoWeight || 500} kg):
 
@@ -1386,48 +1392,44 @@ Respond ONLY with strict JSON in the exact structure:
 Do not invent any route IDs outside of the supplied list.
 `;
 
-        const geminiRes = await fetch(geminiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: promptText }] }],
-            generationConfig: {
-              responseMimeType: 'application/json',
-              temperature: 0.2,
-            },
-          }),
-        });
+      recommendation = await executeResilientAi<{
+        routeId: string;
+        reason: string;
+        confidence: string;
+        source: 'gemini' | 'fallback';
+      }>({
+        feature: 'ROUTE_RECOMMENDATION',
+        tenantOrUserId: `org_${orgId}`,
+        normalizedInput: {
+          tripID: String(tripID),
+          cargoWeight: trip.cargoWeight || 500,
+          routes: routes.map(r => ({ id: r.id, dist: r.distanceMeters, dur: r.durationSeconds })),
+          orgId,
+        },
+        executeGemini: async () => {
+          const geminiRes = await callGemini<any>({
+            userPrompt: promptText,
+            responseMimeType: 'application/json',
+            temperature: 0.2,
+          });
 
-        if (geminiRes.ok) {
-          const gData = await geminiRes.json();
-          const rawText = gData?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (rawText) {
-            const parsed = JSON.parse(rawText);
-            if (parsed && parsed.recommendedRouteId && routes.some(r => r.id === parsed.recommendedRouteId)) {
-              recommendation = {
-                routeId: parsed.recommendedRouteId,
-                reason: String(parsed.reason || 'Optimal travel time and traffic flow.').trim(),
-                confidence: String(parsed.confidence || 'high').toLowerCase(),
-                source: 'gemini',
-              };
-            }
+          const parsed = geminiRes.data;
+          if (parsed && parsed.recommendedRouteId && routes.some(r => r.id === parsed.recommendedRouteId)) {
+            return {
+              routeId: parsed.recommendedRouteId,
+              reason: String(parsed.reason || 'Optimal travel time and traffic flow.').trim(),
+              confidence: String(parsed.confidence || 'high').toLowerCase(),
+              source: 'gemini' as const,
+            };
           }
-        } else {
-          console.warn('[routeIntelligence] Gemini API status:', geminiRes.status);
-        }
-      } catch (err: any) {
-        console.warn('[routeIntelligence] Gemini AI request error, using deterministic fallback:', err?.message || err);
-      }
-    }
-
-    // Fallback recommendation if Gemini call was skipped or produced no result
-    if (recommendation.source === 'fallback') {
-      recommendation = {
-        routeId: bestDeterministicId,
-        reason: 'Lowest estimated travel time with optimal traffic conditions.',
-        confidence: 'high',
-        source: 'fallback',
-      };
+          throw new Error('Malformed or unmatched recommendedRouteId from Gemini');
+        },
+        validateResponse: (res) =>
+          Boolean(res && res.routeId && routes.some(r => r.id === res.routeId)),
+        getFallback: () => deterministicFallback,
+      });
+    } else {
+      recommendation = deterministicFallback;
     }
 
     // Return normalized response
@@ -1449,3 +1451,46 @@ Do not invent any route IDs outside of the supplied list.
     return fail(res, 500, 'Route intelligence is temporarily unavailable');
   }
 });
+
+// --- AI RESILIENCE & QUOTA METRICS ENDPOINTS ---
+aiRouter.get('/metrics', authenticate, async (req: Request, res: Response) => {
+  const userRole = String(req.user?.role ?? '').toUpperCase();
+  const isManager = ['ROLE_MANAGER', 'FLEET_MANAGER', 'ROLE_DISPATCHER', 'DISPATCHER', 'ADMIN'].includes(userRole);
+  if (!isManager) {
+    return fail(res, 403, 'Unauthorized: AI metrics accessible to managers only');
+  }
+
+  return ok(res, {
+    metrics: aiMetrics.getSnapshot(),
+    cache: aiCache.getStats(),
+    circuitBreaker: aiCircuitBreaker.getStats(),
+    singleFlight: singleFlight.getStats(),
+  });
+});
+
+aiRouter.get('/stats', authenticate, async (req: Request, res: Response) => {
+  const userRole = String(req.user?.role ?? '').toUpperCase();
+  const isManager = ['ROLE_MANAGER', 'FLEET_MANAGER', 'ROLE_DISPATCHER', 'DISPATCHER', 'ADMIN'].includes(userRole);
+  if (!isManager) {
+    return fail(res, 403, 'Unauthorized: AI stats accessible to managers only');
+  }
+
+  return ok(res, {
+    metrics: aiMetrics.getSnapshot(),
+    cache: aiCache.getStats(),
+    circuitBreaker: aiCircuitBreaker.getStats(),
+    singleFlight: singleFlight.getStats(),
+  });
+});
+
+aiRouter.post('/cache/clear', authenticate, async (req: Request, res: Response) => {
+  const userRole = String(req.user?.role ?? '').toUpperCase();
+  const isManager = ['ROLE_MANAGER', 'FLEET_MANAGER', 'ADMIN'].includes(userRole);
+  if (!isManager) {
+    return fail(res, 403, 'Unauthorized: Cache clearance requires administrative privileges');
+  }
+
+  aiCache.clear();
+  return ok(res, { message: 'AI in-memory cache cleared successfully' });
+});
+

@@ -1,24 +1,28 @@
 import {Router} from 'express';
 import {db} from '../../config/database';
-import {optionalAuth} from '../../middleware/auth';
+import {optionalAuth, getTrustedOrgId} from '../../middleware/auth';
 import {fail} from '../../utils/http';
 import {broadcastTrackingTripEnded} from '../chat/websocket';
 import {calculateTripDelayInsights} from './delayPredictionService';
 
 export const tripRouter = Router();
 
-// GET all trips (Filtered by driver if authenticated as ROLE_DRIVER)
+// GET all trips (Filtered by organization and driver if authenticated as ROLE_DRIVER)
 tripRouter.get('/', optionalAuth, async (req, res) => {
   try {
-    let filter: Record<string, any> | undefined = undefined;
+    const orgId = getTrustedOrgId(req);
+    const filter: Record<string, any> = {};
+    if (orgId) {
+      filter.organization_id = orgId;
+    }
     
     // If driver role or query driverID provided
     const driverId = req.user?.role === 'ROLE_DRIVER' ? req.user.userId : (req.query.driverID as string);
     if (driverId) {
-      filter = {driverID: driverId};
+      filter.driverID = driverId;
     }
 
-    const trips = await db.list('trips', filter);
+    const trips = await db.list('trips', Object.keys(filter).length > 0 ? filter : undefined);
     return res.json(trips);
   } catch (error: any) {
     return fail(res, 500, error.message || 'Failed to fetch trips');
@@ -307,6 +311,8 @@ tripRouter.post('/create', optionalAuth, async (req, res) => {
       }
     }
 
+    const orgId = getTrustedOrgId(req);
+
     // 1. Vehicle eligibility (Rule 2)
     const vehCheck = await validateVehicleEligibility(vehicleID);
     if (!vehCheck.valid) {
@@ -314,12 +320,22 @@ tripRouter.post('/create', optionalAuth, async (req, res) => {
     }
     const vehicle = vehCheck.vehicle;
 
+    // Cross-organization validation: ensure vehicle belongs to caller's organization
+    if (vehicle.organization_id && vehicle.organization_id !== orgId) {
+      return fail(res, 400, 'Vehicle does not belong to your organization');
+    }
+
     // 2. Driver eligibility (Rule 3)
     const drvCheck = await validateDriverEligibility(driverID);
     if (!drvCheck.valid) {
       return fail(res, 400, drvCheck.error || 'Driver is not eligible for assignment');
     }
     const driver = drvCheck.driver;
+
+    // Cross-organization validation: ensure driver belongs to caller's organization
+    if (driver.organization_id && driver.organization_id !== orgId) {
+      return fail(res, 400, 'Driver does not belong to your organization');
+    }
 
     // 3. Cargo weight validation (Rule 5)
     const weight = Number(cargoWeight);
@@ -349,6 +365,7 @@ tripRouter.post('/create', optionalAuth, async (req, res) => {
       tripID: `TRP-${Math.floor(1000 + Math.random() * 9000)}`,
       status: 'PENDING_APPROVAL',
       createdById: req.user?.userId || 'usr-manager',
+      organization_id: orgId,
       ...req.body,
     };
 
@@ -403,8 +420,11 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
     return fail(res, 400, 'Target status is required');
   }
 
+  const orgId = getTrustedOrgId(req);
   const trip = await findTrip(tripID);
-  if (!trip) return fail(res, 404, 'Trip not found');
+  if (!trip || (trip.organization_id && trip.organization_id !== orgId)) {
+    return fail(res, 404, 'Trip not found');
+  }
 
   const currentStatus = (trip.status || 'PENDING_APPROVAL').toUpperCase();
 
@@ -626,6 +646,11 @@ tripRouter.put('/cancel/:tripID', optionalAuth, (req, res) => handleStatusUpdate
 tripRouter.get('/:tripID/delay-insights', optionalAuth, async (req, res) => {
   try {
     const { tripID } = req.params;
+    const orgId = getTrustedOrgId(req);
+    const trip = await findTrip(tripID);
+    if (!trip || (trip.organization_id && trip.organization_id !== orgId)) {
+      return fail(res, 404, 'Trip not found');
+    }
     const insights = await calculateTripDelayInsights(tripID);
     return res.json({
       success: true,

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../../config/database';
-import { authenticate, optionalAuth } from '../../middleware/auth';
+import { authenticate, optionalAuth, getTrustedOrgId } from '../../middleware/auth';
 import { fail } from '../../utils/http';
 import { broadcastTrackingLocation } from '../chat/websocket';
 
@@ -24,10 +24,12 @@ const ACTIVE_TRIP_STATUSES = [
  */
 trackingRouter.get('/live', optionalAuth, async (req: Request, res: Response) => {
   try {
-    const allTrips = await db.list('trips');
-    const allVehicles = await db.list('vehicles');
-    const allDrivers = await db.list('users');
-    const allLocations = await db.list('tracking_locations');
+    const orgId = getTrustedOrgId(req);
+    const orgFilter = orgId ? { organization_id: orgId } : undefined;
+    const allTrips = await db.list('trips', orgFilter);
+    const allVehicles = await db.list('vehicles', orgFilter);
+    const allDrivers = await db.list('users', orgFilter);
+    const allLocations = await db.list('tracking_locations', orgFilter);
 
     const activeTrips = (allTrips || []).filter((t: any) => {
       const normStatus = String(t.status || '').toUpperCase().replace(/[\s-]+/g, '_');
@@ -164,16 +166,17 @@ trackingRouter.get('/live', optionalAuth, async (req: Request, res: Response) =>
 trackingRouter.get('/:tripID', authenticate, async (req: Request, res: Response) => {
   try {
     const { tripID } = req.params;
-    const trips = await db.list('trips');
+    const orgId = getTrustedOrgId(req);
+    const trips = await db.list('trips', orgId ? { organization_id: orgId } : undefined);
     const trip = (trips || []).find((t: any) =>
       String(t.tripID || t.tripid || t.id).toLowerCase() === tripID.toLowerCase()
     );
 
-    if (!trip) {
+    if (!trip || (trip.organization_id && trip.organization_id !== orgId)) {
       return fail(res, 404, `Trip ${tripID} not found`);
     }
 
-    const locations = await db.list('tracking_locations');
+    const locations = await db.list('tracking_locations', orgId ? { organization_id: orgId } : undefined);
     const loc = (locations || []).find((l: any) =>
       String(l.tripID || l.tripid || '').toLowerCase() === tripID.toLowerCase()
     );
@@ -237,12 +240,13 @@ trackingRouter.post('/location', authenticate, async (req: Request, res: Respons
     }
 
     // 3. Find trip
-    const trips = await db.list('trips');
+    const orgId = getTrustedOrgId(req);
+    const trips = await db.list('trips', orgId ? { organization_id: orgId } : undefined);
     const trip = (trips || []).find((t: any) =>
       String(t.tripID || t.tripid || t.id).toLowerCase() === String(tripID).toLowerCase()
     );
 
-    if (!trip) {
+    if (!trip || (trip.organization_id && trip.organization_id !== orgId)) {
       return fail(res, 404, `Trip ${tripID} not found`);
     }
 
@@ -269,7 +273,7 @@ trackingRouter.post('/location', authenticate, async (req: Request, res: Respons
     }
 
     // 6. Handle out-of-order or stale device timestamps
-    const existingLocations = await db.list('tracking_locations');
+    const existingLocations = await db.list('tracking_locations', orgId ? { organization_id: orgId } : undefined);
     const existingLoc = (existingLocations || []).find((l: any) =>
       String(l.tripID || l.tripid || '').toLowerCase() === String(tripID).toLowerCase()
     );
@@ -303,6 +307,7 @@ trackingRouter.post('/location', authenticate, async (req: Request, res: Respons
       tripID: trip.tripID || trip.tripid,
       vehicleID: assignedVehicleId,
       driverID: assignedDriverId,
+      organization_id: orgId,
       latitude: lat,
       longitude: lng,
       speed: parsedSpeed,
@@ -321,6 +326,7 @@ trackingRouter.post('/location', authenticate, async (req: Request, res: Respons
       tripID: locationRecord.tripID,
       vehicleID: locationRecord.vehicleID,
       driverID: locationRecord.driverID,
+      organization_id: orgId,
       latitude: locationRecord.latitude,
       longitude: locationRecord.longitude,
       speed: locationRecord.speed,

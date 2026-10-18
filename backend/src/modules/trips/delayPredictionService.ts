@@ -1,5 +1,7 @@
 import { db } from '../../config/database';
 import { env } from '../../config/env';
+import { executeResilientAi } from '../ai/orchestrator';
+import { callGemini } from '../ai/geminiClient';
 
 export interface DelayInsightResult {
   tripID: string;
@@ -468,14 +470,12 @@ async function generateAiDelayExplanation(data: {
       : 'Minimal operational impact on delivery window.',
   };
 
-  if (!geminiApiKey) {
+  const apiKey = env.GEMINI_API_KEY || env.AI_API_KEY;
+  if (!apiKey) {
     return fallback;
   }
 
-  try {
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
-
-    const systemPrompt = `
+  const systemPrompt = `
 You are LogiSphere AI's Senior Fleet Dispatch Assistant.
 Analyze the provided trip delay prediction data.
 Rules:
@@ -489,54 +489,48 @@ Rules:
 }
 `;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+  return executeResilientAi<{
+    source: 'gemini' | 'deterministic_fallback';
+    explanation: string;
+    actionableRecommendations: string[];
+    operationalImpact: string;
+  }>({
+    feature: 'TRIP_DELAY_INSIGHTS',
+    normalizedInput: {
+      tripID: data.tripID,
+      estimatedETA: data.estimatedETA,
+      delayMinutes: data.delayMinutes,
+      delayRisk: data.delayRisk,
+      reasonCodes: data.reasonCodes,
+    },
+    executeGemini: async () => {
+      const response = await callGemini<any>({
+        systemPrompt,
+        userPrompt: `Trip Data: ${JSON.stringify(data)}`,
+        responseMimeType: 'application/json',
+        temperature: 0.15,
+        maxOutputTokens: 250,
+      });
 
-    const res = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: systemPrompt },
-              { text: `Trip Data: ${JSON.stringify(data)}` },
-            ],
-          },
-        ],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.15,
-          maxOutputTokens: 250,
-        },
-      }),
-    });
-
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const gData = await res.json();
-      const rawText = gData?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (rawText) {
-        const parsed = JSON.parse(rawText);
-        if (
-          parsed &&
-          typeof parsed.explanation === 'string' &&
-          Array.isArray(parsed.actionableRecommendations)
-        ) {
-          return {
-            source: 'gemini',
-            explanation: parsed.explanation.trim(),
-            actionableRecommendations: parsed.actionableRecommendations.map((r: any) => String(r).trim()).slice(0, 3),
-            operationalImpact: String(parsed.operationalImpact || fallback.operationalImpact).trim(),
-          };
-        }
+      const parsed = response.data;
+      if (
+        parsed &&
+        typeof parsed.explanation === 'string' &&
+        Array.isArray(parsed.actionableRecommendations)
+      ) {
+        return {
+          source: 'gemini' as const,
+          explanation: parsed.explanation.trim(),
+          actionableRecommendations: parsed.actionableRecommendations
+            .map((r: any) => String(r).trim())
+            .slice(0, 3),
+          operationalImpact: String(parsed.operationalImpact || fallback.operationalImpact).trim(),
+        };
       }
-    }
-  } catch (err: any) {
-    console.warn('[DelayPrediction] Gemini call failed, using deterministic baseline:', err?.message || err);
-  }
-
-  return fallback;
+      throw new Error('Malformed Gemini delay explanation response');
+    },
+    validateResponse: (res) =>
+      Boolean(res && res.explanation && Array.isArray(res.actionableRecommendations)),
+    getFallback: () => fallback,
+  });
 }

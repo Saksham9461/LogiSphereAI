@@ -36,7 +36,7 @@ describe('AI Fleet Intelligence Assistant Integration Tests', () => {
     testVehicle = {
       vehicleID: `veh-ai-${Date.now()}`,
       name: 'Van-Ai-01',
-      registrationNumber: 'GJ01AI9900',
+      registrationNumber: `GJ01AI${Math.floor(1000 + Math.random() * 8999)}`,
       type: 'VAN',
       status: 'ON_TRIP',
       odometer: 1500,

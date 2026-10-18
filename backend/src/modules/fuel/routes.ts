@@ -1,5 +1,6 @@
 import {Router} from 'express';
 import {db} from '../../config/database';
+import {optionalAuth, getTrustedOrgId} from '../../middleware/auth';
 
 export const fuelRouter = Router();
 const decorate = async (r: any) => {
@@ -20,15 +21,18 @@ const decorate = async (r: any) => {
   };
 };
 
-fuelRouter.get('/', async (_req, res) => {
-  const records = await db.list('fuel_logs');
+fuelRouter.get('/', optionalAuth, async (req, res) => {
+  const orgId = getTrustedOrgId(req);
+  const records = await db.list('fuel_logs', orgId ? { organization_id: orgId } : undefined);
   const decorated = await Promise.all(records.map(decorate));
   res.json(decorated.filter(Boolean));
 });
 
-fuelRouter.post('/create', async (req, res) => {
+fuelRouter.post('/create', optionalAuth, async (req, res) => {
+  const orgId = getTrustedOrgId(req);
   const created = await db.insert('fuel_logs', {
     fuelLogId: db.makeId('fuel-'),
+    organization_id: orgId,
     ...req.body,
     cost: req.body.cost ?? req.body.fuelCost,
   });

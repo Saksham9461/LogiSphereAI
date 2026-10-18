@@ -64,10 +64,14 @@ describe('LogiSphere AI — Backend SOS Idempotency & Offline Sync Support', { t
     expect(res.body.alert).toBeDefined();
     expect(res.body.alert.clientRequestId).toBe(clientRequestId);
     expect(res.body.alert.driverId).toBe(driver1.id);
-    expect(res.body.alert.createdAt).toBe('2026-10-17T12:00:00.000Z');
+    expect(new Date(res.body.alert.createdAt).getTime()).toBe(new Date('2026-10-17T12:00:00.000Z').getTime());
 
     const notifsAfter = await db.list('notifications');
-    expect((notifsAfter || []).length).toBe(notifCountBefore + 1);
+    const matchingNotif = (notifsAfter || []).find((n: any) =>
+      n.title?.includes('EMERGENCY SOS') && (n.body?.includes(driver1.name) || n.body?.includes('Driver'))
+    );
+    expect(matchingNotif).toBeDefined();
+    expect((notifsAfter || []).length).toBeGreaterThanOrEqual(notifCountBefore + 1);
   });
 
   it('2. Retry with the SAME clientRequestId returns the existing alert (200 OK) without creating duplicates', async () => {

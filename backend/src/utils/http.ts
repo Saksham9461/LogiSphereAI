@@ -27,6 +27,9 @@ export const publicUser = (user: any) => {
     trips: user.trips ?? 0,
     safetyScore: user.safetyScore ?? 95,
     status: user.status ?? (user.role?.includes('DRIVER') ? 'AVAILABLE' : 'ACTIVE'),
+    organizationId: user.organizationId || user.organization_id,
+    organization_id: user.organization_id || user.organizationId,
+    organizationName: user.organizationName || user.organization_name,
     mustChangePassword: isMustChange,
     must_change_password: isMustChange
   };

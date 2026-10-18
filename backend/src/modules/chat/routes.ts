@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db } from '../../config/database';
-import { authenticate } from '../../middleware/auth';
+import { authenticate, getTrustedOrgId } from '../../middleware/auth';
 import { fail, ok, publicUser } from '../../utils/http';
 import { findOrCreateConversation, isUserOnline, broadcastRealtimeMessage, broadcastRealtimeRead } from './websocket';
 
@@ -15,13 +15,14 @@ function get24HourCutoffIso(): string {
 
 /**
  * GET /api/chat/users
- * Returns roster of users available for 1-on-1 chat based on RBAC permissions.
+ * Returns roster of users available for 1-on-1 chat based on RBAC permissions and organization isolation.
  */
 chatRouter.get('/users', async (req, res) => {
   const currentUserId = req.user!.userId;
   const currentRole = req.user!.role || '';
+  const orgId = getTrustedOrgId(req);
 
-  const rawUsers = await db.list('users');
+  const rawUsers = await db.list('users', orgId ? { organization_id: orgId } : undefined);
   const allUsers = rawUsers.map((u: any) => publicUser(u));
 
   const isDriverRole = (r: string) => r === 'DRIVER' || r === 'ROLE_DRIVER';
@@ -191,6 +192,11 @@ chatRouter.post('/conversations', async (req, res) => {
   if (!rawTargetUser) {
     return fail(res, 404, 'Participant user not found');
   }
+  const orgId = getTrustedOrgId(req);
+  const targetOrg = rawTargetUser.organization_id || rawTargetUser.businessId || rawTargetUser.business_id;
+  if (targetOrg && targetOrg !== orgId) {
+    return fail(res, 404, 'Participant user not found');
+  }
   const targetUser = publicUser(rawTargetUser);
 
   const isDriverRole = (r: string) => r === 'DRIVER' || r === 'ROLE_DRIVER';
@@ -323,10 +329,12 @@ chatRouter.post('/conversations/:conversationId/messages', async (req, res) => {
   const isReceiverOnline = isUserOnline(receiverId);
   const deliveredAt = isReceiverOnline ? serverCreatedAt : null;
 
+  const orgId = getTrustedOrgId(req);
   const messageRecord = await db.insert('messages', {
     id: messageId,
     conversationId,
     conversation_id: conversationId,
+    organization_id: orgId,
     senderId: currentUserId,
     sender_id: currentUserId,
     receiverId,
@@ -401,5 +409,6 @@ chatRouter.post('/conversations/:conversationId/read', async (req, res) => {
     conversationId,
     readAt,
     count: targetIds.length,
+    readCount: targetIds.length,
   });
 });

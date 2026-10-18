@@ -11,6 +11,8 @@ interface AuthenticatedSocket extends WebSocket {
     role: string;
     businessId?: string;
     business_id?: string;
+    organizationId?: string;
+    organization_id?: string;
   };
   isAlive?: boolean;
 }
@@ -42,7 +44,7 @@ export function getOnlineUserIds(): string[] {
   return online;
 }
 
-function broadcastUserStatus(userId: string, isOnline: boolean) {
+function broadcastUserStatus(userId: string, isOnline: boolean, orgId?: string) {
   const payload = JSON.stringify({
     type: 'chat:user_status',
     data: { userId, status: isOnline ? 'ONLINE' : 'OFFLINE' },
@@ -50,7 +52,10 @@ function broadcastUserStatus(userId: string, isOnline: boolean) {
   userSocketsMap.forEach(sockets => {
     sockets.forEach(ws => {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(payload);
+        const userOrg = ws.user?.organizationId || ws.user?.organization_id || ws.user?.businessId || ws.user?.business_id;
+        if (!orgId || !userOrg || orgId === userOrg) {
+          ws.send(payload);
+        }
       }
     });
   });
@@ -61,15 +66,21 @@ export function broadcastTrackingLocation(locationPayload: any) {
     type: 'tracking:location_update',
     data: locationPayload,
   });
+  const locOrg = locationPayload.organization_id || locationPayload.organizationId || locationPayload.businessId || locationPayload.business_id;
+
   userSocketsMap.forEach((sockets) => {
     sockets.forEach((ws) => {
       if (ws.readyState === WebSocket.OPEN) {
-        // Send to managers, dispatchers, or connected tracking clients
+        // Send to managers, dispatchers, or connected tracking clients of the same organization
         const role = ws.user?.role || '';
+        const userOrg = ws.user?.organizationId || ws.user?.organization_id || ws.user?.businessId || ws.user?.business_id;
+        const orgMatch = !locOrg || !userOrg || locOrg === userOrg;
         if (
-          !ws.user ||
-          ['ROLE_MANAGER', 'ROLE_DISPATCHER', 'MANAGER', 'DISPATCHER'].includes(role) ||
-          ws.user.userId === locationPayload.driverID
+          orgMatch && (
+            !ws.user ||
+            ['ROLE_MANAGER', 'ROLE_DISPATCHER', 'MANAGER', 'DISPATCHER'].includes(role) ||
+            ws.user.userId === locationPayload.driverID
+          )
         ) {
           ws.send(payload);
         }
@@ -78,7 +89,7 @@ export function broadcastTrackingLocation(locationPayload: any) {
   });
 }
 
-export function broadcastTrackingTripEnded(tripID: string) {
+export function broadcastTrackingTripEnded(tripID: string, orgId?: string) {
   const payload = JSON.stringify({
     type: 'tracking:trip_ended',
     data: { tripID },
@@ -87,9 +98,13 @@ export function broadcastTrackingTripEnded(tripID: string) {
     sockets.forEach((ws) => {
       if (ws.readyState === WebSocket.OPEN) {
         const role = ws.user?.role || '';
+        const userOrg = ws.user?.organizationId || ws.user?.organization_id || ws.user?.businessId || ws.user?.business_id;
+        const orgMatch = !orgId || !userOrg || orgId === userOrg;
         if (
-          !ws.user ||
-          ['ROLE_MANAGER', 'ROLE_DISPATCHER', 'MANAGER', 'DISPATCHER'].includes(role)
+          orgMatch && (
+            !ws.user ||
+            ['ROLE_MANAGER', 'ROLE_DISPATCHER', 'MANAGER', 'DISPATCHER'].includes(role)
+          )
         ) {
           ws.send(payload);
         }
@@ -104,7 +119,7 @@ export function broadcastEmergencyAlertCreated(alert: any) {
     data: alert,
   });
   console.log(`[WebSocket Broadcast] Emergency alert created (${alert.id}), broadcasting to authorized managers & driver.`);
-  const alertOrg = alert.businessId || alert.business_id || 'default_org';
+  const alertOrg = alert.organization_id || alert.organizationId || alert.businessId || alert.business_id || 'default_org';
   const alertDriverId = alert.driverId || alert.driver_id;
 
   userSocketsMap.forEach((sockets) => {
@@ -113,7 +128,7 @@ export function broadcastEmergencyAlertCreated(alert: any) {
         const role = String(ws.user?.role || '').toUpperCase();
         const isManager = ['ROLE_MANAGER', 'FLEET_MANAGER', 'ROLE_ADMIN', 'ADMIN', 'ROLE_DISPATCHER', 'DISPATCHER', 'MANAGER'].includes(role);
         const isDriverOwner = ws.user?.userId === alertDriverId;
-        const managerOrg = ws.user?.businessId || ws.user?.business_id || 'default_org';
+        const managerOrg = ws.user?.organizationId || ws.user?.organization_id || ws.user?.businessId || ws.user?.business_id || 'default_org';
         const orgMatch = managerOrg === alertOrg;
 
         if ((isManager && orgMatch) || isDriverOwner) {
@@ -200,8 +215,16 @@ export function initChatWebSocket(server: Server) {
     }
 
     try {
-      const decoded = jwt.verify(token, env.JWT_SECRET) as { userId: string; email: string; role: string };
-      ws.user = decoded;
+      const decoded: any = jwt.verify(token, env.JWT_SECRET);
+      const orgId = decoded.organizationId || decoded.organization_id || decoded.businessId || decoded.business_id || '00000000-0000-0000-0000-000000000001';
+      ws.user = {
+        ...decoded,
+        userId: decoded.userId || decoded.id,
+        organizationId: orgId,
+        organization_id: orgId,
+        businessId: orgId,
+        business_id: orgId,
+      };
     } catch (err) {
       console.warn('[WebSocket Auth Failed] Invalid or expired JWT token:', err);
       ws.send(JSON.stringify({ type: 'error', message: 'Invalid or expired token' }));
@@ -209,6 +232,7 @@ export function initChatWebSocket(server: Server) {
       return;
     }
 
+    if (!ws.user) return;
     const userId = ws.user.userId;
     console.log(`[WebSocket Connected] User "${userId}" connected (${ws.user.role}).`);
 
@@ -221,7 +245,7 @@ export function initChatWebSocket(server: Server) {
     userSockets.add(ws);
 
     if (wasOffline) {
-      broadcastUserStatus(userId, true);
+      broadcastUserStatus(userId, true, ws.user.organizationId);
     }
 
     // Send connection success & list of online users

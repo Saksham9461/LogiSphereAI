@@ -11,6 +11,8 @@ const schema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(''),
   JWT_SECRET: z.string().min(8).default('development-secret'),
   JWT_EXPIRES_IN: z.string().default('7d'),
+  PLATFORM_ADMIN_USERNAME: z.string().optional().default(''),
+  PLATFORM_ADMIN_PASSWORD_HASH: z.string().optional().default(''),
   CORS_ORIGIN: z.string().default('*'),
   AI_PROVIDER: z.string().optional().default('local'),
   AI_API_KEY: z.string().optional().default(''),
@@ -21,7 +23,12 @@ const schema = z.object({
   OFFICE_GEOFENCE_RADIUS: z.coerce.number().default(200),
   GOOGLE_MAPS_API_KEY: z.string().optional().default(''),
   GOOGLE_ROUTES_API_KEY: z.string().optional().default(''),
-  GEMINI_API_KEY: z.string().optional().default('')
+  GEMINI_API_KEY: z.string().optional().default(''),
+  GEMINI_MODEL: z.string().default('gemini-3.8-flash'),
+  GEMINI_TIMEOUT_MS: z.coerce.number().default(5000),
+  GEMINI_MAX_RETRIES: z.coerce.number().default(2),
+  GEMINI_CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().default(3),
+  GEMINI_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().default(30000),
 });
 
 export const env = schema.parse(process.env);

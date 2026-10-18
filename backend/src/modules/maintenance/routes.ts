@@ -1,6 +1,7 @@
 import {Router} from 'express';
 import {db} from '../../config/database';
 import {fail} from '../../utils/http';
+import {optionalAuth, getTrustedOrgId} from '../../middleware/auth';
 
 export const maintenanceRouter = Router();
 
@@ -33,8 +34,9 @@ const decorate = async (r: any) => {
   };
 };
 
-maintenanceRouter.get('/', async (_req, res) => {
-  const records = await db.list('maintenance_records');
+maintenanceRouter.get('/', optionalAuth, async (req, res) => {
+  const orgId = getTrustedOrgId(req);
+  const records = await db.list('maintenance_records', orgId ? { organization_id: orgId } : undefined);
 
   // Synchronize: vehicles with active maintenance must be marked IN_SHOP
   for (const r of records) {
@@ -54,7 +56,8 @@ maintenanceRouter.get('/', async (_req, res) => {
 });
 
 // POST Create maintenance record (Rule 8)
-maintenanceRouter.post('/create', async (req, res) => {
+maintenanceRouter.post('/create', optionalAuth, async (req, res) => {
+  const orgId = getTrustedOrgId(req);
   const vId = req.body.vehicleID || req.body.vehicleid;
   if (!vId) {
     return fail(res, 400, 'Vehicle ID is required');
@@ -67,7 +70,7 @@ maintenanceRouter.post('/create', async (req, res) => {
       String(v.vehicleID || v.vehicleid || v.id || '').toLowerCase() === String(vId).toLowerCase()
     );
   }
-  if (!veh) {
+  if (!veh || (veh.organization_id && veh.organization_id !== orgId)) {
     return fail(res, 404, `Vehicle ${vId} not found`);
   }
 
@@ -77,7 +80,7 @@ maintenanceRouter.post('/create', async (req, res) => {
   }
 
   // Prevent maintenance creation from overriding active-trip constraints (Rule 8)
-  const allTrips = await db.list('trips');
+  const allTrips = await db.list('trips', { organization_id: orgId });
   const activeTrip = (allTrips || []).find((t: any) => {
     const tVId = String(t.vehicleID || t.vehicleid || '').toLowerCase();
     const tStatus = String(t.status || '').toUpperCase();
@@ -101,6 +104,7 @@ maintenanceRouter.post('/create', async (req, res) => {
 
   const created = await db.insert('maintenance_records', {
     id: db.makeId('mnt-'),
+    organization_id: orgId,
     ...req.body,
     vehicleID: veh.vehicleID || veh.vehicleid || vId,
     status: dbStatus,

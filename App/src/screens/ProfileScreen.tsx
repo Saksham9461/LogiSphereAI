@@ -29,6 +29,12 @@ export default function ProfileScreen({ navigation }: any) {
         <Text style={styles.role}>{user?.role || 'Admin'}</Text>
 
         <View style={styles.infoCard}>
+          {user?.organizationName ? (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Organization</Text>
+              <Text style={styles.infoValue}>{user.organizationName}</Text>
+            </View>
+          ) : null}
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Email</Text>
             <Text style={styles.infoValue}>{user?.email || 'guest@logisphere.ai'}</Text>

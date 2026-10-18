@@ -1,0 +1,13 @@
+/* ==============================================================================
+   LogiSphere AI — Web Entry Stylesheet
+   Imports theme design tokens and responsive application shell styles
+   ============================================================================== */
+
+@import './styles/theme.css';
+@import './styles/registration.css';
+@import './styles/admin.css';
+
+#root {
+  min-height: 100vh;
+  width: 100%;
+}
