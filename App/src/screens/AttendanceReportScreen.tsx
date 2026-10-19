@@ -30,10 +30,12 @@ import {
 } from 'lucide-react-native';
 import { rf } from '../theme/responsive';
 import { colors } from '../theme/colors';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   useAttendanceStore,
   GroupedAttendanceReportItem,
   AttendanceSessionReportItem,
+  formatToLocalDateString,
 } from '../store/AttendanceStore';
 import useAuthStore from '../store/AuthStore';
 
@@ -46,10 +48,10 @@ const STATUS_TABS = [
 ];
 
 const DATE_PRESETS = [
-  { id: 'ALL', label: 'All Dates' },
   { id: 'TODAY', label: 'Today' },
   { id: '7DAYS', label: 'Last 7 Days' },
   { id: '30DAYS', label: 'Last 30 Days' },
+  { id: 'ALL', label: 'All Dates' },
 ];
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
@@ -97,7 +99,7 @@ export default function AttendanceReportScreen({ navigation }: any) {
   const [activeTab, setActiveTab] = useState<'ALL' | 'COMPLETED' | 'IN_PROGRESS' | 'AUTO_CLOSED'>(
     (reportFilters.status as any) || 'ALL'
   );
-  const [selectedDatePreset, setSelectedDatePreset] = useState('ALL');
+  const [selectedDatePreset, setSelectedDatePreset] = useState('TODAY');
 
   // Debounced search
   useEffect(() => {
@@ -111,10 +113,29 @@ export default function AttendanceReportScreen({ navigation }: any) {
     return () => clearTimeout(handler);
   }, [search]);
 
-  // Initial load
-  useEffect(() => {
-    fetchReport();
-  }, []);
+  // Screen focus: Restore 'TODAY' as default filter on first mount or reopening screen in a new session
+  useFocusEffect(
+    useCallback(() => {
+      const today = formatToLocalDateString();
+      setSelectedDatePreset('TODAY');
+      setSearch('');
+      setActiveTab('ALL');
+      setReportFilters({
+        search: '',
+        status: 'ALL',
+        startDate: today,
+        endDate: today,
+        page: 1,
+      });
+      fetchReport({
+        search: '',
+        status: 'ALL',
+        startDate: today,
+        endDate: today,
+        page: 1,
+      });
+    }, [])
+  );
 
   const handleStatusSelect = (statusKey: string) => {
     setActiveTab(statusKey as any);
@@ -129,16 +150,19 @@ export default function AttendanceReportScreen({ navigation }: any) {
     const now = new Date();
 
     if (presetId === 'TODAY') {
-      startDate = now.toISOString().split('T')[0];
+      startDate = formatToLocalDateString(now);
       endDate = startDate;
     } else if (presetId === '7DAYS') {
       const past = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      startDate = past.toISOString().split('T')[0];
-      endDate = now.toISOString().split('T')[0];
+      startDate = formatToLocalDateString(past);
+      endDate = formatToLocalDateString(now);
     } else if (presetId === '30DAYS') {
       const past = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      startDate = past.toISOString().split('T')[0];
-      endDate = now.toISOString().split('T')[0];
+      startDate = formatToLocalDateString(past);
+      endDate = formatToLocalDateString(now);
+    } else if (presetId === 'ALL') {
+      startDate = '';
+      endDate = '';
     }
 
     setReportFilters({ startDate, endDate });
@@ -148,7 +172,7 @@ export default function AttendanceReportScreen({ navigation }: any) {
   const handleResetFilters = () => {
     setSearch('');
     setActiveTab('ALL');
-    setSelectedDatePreset('ALL');
+    setSelectedDatePreset('TODAY');
     resetReportFilters();
   };
 
@@ -477,7 +501,7 @@ export default function AttendanceReportScreen({ navigation }: any) {
                 {allExpanded ? 'Collapse All' : 'Expand All'}
               </Text>
             </Pressable>
-            {(search || activeTab !== 'ALL' || selectedDatePreset !== 'ALL') && (
+            {(search || activeTab !== 'ALL' || selectedDatePreset !== 'TODAY') && (
               <Pressable style={styles.resetBtn} onPress={handleResetFilters}>
                 <RotateCcw size={12} color={colors.textMuted} />
                 <Text style={styles.resetBtnText}>Reset</Text>

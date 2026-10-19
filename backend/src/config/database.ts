@@ -432,13 +432,9 @@ export const db = {
           }
         }
 
-        // Handle foreign key constraint failure on organization_id if the referenced org is not in PostgreSQL
-        if (error && (error.code === '23503' || error.message?.includes('foreign key constraint')) && error.message?.includes('organization_id')) {
-          console.warn(`[DB Insert] Foreign key violation on organization_id in '${table}'. Retrying without organization_id.`);
-          delete (insertPayload as any).organization_id;
-          const retryRes = await supabase.from(table).insert(insertPayload).select('*').single();
-          created = retryRes.data;
-          error = retryRes.error;
+        // If foreign key constraint failure occurs, do not silently retry without organization_id
+        if (error && (error.code === '23503' || error.message?.includes('foreign key constraint'))) {
+          console.error(`[DB Insert FK Error] Foreign key constraint violation on table '${table}':`, error.message);
         }
 
         if (!error && created) {

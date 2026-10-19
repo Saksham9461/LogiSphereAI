@@ -110,11 +110,22 @@ interface AttendanceState {
   exportPdf: () => Promise<{ success: boolean; url?: string; message?: string }>;
 }
 
+export function formatToLocalDateString(d: Date = new Date()): string {
+  try {
+    return d.toLocaleDateString('en-CA');
+  } catch {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+}
+
 const DEFAULT_FILTERS: AttendanceReportFilter = {
   search: '',
   status: 'ALL',
-  startDate: '',
-  endDate: '',
+  startDate: formatToLocalDateString(),
+  endDate: formatToLocalDateString(),
   page: 1,
   limit: 50,
 };
@@ -269,8 +280,17 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
   },
 
   resetReportFilters: () => {
-    set({ reportFilters: DEFAULT_FILTERS });
-    get().fetchReport(DEFAULT_FILTERS);
+    const today = formatToLocalDateString();
+    const resetFilters: AttendanceReportFilter = {
+      search: '',
+      status: 'ALL',
+      startDate: today,
+      endDate: today,
+      page: 1,
+      limit: 50,
+    };
+    set({ reportFilters: resetFilters });
+    get().fetchReport(resetFilters);
   },
 
   fetchReport: async (overrideFilters) => {

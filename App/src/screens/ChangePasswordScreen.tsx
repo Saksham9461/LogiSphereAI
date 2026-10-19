@@ -23,10 +23,15 @@ import {
 } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
+import { useNavigation } from '@react-navigation/native';
 import useAuthStore from '../store/AuthStore';
 
-export default function ChangePasswordScreen() {
+export default function ChangePasswordScreen({ navigation: navProp }: any) {
+  const navHook = useNavigation<any>();
+  const navigation = navProp || navHook;
+  const user = useAuthStore(state => state.user);
   const { changePassword, logout, loading, error: storeError } = useAuthStore();
+  const [submitting, setSubmitting] = useState(false);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -60,6 +65,7 @@ export default function ChangePasswordScreen() {
     currentPassword.length > 0;
 
   const handleUpdatePassword = async () => {
+    if (submitting || loading) return;
     setErrorMessage('');
     if (!currentPassword) {
       setErrorMessage('Please enter your current temporary password.');
@@ -78,14 +84,38 @@ export default function ChangePasswordScreen() {
       return;
     }
 
-    const result = await changePassword(currentPassword, newPassword);
+    setSubmitting(true);
+    try {
+      const result = await changePassword(currentPassword, newPassword);
 
-    if (!result.success) {
-      setErrorMessage(result.message || 'Failed to update password.');
-    } else {
-      Alert.alert('Success', 'Password updated successfully! Welcome to LogiSphere AI.');
+      if (!result.success) {
+        setErrorMessage(result.message || 'Failed to update password.');
+      } else {
+        Alert.alert(
+          'Success',
+          'Password updated successfully! Welcome to LogiSphere AI.',
+          [
+            {
+              text: 'Continue to Dashboard',
+              onPress: () => {
+                if (navigation?.navigate) {
+                  navigation.navigate('Main', { screen: 'Dashboard' });
+                }
+              },
+            },
+          ],
+          { cancelable: false }
+        );
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'An unexpected error occurred while updating password.');
+    } finally {
+      setSubmitting(false);
     }
   };
+
+  const userRole = String(user?.role || '').toUpperCase();
+  const isDriver = userRole === 'ROLE_DRIVER' || userRole === 'DRIVER';
 
   return (
     <View style={styles.screen}>
@@ -104,7 +134,7 @@ export default function ChangePasswordScreen() {
             </View>
             <Text style={styles.title}>Set Your Password</Text>
             <Text style={styles.subtitle}>
-              For security, you must create a new password before continuing to your Driver Dashboard.
+              For security, you must create a new password before continuing to your {isDriver ? 'Driver Dashboard' : 'Dashboard'}.
             </Text>
           </View>
 
@@ -191,11 +221,11 @@ export default function ChangePasswordScreen() {
 
             {/* SUBMIT BUTTON */}
             <Pressable
-              style={[styles.submitBtn, (!isValid || loading) && styles.submitBtnDisabled]}
+              style={[styles.submitBtn, (!isValid || loading || submitting) && styles.submitBtnDisabled]}
               onPress={handleUpdatePassword}
-              disabled={!isValid || loading}
+              disabled={!isValid || loading || submitting}
             >
-              {loading ? (
+              {loading || submitting ? (
                 <ActivityIndicator color="#1a1200" />
               ) : (
                 <Text style={styles.submitBtnText}>Update Password & Continue</Text>

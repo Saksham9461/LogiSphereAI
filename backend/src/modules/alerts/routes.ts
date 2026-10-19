@@ -161,7 +161,53 @@ async function handleCreateSOS(req: Request, res: Response) {
     // Fetch user details to get real driver name and business identity
     const dbUser = await db.find('users', { id: driverId });
     const driverName = dbUser?.name || dbUser?.email || user.email || 'Driver';
-    const businessId = dbUser?.businessId || dbUser?.business_id || 'default_org';
+
+    // Retrieve the correct organization ID from the authenticated user's or driver's existing database relationship
+    let targetOrgId: string | null = null;
+
+    // 1. Retrieve organization from driver's existing database relationship in organization_memberships
+    const memberships = await db.list('organization_memberships', { user_id: driverId });
+    const activeMem =
+      memberships.find((m: any) => m.status === 'active' && m.organization_id !== '00000000-0000-0000-0000-000000000001') ||
+      memberships.find((m: any) => m.status === 'active' && m.organization_id);
+
+    if (activeMem?.organization_id) {
+      targetOrgId = activeMem.organization_id;
+    }
+
+    // 2. Fallback to authenticated user claims / dbUser fields (e.g. businessId from tenant context)
+    if (!targetOrgId) {
+      const candidate =
+        user.organizationId ||
+        user.organization_id ||
+        user.businessId ||
+        user.business_id ||
+        dbUser?.organization_id ||
+        dbUser?.businessId ||
+        dbUser?.business_id;
+
+      if (candidate && candidate !== 'default_org') {
+        targetOrgId = candidate;
+      }
+    }
+
+    // Fail safely if driver is not associated with an authorized organization
+    if (!targetOrgId) {
+      console.error(`[SOS Failed] Driver "${driverName}" (${driverId}) is not associated with a valid organization in the database.`);
+      return fail(res, 400, 'Driver is not associated with an authorized organization');
+    }
+
+    // Verify if targetOrgId is a valid UUID in organizations table
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetOrgId);
+    let validOrgUuid: string | null = null;
+    if (isUuid) {
+      const verifiedOrg = await db.find('organizations', { id: targetOrgId });
+      if (verifiedOrg) {
+        validOrgUuid = verifiedOrg.id;
+      }
+    }
+
+    const businessId = targetOrgId;
 
     // Validate coordinates
     const reqLat = req.body?.latitude;
@@ -281,11 +327,40 @@ async function handleCreateSOS(req: Request, res: Response) {
 
     const persistedAlert = normalizeAlertRecord(savedRaw) || alertData;
 
-    // Create system notification entry for managers
-    try {
+    // Identify authorized managers for this organization to populate recipient user ID
+    const orgMembers = await db.list('organization_memberships', {
+      organization_id: targetOrgId,
+      status: 'active',
+    });
+    const managerRecipients = (orgMembers || []).filter((m: any) => isManagerRole(m.role));
+    const recipientUserIds = managerRecipients.length > 0
+      ? managerRecipients.map((m: any) => m.user_id)
+      : [];
+
+    if (recipientUserIds.length === 0) {
+      const allManagers = await db.list('users');
+      const matchingMgr = (allManagers || []).find((u: any) =>
+        isManagerRole(u.role) && (u.businessId === targetOrgId || u.business_id === targetOrgId || u.organization_id === targetOrgId)
+      );
+      if (matchingMgr) {
+        recipientUserIds.push(matchingMgr.id);
+      } else {
+        const anyMgr = (allManagers || []).find((u: any) => isManagerRole(u.role));
+        if (anyMgr) {
+          recipientUserIds.push(anyMgr.id);
+        } else {
+          recipientUserIds.push(driverId);
+        }
+      }
+    }
+
+    // Create system notification entry for managers with organization_id and valid recipient userId
+    for (const recipientId of recipientUserIds) {
       await db.insert('notifications', {
         id: db.makeId('notif-'),
-        userId: null,
+        userId: recipientId,
+        ...(validOrgUuid ? { organization_id: validOrgUuid } : (isUuid ? { organization_id: targetOrgId } : {})),
+        businessId: targetOrgId,
         type: 'SOS',
         category: 'EMERGENCY',
         title: '🚨 EMERGENCY SOS ALERT',
@@ -293,7 +368,7 @@ async function handleCreateSOS(req: Request, res: Response) {
         read: false,
         createdAt: nowIso,
       });
-    } catch (_) {}
+    }
 
     // Immediately broadcast via WebSocket to authorized managers & driver
     broadcastEmergencyAlertCreated(persistedAlert);
