@@ -1,3 +1,5 @@
+import { Platform, PermissionsAndroid } from 'react-native';
+import Geolocation from '@react-native-community/geolocation';
 import client from '../api/axiosClient';
 import { LocationAutocomplete, LocationDetails } from '../api/apiPath';
 import { MAPTILER_API_KEY } from '../config/env';
@@ -14,6 +16,7 @@ export type LocationResult = {
   state?: string;
 };
 
+// Retained for backward compatibility in mock unit tests; never used in production attendance flow
 export const MOCK_ORGANIZATION = {
   name: 'LogiSphere AI HQ',
   latitude: 23.2156,
@@ -34,11 +37,114 @@ export function resetSessionToken(): void {
   activeSessionToken = null;
 }
 
-export async function getCurrentLocation(): Promise<{ latitude: number; longitude: number }> {
-  return {
-    latitude: 23.2156,
-    longitude: 72.6369,
-  };
+/**
+ * Requests location permission on Android and iOS.
+ */
+export async function requestLocationPermission(): Promise<boolean> {
+  if (Platform.OS === 'android') {
+    try {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        {
+          title: 'Location Permission',
+          message: 'LogiSphere AI requires your precise GPS location to verify attendance geofencing.',
+          buttonPositive: 'Allow',
+          buttonNegative: 'Deny',
+        }
+      );
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    } catch {
+      return false;
+    }
+  }
+
+  // iOS authorization
+  return new Promise((resolve) => {
+    try {
+      Geolocation.requestAuthorization(
+        () => resolve(true),
+        () => resolve(false)
+      );
+    } catch {
+      resolve(true);
+    }
+  });
+}
+
+/**
+ * Obtains device's actual current GPS location using @react-native-community/geolocation.
+ * Never silently substitutes mock coordinates when GPS fails.
+ */
+export async function getCurrentLocation(): Promise<{ latitude: number; longitude: number; accuracy?: number }> {
+  const hasPermission = await requestLocationPermission();
+  if (!hasPermission) {
+    throw new Error('Location permission denied. Please enable location access in settings to record attendance.');
+  }
+
+  return new Promise((resolve, reject) => {
+    let resolved = false;
+
+    // Safety timeout: 10s maximum wait for GPS fix
+    const timeoutHandle = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        reject(new Error('GPS location fix timed out. Please ensure location services are enabled and try again.'));
+      }
+    }, 10000);
+
+    try {
+      Geolocation.getCurrentPosition(
+        (position) => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timeoutHandle);
+
+          const { latitude, longitude, accuracy } = position.coords;
+          if (
+            typeof latitude !== 'number' ||
+            typeof longitude !== 'number' ||
+            !isFinite(latitude) ||
+            !isFinite(longitude)
+          ) {
+            reject(new Error('Acquired GPS coordinates are invalid. Please retry.'));
+            return;
+          }
+
+          resolve({
+            latitude,
+            longitude,
+            accuracy: accuracy ?? undefined,
+          });
+        },
+        (error) => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timeoutHandle);
+
+          let msg = error?.message || 'Unable to obtain current GPS location';
+          if (error?.code === 1) {
+            msg = 'Location permission denied by user.';
+          } else if (error?.code === 2) {
+            msg = 'GPS location unavailable. Please verify device location services are turned on.';
+          } else if (error?.code === 3) {
+            msg = 'GPS location fix timed out. Please try again.';
+          }
+          reject(new Error(msg));
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 9000,
+          maximumAge: 10000,
+        }
+      );
+    } catch (err: any) {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeoutHandle);
+        reject(new Error(err?.message || 'Failed to initialize device GPS.'));
+      }
+    }
+  });
 }
 
 // Popular logistics hubs & major cities for fallback geocoding

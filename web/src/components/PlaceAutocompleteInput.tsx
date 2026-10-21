@@ -119,15 +119,9 @@ export const PlaceAutocompleteInput: React.FC<PlaceAutocompleteInputProps> = ({
       });
     } catch (err) {
       console.error('[PlaceAutocomplete] Failed to resolve place details:', err);
-      // Fallback with suggestion title if details request fails
       const fallbackAddress = suggestion.address || suggestion.title;
       onChange(fallbackAddress);
-      onPlaceSelect({
-        placeId: suggestion.placeId,
-        address: fallbackAddress,
-        latitude: 0,
-        longitude: 0,
-      });
+      onClearPlace();
     } finally {
       setIsLoading(false);
     }

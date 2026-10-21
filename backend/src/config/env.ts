@@ -9,6 +9,7 @@ const schema = z.object({
   SUPABASE_URL: z.string().optional().default('').transform(url => url.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '')),
   SUPABASE_ANON_KEY: z.string().optional().default(''),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(''),
+  SUPABASE_TIMEOUT_MS: z.coerce.number().default(10000),
   JWT_SECRET: z.string().min(8).default('development-secret'),
   JWT_EXPIRES_IN: z.string().default('7d'),
   PLATFORM_ADMIN_USERNAME: z.string().optional().default(''),

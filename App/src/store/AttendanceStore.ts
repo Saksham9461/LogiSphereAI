@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Linking, Alert, Platform } from 'react-native';
 import axios from '../api/axiosClient';
-import { GetAttendanceStatus, ClockIn, ClockOut, GetAttendanceReport, ExportAttendancePdf } from '../api/apiPath';
+import { GetAttendanceStatus, GetActiveTripAttendance, ClockIn, ClockOut, GetAttendanceReport, ExportAttendancePdf } from '../api/apiPath';
 import useAuthStore from './AuthStore';
 
 export type AttendanceStatus = 'NOT_CLOCKED_IN' | 'CHECKING_LOCATION' | 'CLOCKED_IN' | 'OUTSIDE_GEOFENCE' | 'LOCATION_UNAVAILABLE';
@@ -78,6 +78,19 @@ interface AttendanceState {
   history: AttendanceRecord[];
   loading: boolean;
   error: string | null;
+  geofence: {
+    latitude: number;
+    longitude: number;
+    geofenceRadius: number;
+    organizationName: string;
+  } | null;
+  activeTrip: {
+    tripID: string;
+    status: string;
+    source: string;
+    destination: string;
+    vehicleID?: string;
+  } | null;
 
   // Report State
   reportItems: GroupedAttendanceReportItem[];
@@ -96,8 +109,9 @@ interface AttendanceState {
   // Core Actions
   setStatus: (status: AttendanceStatus) => void;
   fetchStatus: () => Promise<{ success: boolean; data?: any; message?: string }>;
-  clockIn: (lat: number, lon: number, distance: number, locationName: string) => Promise<{ success: boolean; data?: any; message?: string; errorData?: any }>;
-  clockOut: () => Promise<{ success: boolean; data?: any; message?: string }>;
+  fetchActiveTrip: () => Promise<{ success: boolean; hasActiveTrip: boolean; trip?: any }>;
+  clockIn: (lat: number, lon: number, distance?: number, locationName?: string, exceptionData?: { locationDescription?: string; tripId?: string }) => Promise<{ success: boolean; data?: any; message?: string; errorData?: any }>;
+  clockOut: (lat?: number, lon?: number, exceptionData?: { locationDescription?: string; tripId?: string }) => Promise<{ success: boolean; data?: any; message?: string; errorData?: any }>;
 
   // Report Actions
   setReportFilters: (filters: Partial<AttendanceReportFilter>) => void;
@@ -141,6 +155,8 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
   history: [],
   loading: false,
   error: null,
+  geofence: null,
+  activeTrip: null,
 
   // Report initial state
   reportItems: [],
@@ -184,6 +200,8 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
             longitude: activeRec?.longitude ?? null,
             distanceFromOffice: activeRec?.distanceFromOffice ?? null,
             history: Array.isArray(data.history) ? data.history : [],
+            geofence: data.geofence || get().geofence || null,
+            activeTrip: data.activeTrip || get().activeTrip || null,
             error: null,
           });
           return { success: true, data };
@@ -202,53 +220,98 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
     return inFlightFetchStatusPromise;
   },
 
-  clockIn: async (lat, lon, distance, locationName) => {
+  fetchActiveTrip: async () => {
+    try {
+      const user = useAuthStore.getState().user;
+      const currentUserId = user?.id || user?.userId;
+      const response = await axios.get(GetActiveTripAttendance, {
+        params: currentUserId ? { userId: currentUserId } : undefined,
+        headers: currentUserId ? { 'x-user-id': currentUserId } : undefined,
+      });
+      const data = response.data;
+      if (data?.success) {
+        set({ activeTrip: data.hasActiveTrip ? data.trip : null });
+        return data;
+      }
+      return { success: false, hasActiveTrip: false };
+    } catch (_) {
+      return { success: false, hasActiveTrip: false };
+    }
+  },
+
+  clockIn: async (lat, lon, distance, locationName, exceptionData) => {
     try {
       set({ loading: true, error: null });
       const user = useAuthStore.getState().user;
       const currentUserId = user?.id || user?.userId;
-      const response = await axios.post(ClockIn, {
+      const payload: Record<string, any> = {
         latitude: lat,
         longitude: lon,
-        distanceFromOffice: distance,
-        locationName,
         userId: currentUserId,
-      }, {
+      };
+      if (locationName) payload.locationName = locationName;
+      if (distance !== undefined && distance !== null) payload.distanceFromOffice = distance;
+      if (exceptionData?.locationDescription) {
+        payload.locationDescription = exceptionData.locationDescription;
+        payload.reason = exceptionData.locationDescription;
+      }
+      if (exceptionData?.tripId) {
+        payload.tripId = exceptionData.tripId;
+        payload.tripID = exceptionData.tripId;
+      }
+
+      const response = await axios.post(ClockIn, payload, {
         headers: currentUserId ? { 'x-user-id': currentUserId } : undefined,
       });
       const data = response.data;
       if (data?.success) {
         const activeRec = data.record;
+        const serverDistance = activeRec?.distanceFromOffice ?? data.data?.distance ?? distance ?? null;
         set({
           loading: false,
           status: 'CLOCKED_IN',
           clockInTime: activeRec?.clockInTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          latitude: lat,
-          longitude: lon,
-          distanceFromOffice: distance,
+          latitude: activeRec?.latitude ?? lat,
+          longitude: activeRec?.longitude ?? lon,
+          distanceFromOffice: serverDistance,
           history: Array.isArray(data.history) ? data.history : get().history,
           error: null,
         });
-        return { success: true, data: data.record || data };
+        return { success: true, data: data.data || data.record || data };
       }
       set({ loading: false, status: 'NOT_CLOCKED_IN', error: data?.message || 'Clock in failed' });
-      return { success: false, message: data?.message || 'Clock in failed' };
+      const errDetails = data?.details || data?.errorData || data?.data;
+      return { success: false, message: data?.message || 'Clock in failed', errorData: errDetails };
     } catch (err: any) {
       const errorData = err?.response?.data;
       const msg = errorData?.message || err?.message || 'Clock in failed on server';
       set({ loading: false, status: 'NOT_CLOCKED_IN', error: msg });
-      return { success: false, message: msg, errorData };
+      const errDetails = errorData?.details || errorData?.errorData || errorData?.data || (typeof errorData === 'object' && errorData !== null ? errorData : null);
+      return { success: false, message: msg, errorData: errDetails };
     }
   },
 
-  clockOut: async () => {
+  clockOut: async (lat, lon, exceptionData) => {
     try {
       set({ loading: true, error: null });
       const user = useAuthStore.getState().user;
       const currentUserId = user?.id || user?.userId;
-      const response = await axios.post(ClockOut, {
+      const payload: Record<string, any> = {
         userId: currentUserId,
-      }, {
+      };
+      if (lat !== undefined && lon !== undefined && lat !== null && lon !== null) {
+        payload.latitude = lat;
+        payload.longitude = lon;
+      }
+      if (exceptionData?.locationDescription) {
+        payload.locationDescription = exceptionData.locationDescription;
+        payload.reason = exceptionData.locationDescription;
+      }
+      if (exceptionData?.tripId) {
+        payload.tripId = exceptionData.tripId;
+        payload.tripID = exceptionData.tripId;
+      }
+      const response = await axios.post(ClockOut, payload, {
         headers: currentUserId ? { 'x-user-id': currentUserId } : undefined,
       });
       const data = response.data;
@@ -263,14 +326,15 @@ export const useAttendanceStore = create<AttendanceState>((set, get) => ({
           history: Array.isArray(data.history) ? data.history : get().history,
           error: null,
         });
-        return { success: true, data: data.record || data };
+        return { success: true, data: data.data || data.record || data };
       }
       set({ loading: false, error: data?.message || 'Clock out failed' });
-      return { success: false, message: data?.message || 'Clock out failed' };
+      return { success: false, message: data?.message || 'Clock out failed', errorData: data?.errorData || data?.data };
     } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || 'Clock out failed on server';
+      const errorData = err?.response?.data;
+      const msg = errorData?.message || err?.message || 'Clock out failed on server';
       set({ loading: false, error: msg });
-      return { success: false, message: msg };
+      return { success: false, message: msg, errorData: errorData?.errorData || errorData?.data || errorData };
     }
   },
 

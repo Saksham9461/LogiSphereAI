@@ -23,6 +23,7 @@ import {
   FileText,
   UserPlus,
   ShieldAlert,
+  Leaf,
 } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
@@ -60,6 +61,8 @@ const getIcon = (routeName: string, color: string, size: number) => {
       return <Sparkles color={color} size={size} />;
     case 'AttendanceReport':
       return <FileText color={color} size={size} />;
+    case 'CarbonIntelligence':
+      return <Leaf color={color} size={size} />;
     case 'Register':
     case 'Signup':
       return <UserPlus color={color} size={size} />;
@@ -86,6 +89,8 @@ const getLabel = (routeName: string) => {
       return 'Fuel';
     case 'Analytics':
       return 'Analytics';
+    case 'CarbonIntelligence':
+      return 'Carbon';
     case 'Chat':
       return 'Chat';
     case 'LiveTracking':

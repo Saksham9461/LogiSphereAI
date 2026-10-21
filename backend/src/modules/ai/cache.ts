@@ -5,7 +5,8 @@ export type AiFeatureType =
   | 'MAINTENANCE_FORECAST'
   | 'ROUTE_RECOMMENDATION'
   | 'AI_ASSISTANT_QUERY'
-  | 'FUEL_ANOMALY_DETECTION';
+  | 'FUEL_ANOMALY_DETECTION'
+  | 'CARBON_INTELLIGENCE';
 
 export interface CacheKeyOptions {
   feature: AiFeatureType;
@@ -49,6 +50,7 @@ export const FEATURE_TTL_SECONDS: Record<AiFeatureType, number> = {
   ROUTE_RECOMMENDATION: 600,
   AI_ASSISTANT_QUERY: 300,
   FUEL_ANOMALY_DETECTION: 900,
+  CARBON_INTELLIGENCE: 900,
 };
 
 /**

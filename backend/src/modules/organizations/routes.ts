@@ -29,11 +29,19 @@ const registerOrgSchema = z
       .number()
       .min(-90, 'Latitude must be between -90 and 90')
       .max(90, 'Latitude must be between -90 and 90')
+      .refine(val => isFinite(val), 'Latitude must be a finite number')
       .optional(),
     longitude: z
       .number()
       .min(-180, 'Longitude must be between -180 and 180')
       .max(180, 'Longitude must be between -180 and 180')
+      .refine(val => isFinite(val), 'Longitude must be a finite number')
+      .optional(),
+    geofenceRadius: z
+      .number()
+      .int()
+      .min(50, 'Geofence radius must be at least 50 meters')
+      .max(5000, 'Geofence radius cannot exceed 5000 meters')
       .optional(),
     managerName: z.string().trim().min(2, 'Manager name must be at least 2 characters'),
     managerEmail: z.string().trim().email('Valid manager email is required'),
@@ -50,6 +58,14 @@ const registerOrgSchema = z
   .refine(data => Boolean(data.managerPassword || data.password), {
     message: 'Password must be at least 8 characters long',
     path: ['managerPassword'],
+  })
+  .refine(data => (data.latitude === undefined && data.longitude === undefined) || (data.latitude !== undefined && data.longitude !== undefined), {
+    message: 'Both latitude and longitude must be provided together',
+    path: ['latitude'],
+  })
+  .refine(data => !(data.latitude === 0 && data.longitude === 0), {
+    message: 'Coordinates cannot be (0, 0)',
+    path: ['latitude'],
   });
 
 function slugify(text: string): string {
@@ -84,6 +100,7 @@ organizationRouter.post('/register', async (req, res) => {
       placeId,
       latitude,
       longitude,
+      geofenceRadius,
       managerName,
       managerEmail,
       managerPassword,
@@ -129,6 +146,7 @@ organizationRouter.post('/register', async (req, res) => {
       google_places_id: placeIdToUse,
       latitude: latitude !== undefined ? latitude : null,
       longitude: longitude !== undefined ? longitude : null,
+      geofence_radius: geofenceRadius || 200,
       status: 'pending', // Public registration is ALWAYS pending
       registration_timestamp: new Date().toISOString(),
       contact_email: contactEmail || managerEmail,

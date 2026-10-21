@@ -103,6 +103,20 @@ export const OrganizationRegistration: React.FC<OrganizationRegistrationProps> =
 
     if (!formattedAddress.trim()) {
       errors.formattedAddress = 'Official company address is required';
+    } else if (
+      !coords ||
+      typeof coords.latitude !== 'number' ||
+      typeof coords.longitude !== 'number' ||
+      !isFinite(coords.latitude) ||
+      !isFinite(coords.longitude) ||
+      (coords.latitude === 0 && coords.longitude === 0) ||
+      coords.latitude < -90 ||
+      coords.latitude > 90 ||
+      coords.longitude < -180 ||
+      coords.longitude > 180
+    ) {
+      errors.formattedAddress =
+        'Please select a verified address from the suggestions dropdown to resolve facility coordinates. Coordinates cannot be (0, 0) or unresolved.';
     }
 
     if (!managerName.trim()) {

@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { supabase } from './supabase';
+import { env } from './env';
 import { id } from '../utils/ids';
 
 type Table =
@@ -19,7 +20,8 @@ type Table =
   | 'emergency_alerts'
   | 'organizations'
   | 'organization_memberships'
-  | 'platform_admins';
+  | 'platform_admins'
+  | 'sustainability_targets';
 
 const now = () => new Date().toISOString();
 
@@ -41,15 +43,40 @@ const memory: Record<Table, any[]> = {
   organizations: [],
   organization_memberships: [],
   platform_admins: [],
+  sustainability_targets: [],
 };
 
-const knownMissingColumns = new Set<string>();
+const knownMissingColumns = new Set<string>([
+  'attendance_records.organization_id',
+  'users.organization_id',
+  'vehicles.organization_id',
+  'trips.organization_id',
+  'maintenance_records.organization_id',
+  'fuel_logs.organization_id',
+  'expense_records.organization_id',
+  'chat_messages.organization_id',
+  'tracking_locations.organization_id',
+  'conversations.organization_id',
+  'conversation_participants.organization_id',
+  'messages.organization_id',
+  'emergency_alerts.organization_id',
+  'organizations.organization_id',
+  'platform_admins.organization_id',
+  'attendance_records.is_geofence_exception',
+  'attendance_records.exception_reason',
+  'attendance_records.trip_id',
+  'attendance_records.exception_distance',
+  'attendance_records.exception_action',
+]);
 
-const withTimeout = <T>(promise: PromiseLike<T>, ms = 3000): Promise<T> => {
-  return Promise.race([
-    Promise.resolve(promise),
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Supabase request timeout')), ms)),
-  ]);
+const withTimeout = <T>(promise: PromiseLike<T>, ms = env.SUPABASE_TIMEOUT_MS ?? 10000): Promise<T> => {
+  let timer: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Supabase request timeout after ${ms}ms`)), ms);
+  });
+  return Promise.race([Promise.resolve(promise), timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 };
 
 function getRowKey(table: Table, row: any): string {
@@ -88,6 +115,9 @@ function getRowKey(table: Table, row: any): string {
   if (table === 'messages') {
     return String(row.id || row.messageid || row.messageId || '');
   }
+  if (table === 'sustainability_targets') {
+    return String(row.id || `${row.organization_id || ''}:::${row.period || ''}`);
+  }
   return String(row.id || '');
 }
 
@@ -116,16 +146,24 @@ export const db = {
       try {
         let q = supabase.from(table).select('*');
         let hasOrgFilter = false;
+        const orgMissing = knownMissingColumns.has(`${table}.organization_id`);
         for (const [k, v] of Object.entries(filter ?? {})) {
-          if ((k === 'organization_id' || k === 'organizationId') && v === defaultOrgId) {
-            hasOrgFilter = true;
-            q = q.or(`organization_id.eq.${defaultOrgId},organization_id.is.null`);
+          if (k === 'organization_id' || k === 'organizationId') {
+            if (!orgMissing) {
+              if (v === defaultOrgId) {
+                hasOrgFilter = true;
+                q = q.or(`organization_id.eq.${defaultOrgId},organization_id.is.null`);
+              } else {
+                q = q.eq(k, v);
+              }
+            }
           } else {
             q = q.eq(k, v);
           }
         }
         let { data, error } = await withTimeout(q);
-        if (error && hasOrgFilter && (error.code === 'PGRST204' || error.message?.includes('organization_id') || error.code === '42703')) {
+        if (error && (error.code === 'PGRST204' || error.message?.includes('organization_id') || error.code === '42703')) {
+          knownMissingColumns.add(`${table}.organization_id`);
           let retryQ = supabase.from(table).select('*');
           for (const [k, v] of Object.entries(filter ?? {})) {
             if (k !== 'organization_id' && k !== 'organizationId') {
@@ -138,17 +176,26 @@ export const db = {
         }
 
         let supaData = !error && data ? data : [];
-        if (supaData.length === 0) {
-          let qLower = supabase.from(table).select('*');
-          for (const [k, v] of Object.entries(filter ?? {})) {
-            if ((k === 'organization_id' || k === 'organizationId') && v === defaultOrgId) {
-              qLower = qLower.or(`organization_id.eq.${defaultOrgId},organization_id.is.null`);
-            } else {
-              qLower = qLower.eq(k.toLowerCase(), v);
+        if (supaData.length === 0 && entries.length > 0) {
+          const nonOrgEntries = entries.filter(([k]) => k !== 'organization_id' && k !== 'organizationId');
+          if (nonOrgEntries.length > 0) {
+            let qLower = supabase.from(table).select('*');
+            for (const [k, v] of Object.entries(filter ?? {})) {
+              if (k === 'organization_id' || k === 'organizationId') {
+                if (!knownMissingColumns.has(`${table}.organization_id`)) {
+                  if (v === defaultOrgId) {
+                    qLower = qLower.or(`organization_id.eq.${defaultOrgId},organization_id.is.null`);
+                  } else {
+                    qLower = qLower.eq('organization_id', v);
+                  }
+                }
+              } else {
+                qLower = qLower.eq(k.toLowerCase(), v);
+              }
             }
+            const resLower = await withTimeout(qLower);
+            if (!resLower.error && resLower.data) supaData = resLower.data;
           }
-          const resLower = await withTimeout(qLower);
-          if (!resLower.error && resLower.data) supaData = resLower.data;
         }
 
         const isGlobalTable = table === 'organizations' || table === 'platform_admins';
@@ -309,6 +356,7 @@ export const db = {
         } else if (table === 'attendance_records') {
           insertPayload = {
             id: data.id || `att-${Date.now()}`,
+            organization_id: data.organization_id || orgId || null,
             userid: data.userId || data.userid || null,
             date: data.date || new Date().toLocaleDateString('en-IN'),
             clockintime: data.clockInTime || data.clockintime,
@@ -319,6 +367,21 @@ export const db = {
             distancefromoffice: Number(data.distanceFromOffice ?? data.distancefromoffice ?? 0),
             status: data.status || 'Verified Location',
           };
+          if (data.is_geofence_exception !== undefined || data.isGeofenceException !== undefined) {
+            insertPayload.is_geofence_exception = Boolean(data.is_geofence_exception ?? data.isGeofenceException);
+          }
+          if (data.exception_reason !== undefined || data.exceptionReason !== undefined) {
+            insertPayload.exception_reason = data.exception_reason ?? data.exceptionReason;
+          }
+          if (data.trip_id !== undefined || data.tripId !== undefined) {
+            insertPayload.trip_id = data.trip_id ?? data.tripId;
+          }
+          if (data.exception_distance !== undefined || data.exceptionDistance !== undefined) {
+            insertPayload.exception_distance = Number(data.exception_distance ?? data.exceptionDistance);
+          }
+          if (data.exception_action !== undefined || data.exceptionAction !== undefined) {
+            insertPayload.exception_action = data.exception_action ?? data.exceptionAction;
+          }
         } else if (table === 'trips') {
           const tripIdVal = data.tripID || data.tripid || data.id || `TRP-${Math.floor(1000 + Math.random() * 9000)}`;
           insertPayload = {
@@ -537,6 +600,21 @@ export const db = {
           if (patch.latitude !== undefined) cleanPatch.latitude = Number(patch.latitude);
           if (patch.longitude !== undefined) cleanPatch.longitude = Number(patch.longitude);
           if (patch.locationName || patch.locationname) cleanPatch.locationname = patch.locationName || patch.locationname;
+          if (patch.is_geofence_exception !== undefined || patch.isGeofenceException !== undefined) {
+            cleanPatch.is_geofence_exception = Boolean(patch.is_geofence_exception ?? patch.isGeofenceException);
+          }
+          if (patch.exception_reason !== undefined || patch.exceptionReason !== undefined) {
+            cleanPatch.exception_reason = patch.exception_reason ?? patch.exceptionReason;
+          }
+          if (patch.trip_id !== undefined || patch.tripId !== undefined) {
+            cleanPatch.trip_id = patch.trip_id ?? patch.tripId;
+          }
+          if (patch.exception_distance !== undefined || patch.exceptionDistance !== undefined) {
+            cleanPatch.exception_distance = Number(patch.exception_distance ?? patch.exceptionDistance);
+          }
+          if (patch.exception_action !== undefined || patch.exceptionAction !== undefined) {
+            cleanPatch.exception_action = patch.exception_action ?? patch.exceptionAction;
+          }
           cleanPatch[timeField] = now();
         } else if (table === 'trips') {
           cleanPatch = {};

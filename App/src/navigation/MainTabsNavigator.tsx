@@ -14,6 +14,7 @@ import AIAssistantScreen from '../screens/AIAssistantScreen';
 import AttendanceReportScreen from '../screens/AttendanceReportScreen';
 import SignupScreen from '../screens/SignupScreen';
 import AlertsScreen from '../screens/AlertsScreen';
+import CarbonIntelligenceScreen from '../screens/CarbonIntelligenceScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -37,6 +38,7 @@ export default function MainTabsNavigator() {
       <Tab.Screen name="Chat" component={ChatScreen} />
       <Tab.Screen name="LiveTracking" component={LiveTrackingScreen} />
       <Tab.Screen name="AttendanceReport" component={AttendanceReportScreen} />
+      <Tab.Screen name="CarbonIntelligence" component={CarbonIntelligenceScreen} />
       <Tab.Screen name="Register" component={SignupScreen} />
     </Tab.Navigator>
   );

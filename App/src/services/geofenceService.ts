@@ -1,18 +1,31 @@
 import { calculateHaversineDistance } from '../utils/distanceUtils';
 import { MOCK_ORGANIZATION } from './locationService';
 
-export const checkGeofence = (userLat: number, userLon: number) => {
+export interface GeofenceTarget {
+  latitude: number;
+  longitude: number;
+  geofenceRadius?: number;
+  name?: string;
+}
+
+export const checkGeofence = (
+  userLat: number,
+  userLon: number,
+  targetOrg?: GeofenceTarget
+) => {
+  const target = targetOrg || MOCK_ORGANIZATION;
+  const radius = target.geofenceRadius || 200;
   const distance = calculateHaversineDistance(
     userLat,
     userLon,
-    MOCK_ORGANIZATION.latitude,
-    MOCK_ORGANIZATION.longitude
+    target.latitude,
+    target.longitude
   );
 
   return {
-    isInside: distance <= MOCK_ORGANIZATION.geofenceRadius,
+    isInside: distance <= radius,
     distance: Math.round(distance), // in meters
-    requiredRadius: MOCK_ORGANIZATION.geofenceRadius,
-    organizationName: MOCK_ORGANIZATION.name
+    requiredRadius: radius,
+    organizationName: target.name || 'Organization Facility',
   };
 };

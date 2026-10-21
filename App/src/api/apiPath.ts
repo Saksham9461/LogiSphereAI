@@ -2,13 +2,15 @@ import { Platform } from 'react-native';
 
 
 // export const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5001' : 'http://localhost:5001';
-const IS_PRODUCTION = !__DEV__;
+// const IS_PRODUCTION = !__DEV__;
 
-export const BASE_URL = IS_PRODUCTION
-  ? 'https://logisphereai.onrender.com'
-  : Platform.OS === 'android'
-    ? 'http://10.0.2.2:5001'
-    : 'http://localhost:5001';
+// export const BASE_URL = IS_PRODUCTION
+//   ? 'https://logisphereai.onrender.com'
+//   : Platform.OS === 'android'
+//     ? 'http://10.0.2.2:5001'
+//     : 'http://localhost:5001';
+
+export const BASE_URL = 'http://10.120.151.18:5001';
 
 export const WS_URL = BASE_URL.replace(/^http/, 'ws');
 
@@ -55,6 +57,7 @@ export const RouteRecommendation = `${BASE_URL}/api/ai/route-recommendation`;
 export const ClockIn = `${BASE_URL}/api/attendance/clock-in`;
 export const ClockOut = `${BASE_URL}/api/attendance/clock-out`;
 export const GetAttendanceStatus = `${BASE_URL}/api/attendance/status`;
+export const GetActiveTripAttendance = `${BASE_URL}/api/attendance/active-trip`;
 export const GetAttendanceHistory = `${BASE_URL}/api/attendance/history`;
 export const GetAttendanceReport = `${BASE_URL}/api/attendance/report`;
 export const ExportAttendancePdf = `${BASE_URL}/api/attendance/report/export-pdf`;
@@ -78,5 +81,17 @@ export const GetTripDelayInsights = (tripId: string) => {
   const cleanId = String(tripId || '').trim().replace(/^#/, '');
   return `${BASE_URL}/api/trip/${encodeURIComponent(cleanId)}/delay-insights`;
 };
+
+// Carbon Intelligence & Sustainability
+export const GetCarbonOverview = `${BASE_URL}/api/carbon/overview`;
+export const GetCarbonVehicles = `${BASE_URL}/api/carbon/vehicles`;
+export const GetCarbonTrips = `${BASE_URL}/api/carbon/trips`;
+export const GetCarbonAdvisor = `${BASE_URL}/api/carbon/advisor`;
+export const GetCarbonAnomalies = `${BASE_URL}/api/carbon/anomalies`;
+export const GetCarbonTargets = `${BASE_URL}/api/carbon/targets`;
+export const SetCarbonTarget = `${BASE_URL}/api/carbon/targets`;
+export const CompareEcoRoute = `${BASE_URL}/api/carbon/eco-route-compare`;
+export const GetCarbonReport = `${BASE_URL}/api/carbon/report`;
+
 
 

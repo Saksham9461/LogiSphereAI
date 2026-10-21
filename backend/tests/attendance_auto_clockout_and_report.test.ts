@@ -38,8 +38,23 @@ describe('LogiSphere AI — Attendance Auto Clock-Out & Staff Report System', { 
   let driver1Token = '';
   let driver2Token = '';
   let pastRecordId = '';
-
   beforeAll(async () => {
+    const testOrgId = '00000000-0000-0000-0000-00000000000b';
+    // Ensure test organization exists in organizations table
+    const existingOrg = await db.find('organizations', { id: testOrgId });
+    if (!existingOrg) {
+      await db.insert('organizations', {
+        id: testOrgId,
+        name: 'Apex Freight Systems',
+        slug: 'apex-freight-test',
+        formatted_address: 'LogiSphere Delhi Hub, New Delhi',
+        latitude: 28.6139,
+        longitude: 77.209,
+        geofence_radius: 200,
+        status: 'approved',
+      });
+    }
+
     // Insert mock users into database
     await db.insert('users', {
       id: managerUser.id,
@@ -47,6 +62,7 @@ describe('LogiSphere AI — Attendance Auto Clock-Out & Staff Report System', { 
       name: managerUser.name,
       role: managerUser.role,
       password: 'hashedPassword123',
+      organization_id: testOrgId,
     });
 
     await db.insert('users', {
@@ -55,6 +71,7 @@ describe('LogiSphere AI — Attendance Auto Clock-Out & Staff Report System', { 
       name: driverUser1.name,
       role: driverUser1.role,
       password: 'hashedPassword123',
+      organization_id: testOrgId,
     });
 
     await db.insert('users', {
@@ -63,11 +80,37 @@ describe('LogiSphere AI — Attendance Auto Clock-Out & Staff Report System', { 
       name: driverUser2.name,
       role: driverUser2.role,
       password: 'hashedPassword123',
+      organization_id: testOrgId,
     });
 
-    managerToken = signToken(managerUser);
-    driver1Token = signToken(driverUser1);
-    driver2Token = signToken(driverUser2);
+    // Create active memberships
+    await db.insert('organization_memberships', {
+      id: `mem-${Date.now()}-1`,
+      organization_id: testOrgId,
+      user_id: driverUser1.id,
+      role: 'ROLE_DRIVER',
+      status: 'active',
+    });
+
+    await db.insert('organization_memberships', {
+      id: `mem-${Date.now()}-2`,
+      organization_id: testOrgId,
+      user_id: driverUser2.id,
+      role: 'ROLE_DRIVER',
+      status: 'active',
+    });
+
+    await db.insert('organization_memberships', {
+      id: `mem-${Date.now()}-3`,
+      organization_id: testOrgId,
+      user_id: managerUser.id,
+      role: 'ROLE_MANAGER',
+      status: 'active',
+    });
+
+    managerToken = signToken({ ...managerUser, organization_id: testOrgId });
+    driver1Token = signToken({ ...driverUser1, organization_id: testOrgId });
+    driver2Token = signToken({ ...driverUser2, organization_id: testOrgId });
   });
 
   // 1. Manual clock-in and manual clock-out

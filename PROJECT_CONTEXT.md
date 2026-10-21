@@ -10,9 +10,11 @@ This document provides a complete, authoritative, and verified architectural ref
 
 ### Primary Capabilities
 - **Fleet Registry & Telemetry**: Full vehicle lifecycle tracking (`AVAILABLE`, `ON_TRIP`, `IN_SHOP`, `RETIRED`), load capacity enforcement, odometer tracking, and real-time GPS tracking.
-- **Driver Roster & Onboarding**: Driver profiles, safety scores, license tracking with expiration warnings, manual input, and document reader/OCR scanning support.
-- **Trip Lifecycle & Dispatching**: Strict cargo weight vs. vehicle payload validation, driver assignment, trip lifecycle progression (`DRAFT` / `PENDING_APPROVAL` → `ACCEPTED` → `GOING_TO_PICKUP` → `ARRIVED_AT_PICKUP` → `PICKED_UP` → `IN_TRANSIT` → `ARRIVED_AT_DROP` → `DELIVERED` / `COMPLETED` / `CANCELLED`), and automated vehicle/driver status updates.
-- **Attendance & Geofencing**: Geofence-verified clock-in/out (200m radius around head office), automated end-of-day clock-out reconciliation daemon (11:59 PM in configured business timezone), daily worked-duration calculation, and executive-grade PDF report exports.
+- **Driver Roster & Onboarding**: Driver profiles, safety scores, license tracking with expiration warnings, manual input, and mock OCR scanning endpoint (Note: Regula Document Reader integration was abandoned; production OCR is pending).
+- **Trip Lifecycle & Dispatching**: Strict cargo weight vs. vehicle payload validation, driver assignment, trip lifecycle progression (`DRAFT` / `PENDING_APPROVAL` → `ACCEPTED` → `GOING_TO_PICKUP` → `ARRIVED_AT_PICKUP` → `PICKED_UP` → `IN_TRANSIT` → `ARRIVED_AT_DROP` → `DELIVERED` / `COMPLETED` / `CANCELLED`), and automated vehicle/driver status updates. *(Note: Digital Proof of Delivery is planned/pending and NOT implemented).*
+- **Attendance & Geofencing**: Configurable organization geofence radius (50m–5000m, default 200m; Migration 010), automated end-of-day clock-out reconciliation daemon (11:59 PM in configured business timezone), daily worked-duration calculation, and executive-grade PDF report exports.
+- **Active Trip Geofence Attendance Exception**: Reason-capture exception allowing drivers outside their organization geofence to clock in or clock out if and only if they have an active operational trip assigned to them (Migration 012). Non-drivers and drivers without active trips remain strictly geofenced.
+- **AI Carbon Intelligence & Sustainability**: Complete emissions tracking engine adhering to EPA, DEFRA, and GHG protocols across Diesel, Petrol, CNG, and Electric fleets. Features real vs. estimated fuel calculations, periodic carbon target budgets (`sustainability_targets`; Migration 011), fleet efficiency rankings, eco-route comparisons, and Gemini AI Carbon Advisor insights with 100% deterministic fallback.
 - **Real-Time Messaging**: 1-on-1 driver-to-manager communications powered by native WebSockets (`/ws/chat`), delivery & read receipts, unread count badges, and an automated 24-hour message retention cleanup daemon.
 - **Live GPS Fleet Tracking**: Background & foreground GPS telemetry ingested from active drivers (~45–60s target), atomic single-row upsert in `tracking_locations`, WebSocket broadcasts (`/ws/tracking`), freshness classification (`LIVE`, `UPDATING`, `STALE`, `NO_SIGNAL`), and MapLibre vector maps.
 - **AI Fleet Intelligence Assistant**: Conversational Fleet Intelligence Assistant (`/api/ai/query` & `/api/ai/assistant`) with strict RBAC segregation between Managers and Drivers, deterministic KPI calculation, bounded cards, deep-link actions to tracking maps, and resilient LLM enrichment.
@@ -21,6 +23,7 @@ This document provides a complete, authoritative, and verified architectural ref
 - **Smart Fuel Anomaly & Efficiency Intelligence**: Deterministic multi-vector fuel anomaly detection (`/api/analytics/fuel-anomalies`) flagging consumption drops (>30% below vehicle baseline), tank overflows (>15% over nominal capacity), pricing spikes (>30% over regional baseline), and rapid consecutive refuels, enriched with resilient Gemini AI explanations.
 - **Maintenance & Expense Tracking**: Preventive servicing, repair logs, refueling entries, toll/operational expense bookkeeping, and cost efficiency analytics.
 - **Safety & Emergency SOS**: Panic SOS trigger in mobile navigation bar and dedicated `/api/sos` & `/api/alerts` router for instant emergency notification, GPS broadcast, and audit logging.
+- **Multi-Organization SaaS Architecture**: Multi-tenant database foundation (`organizations`, `organization_memberships`, `platform_admins`), public web registration (`#/register`), minimal admin approval portal (`#/admin`), and server-side tenant isolation.
 
 ---
 
@@ -28,19 +31,21 @@ This document provides a complete, authoritative, and verified architectural ref
 
 ### Mobile Frontend (`/App`)
 - **Framework**: React Native 0.86.0 (React 19.2.3) bootstrapped via `@react-native-community/cli`.
-- **Language**: TypeScript 5.8.3 (`npx tsc --noEmit` clean).
+- **Language**: TypeScript 5.8.3 (`npx tsc --noEmit` clean with 0 errors).
 - **Navigation**: React Navigation v7 (`@react-navigation/native` `^7.3.14`, `@react-navigation/native-stack` `^7.18.6`, `@react-navigation/drawer` `^7.13.5`, `@react-navigation/bottom-tabs` `^7.18.14`).
-- **State Management**: Zustand v5.0.14 across 12 dedicated domain stores (`AuthStore`, `TrackingStore`, `ChatStore`, `AttendanceStore`, `TripStore`, `VehicleStore`, `DriverStore`, `MaintenanceStore`, `FuelExpenseStore`, `AnalyticsStore`, `DashboardStore`, `NotificationStore`, `AlertStore`).
+- **Screens**: 19 screen views (including `CarbonIntelligenceScreen.tsx`, `TripDispatcherScreen.tsx`, `LiveTrackingScreen.tsx`).
+- **State Management**: Zustand v5.0.14 across 14 dedicated domain stores (`AuthStore`, `TrackingStore`, `ChatStore`, `AttendanceStore`, `TripStore`, `VehicleStore`, `DriverStore`, `MaintenanceStore`, `FuelExpenseStore`, `CarbonStore`, `AnalyticsStore`, `DashboardStore`, `NotificationStore`, `AlertStore`).
 - **Local Storage**: `@react-native-async-storage/async-storage` v3.1.1 (session tokens, Remember Me preference, user metadata).
 - **Styling & UI**: Custom Vanilla React Native StyleSheet, `lucide-react-native` v1.27.0, `react-native-svg` v15.15.5, `react-native-reanimated` v4.5.3, `react-native-safe-area-context` v5.8.0, and `react-native-screens` v4.26.2.
 - **Maps & Geolocation**: `@maplibre/maplibre-react-native` v11.3.6, `@react-native-community/geolocation` v3.4.0, and MapTiler vector tiles.
 - **HTTP & Real-Time**: Axios v1.18.1 (with Bearer token request/response interceptors) and native React Native `WebSocket`.
 - **Speech Recognition**: `@react-native-voice/voice` v3.2.4 wrapped in `NativeSpeechService` with Android `RECORD_AUDIO` permission handling and manual correction fallbacks.
-- **Image Capture & OCR**: `react-native-image-picker` v8.2.1.
+- **Image Capture & OCR**: `react-native-image-picker` v8.2.1 (mock endpoint testbed; Regula reader abandoned; production OCR pending).
 
 ### Backend (`/backend`)
 - **Runtime & Framework**: Node.js (>=20.x / 22.x), Express 4.21.0.
 - **Language & Execution**: TypeScript 5.6.2 executed in dev via `tsx watch src/server.ts` or compiled via `tsc -p tsconfig.build.json`.
+- **Core Domain Modules**: Vehicles, Drivers, Trips, Tracking, Attendance & Geofencing, Carbon Intelligence & Sustainability, Analytics, Fuel, Expenses, Maintenance, Chat & WebSockets, Emergency SOS, Organizations & Multi-Tenancy, Platform Admin.
 - **Real-Time & WebSockets**: Native `ws` v8.18.0 WebSocketServer attached to the Node HTTP server handling `/ws/chat`, `/ws/tracking`, and `/ws/alerts`.
 - **Database Layer**: Dual-mode database layer in `backend/src/config/database.ts`:
   - **Supabase Integration**: `@supabase/supabase-js` v2.45.4 REST API client when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are provided. Supports realtime publication replication.
@@ -48,12 +53,12 @@ This document provides a complete, authoritative, and verified architectural ref
 - **Authentication & Security**: `jsonwebtoken` v9.0.2 (JWT token signing & verification), `bcryptjs` v2.4.3 (password hashing), `helmet` v7.1.0, `cors` v2.8.5.
 - **Reporting & PDF Generation**: `pdfkit` v0.15.0 for binary executive A4 attendance report generation.
 - **AI & External APIs**:
-  - Google Gemini API (`models/gemini-3.8-flash`) via direct REST endpoint (`https://generativelanguage.googleapis.com/v1beta/models/...`).
+  - Google Gemini API (`models/gemini-3.8-flash`) via direct REST endpoint (`https://generativelanguage.googleapis.com/v1beta/models/...`). Single key configuration in `GEMINI_API_KEY`/`AI_API_KEY` with circuit breaker and quota classification; multiple-key rotation is planned/pending.
   - Google Routes API (`computeRoutes`).
   - Google Places API (New) for location autocomplete.
   - MapTiler geocoding.
 - **File Uploads & Validation**: `multer` v2.4.0 (multipart document handling for OCR), `zod` v3.23.8 (environment validation).
-- **Testing**: `vitest` v2.1.9 and `supertest` v7.0.0 (20 automated test suites).
+- **Testing**: `vitest` v2.1.9 and `supertest` v7.0.0 (26 automated integration test suites).
 
 ### Web Portal (`/web`)
 - **Framework & Runtime**: React 19 bootstrapped with Vite 8 (`logisphere-ai-web`).
@@ -102,10 +107,11 @@ Minor/
 │   │   │   ├── MainTabsNavigator.tsx
 │   │   │   ├── RootNavigator.tsx # Session hydration, Splash state, and Auth guard routing
 │   │   │   └── linking.ts        # Deep linking configuration (transitops://)
-│   │   ├── screens/              # 18 Screen views
+│   │   ├── screens/              # 19 Screen views
 │   │   │   ├── AIAssistantScreen.tsx
 │   │   │   ├── AlertsScreen.tsx
 │   │   │   ├── AttendanceReportScreen.tsx
+│   │   │   ├── CarbonIntelligenceScreen.tsx # AI Carbon Intelligence & Sustainability Dashboard
 │   │   │   ├── ChangePasswordScreen.tsx
 │   │   │   ├── ChatScreen.tsx
 │   │   │   ├── DashboardScreen.tsx
@@ -122,7 +128,7 @@ Minor/
 │   │   │   ├── TripDispatcherScreen.tsx # Trip dispatch + Delay Insights integration
 │   │   │   └── VehicleRegistryScreen.tsx
 │   │   ├── services/             # Client services
-│   │   │   ├── attendanceService.ts
+│   │   │   ├── attendanceService.ts # Geofence exception support & active trip validation
 │   │   │   ├── fleetAiService.ts # Live AI assistant queries & context management
 │   │   │   ├── geofenceService.ts
 │   │   │   ├── locationService.ts
@@ -131,11 +137,12 @@ Minor/
 │   │   │   ├── storage/          # AsyncStorage token wrapper (tokenStorage.ts)
 │   │   │   ├── tracking/         # Driver location tracking pipeline (driverTrackingService.ts)
 │   │   │   └── supabaseClient.ts # Supabase Realtime client for mobile subscriptions
-│   │   ├── store/                # 13 Zustand state stores
+│   │   ├── store/                # 14 Zustand state stores
 │   │   │   ├── AlertStore.ts
 │   │   │   ├── AnalyticsStore.ts
-│   │   │   ├── AttendanceStore.ts
+│   │   │   ├── AttendanceStore.ts # Geofence radius, active trip exceptions, and reporting
 │   │   │   ├── AuthStore.ts
+│   │   │   ├── CarbonStore.ts    # Carbon Intelligence, emissions KPIs, targets, and advisor
 │   │   │   ├── ChatStore.ts
 │   │   │   ├── DashboardStore.ts
 │   │   │   ├── DriverStore.ts
@@ -155,12 +162,13 @@ Minor/
 └── backend/                      # Express TypeScript Backend Service
     ├── src/
     │   ├── config/               # Database fallback abstraction, env schema & Supabase setup
-    │   │   ├── database.ts       # Unified 14-table DB abstraction with atomic upsert & memory fallback
+    │   │   ├── database.ts       # Unified 18-table DB abstraction with atomic upsert & memory fallback
     │   │   ├── env.ts            # Zod environment schema & validation (default GEMINI_MODEL=gemini-3.8-flash)
     │   │   └── supabase.ts       # Supabase client initialization
     │   ├── middleware/           # Express authentication & authorization middleware
     │   │   └── auth.ts           # JWT verify and role authorization middleware
-    │   ├── modules/              # 16 Domain feature modules
+    │   ├── modules/              # 17 Domain feature modules
+    │   │   ├── admin/            # Platform admin login, approval workflow & governance
     │   │   ├── ai/               # AI Fleet Assistant, intent routing, and resilient AI core
     │   │   │   ├── cache.ts          # Centralized in-memory TTL caching with feature TTLs
     │   │   │   ├── circuitBreaker.ts  # State machine (CLOSED, OPEN, HALF_OPEN) & cooldown
@@ -174,8 +182,14 @@ Minor/
     │   │   │   ├── fuelAnomalyService.ts # Deterministic fuel anomaly detection engine
     │   │   │   ├── maintenanceForecastService.ts # Deterministic 90-day maintenance forecaster
     │   │   │   └── routes.ts         # Analytics endpoints including fuel anomalies & forecast
-    │   │   ├── attendance/       # Clock in/out, auto clock-out daemon, and PDF generation
+    │   │   ├── attendance/       # Clock in/out, auto clock-out daemon, PDF report, and geofence exception
     │   │   ├── auth/             # Login, password reset, and change password
+    │   │   ├── carbon/           # AI-powered Carbon Intelligence & Sustainability engine
+    │   │   │   ├── analytics.ts      # Multi-vector carbon anomalies, rankings, eco-routing
+    │   │   │   ├── calculations.ts   # EPA/DEFRA/GHG emissions calculations per fuel type
+    │   │   │   ├── carbonService.ts  # Aggregated carbon overview, target budgeting & AI advisor
+    │   │   │   ├── routes.ts         # /api/carbon endpoints (overview, vehicles, trips, advisor, targets)
+    │   │   │   └── types.ts          # Carbon types and data contracts
     │   │   ├── chat/             # Chat REST routes, WebSockets (/ws/chat), 24h retention cleanup
     │   │   ├── dashboard/        # Fleet overview metrics and recent activity
     │   │   ├── expenses/         # Trip expenses (tolls, miscellaneous, maintenance)
@@ -183,7 +197,8 @@ Minor/
     │   │   ├── locations/        # Google Places autocomplete & place details proxy
     │   │   ├── maintenance/      # Vehicle service logs and completion transitions
     │   │   ├── notifications/    # Operational notifications
-    │   │   ├── ocr/              # Driver license scanning endpoint
+    │   │   ├── ocr/              # Driver license scanning endpoint (mock endpoint)
+    │   │   ├── organizations/    # Organization registration, status lookup, and geofence management
     │   │   ├── tracking/         # Live GPS location ingestion, querying, and WebSockets (/ws/tracking)
     │   │   ├── trips/            # Trip lifecycle management, dispatching, and delay prediction
     │   │   │   ├── delayPredictionService.ts # Deterministic delay prediction engine
@@ -194,7 +209,7 @@ Minor/
     │   ├── app.ts                # Express app initialization, middleware pipeline, and route mounting
     │   └── server.ts             # HTTP server entry point (bound to 0.0.0.0:5001), WebSockets, and cron jobs
     ├── supabase/
-    │   ├── migrations/           # 10 PostgreSQL schema migrations
+    │   ├── migrations/           # 13 PostgreSQL schema migrations
     │   │   ├── 001_initial_schema.sql
     │   │   ├── 002_add_must_change_password.sql
     │   │   ├── 003_enable_realtime.sql
@@ -204,14 +219,20 @@ Minor/
     │   │   ├── 007_add_client_request_id_to_emergency_alerts.sql
     │   │   ├── 20261006_create_chat_tables.sql
     │   │   ├── 008_create_multi_organization_tables.sql  # Multi-org tables: organizations, memberships, platform_admins
-    │   │   └── 009_safe_data_migration_and_rls.sql        # Default org backfill, FKs, triggers, and tenant RLS
+    │   │   ├── 009_safe_data_migration_and_rls.sql        # Default org backfill, FKs, triggers, and tenant RLS
+    │   │   ├── 010_add_geofence_radius_to_organizations.sql # Configurable organization geofence radius
+    │   │   ├── 011_create_sustainability_targets.sql     # Sustainability target budgets table & RLS
+    │   │   └── 012_add_geofence_exception_to_attendance.sql # Geofence exception columns for active trips
     │   └── seed.sql              # Initial database seed records
-    ├── tests/                    # 21 Vitest automated integration test suites
+    ├── tests/                    # 26 Vitest automated integration test suites
     │   ├── ai_assistant.test.ts
     │   ├── ai_resilience_and_caching.test.ts # 14 tests: cache, circuit breaker, single flight
     │   ├── analytics_flow.test.ts
     │   ├── attendance_auto_clockout_and_report.test.ts
+    │   ├── attendance_geofence_exception.test.ts # 16 tests: active trip geofence exception criteria
+    │   ├── carbon_intelligence.test.ts       # 14 tests: emissions math, targets, advisor, anomalies
     │   ├── chat_flow.test.ts
+    │   ├── complete_org_registration_and_approval_flow.test.ts # End-to-end multi-tenant lifecycle
     │   ├── dashboard_flow.test.ts
     │   ├── database_multi_org_migration.test.ts # Multi-org schema, migration, RLS, and isolation tests
     │   ├── delay_prediction.test.ts          # 6 tests: ETA math, stopped trip, AI fallback
@@ -223,7 +244,9 @@ Minor/
     │   ├── fuel_expense_flow.test.ts         # 6 tests: fuel logging and operational expenses
     │   ├── maintenance_flow.test.ts          # 3 tests: maintenance logging
     │   ├── maintenance_forecast.test.ts      # 6 tests: 90-day forecast, vehicle risks
+    │   ├── multi_org_authorization.test.ts   # 31 tests: multi-tenant RBAC, approval, isolation
     │   ├── offline_sos_idempotency.test.ts
+    │   ├── organization_geofencing_e2e.test.ts # 12 tests: configurable geofence radius & attendance
     │   ├── route_intelligence.test.ts        # 4 tests: Google routes & AI recommendations
     │   ├── smoke.test.ts
     │   ├── tracking_pipeline.test.ts
@@ -314,9 +337,10 @@ Node.js Express HTTP Server (backend/src/server.ts & app.ts, listening on 0.0.0.
 Unified Database Abstraction: db (backend/src/config/database.ts)
    │
    ├── Primary: Supabase PostgreSQL (@supabase/supabase-js with 3000ms timeout guard)
-   │             (14 tables: users, vehicles, trips, attendance_records, maintenance_records,
+   │             (18 tables: users, vehicles, trips, attendance_records, maintenance_records,
    │              fuel_logs, expense_records, chat_messages, tracking_locations, notifications,
-   │              conversations, conversation_participants, messages, emergency_alerts)
+   │              conversations, conversation_participants, messages, emergency_alerts,
+   │              organizations, organization_memberships, platform_admins, sustainability_targets)
    │
    └── Fallback: In-Memory Seeded Store (guarantees zero downtime offline or if Supabase keys absent)
 ```
@@ -329,13 +353,14 @@ Unified Database Abstraction: db (backend/src/config/database.ts)
 1. **Free/Standard Tier Rate Limits**: Google Gemini imposes strict Requests Per Minute (RPM) and Requests Per Day (RPD) quotas. During high-concurrency fleet operations or repetitive testing, calls can quickly trigger `HTTP 429: RESOURCE_EXHAUSTED`.
 2. **Model Deprecations**: Older models (such as `models/gemini-1.5-flash`) were retired/sunset on the v1beta endpoint for newer API keys, throwing `HTTP 404: Not Found`.
 3. **App Availability Requirement**: A logistics operations system **cannot crash, freeze, or block drivers/managers** just because an AI API key is exhausted, rate-limited, or offline.
+4. **Key Configuration & Rotation Status**: The backend reads a single API key from `GEMINI_API_KEY` (or `AI_API_KEY`). Multiple-key pool rotation is **NOT** currently implemented; rate-limiting and quota exhaustion are mitigated through multi-tier caching, single-flight coalescing, circuit-breaking, and mathematical fallbacks.
 
 ### B. The 5-Layer Resilience Strategy
 
 To guarantee 100% continuous uptime and quota efficiency, LogiSphere AI implements a layered architecture in `backend/src/modules/ai/`:
 
 ```
-Incoming AI Request (Assistant, Route, Delay, Maintenance, Fuel)
+Incoming AI Request (Assistant, Route, Delay, Maintenance, Fuel, Carbon)
                │
                ▼
 ┌────────────────────────────────────────┐
@@ -368,13 +393,14 @@ Incoming AI Request (Assistant, Route, Delay, Maintenance, Fuel)
 1. **In-Memory TTL Cache (`cache.ts`)**:
    - `ROUTE_RECOMMENDATION`: 3600 seconds (1 hour).
    - `MAINTENANCE_FORECAST`: 1800 seconds (30 minutes).
+   - `CARBON_INTELLIGENCE`: 1800 seconds (30 minutes).
    - `FUEL_ANOMALY_DETECTION`: 900 seconds (15 minutes).
    - `AI_ASSISTANT`: 300 seconds (5 minutes).
    - `TRIP_DELAY_INSIGHTS`: 120 seconds (2 minutes, telemetry-sensitive).
-   - SHA-256 normalized hash keys ensure identical payloads never trigger redundant Gemini API calls.
+   - SHA-256 normalized hash keys isolated by organization (`org_${orgId}_${hash}`) ensure identical payloads never trigger redundant Gemini API calls or cross-tenant cache contamination.
 
 2. **Single-Flight Coalescing (`singleFlight.ts`)**:
-   - If 10 concurrent requests query the same vehicle fuel anomaly or trip delay, only **1** outgoing request is dispatched. The other 9 await and share the same Promise.
+   - If multiple concurrent requests query the same vehicle fuel anomaly, carbon overview, or trip delay, only **1** outgoing request is dispatched. All other callers await and share the same Promise.
 
 3. **Fast-Failing Circuit Breaker (`circuitBreaker.ts`)**:
    - States: `CLOSED` (normal), `OPEN` (tripped after 3 consecutive failures or any hard 429 daily quota exhaustion), `HALF_OPEN` (probes 1 request after 30s cooldown).
@@ -385,8 +411,9 @@ Incoming AI Request (Assistant, Route, Delay, Maintenance, Fuel)
    - If Google returns an HTTP 404 indicating an older model was requested, the client automatically self-heals by retrying with `gemini-3.8-flash`.
    - Output tokens budget expanded (`maxOutputTokens: 1000`) to accommodate reasoning/thinking tokens without truncating structured JSON.
 
-5. **Deterministic Fallback Guarantees Across All 5 AI Features**:
+5. **Deterministic Fallback Guarantees Across All 6 AI Features**:
    - **Fuel Anomaly**: Pure mathematical calculations for consumption deviations, tank overflows, and price spikes remain 100% intact; fallback advisory delivers rule-based engineering checks.
+   - **Carbon Intelligence**: EPA/DEFRA/GHG emissions math, target budget variances, vehicle rankings, and anomalies are computed deterministically; fallback advisor provides actionable green fleet operational recommendations.
    - **Trip Delay Prediction**: Compares elapsed time vs. scheduled duration and GPS speed mathematically; fallback advisory provides schedule remediation steps.
    - **Maintenance Forecast**: Linear regression on historical 90-day expenses and risk scores computed deterministically; fallback provides preventive maintenance checks.
    - **Route Recommendations**: Haversine distance, speed-profile travel duration, and toll estimations are computed deterministically when Routes API/Gemini is unavailable.
@@ -457,9 +484,12 @@ The backend and frontend enforce 5 distinct operational roles:
 - **Files**: `backend/src/modules/tracking/routes.ts`, `backend/src/modules/tracking/websocket.ts`, `App/src/services/tracking/driverTrackingService.ts`, `App/src/store/TrackingStore.ts`, `App/src/screens/LiveTrackingScreen.tsx`.
 - **Logic**: Driver tracking activates when an assigned trip is started. Ingests GPS telemetry (45-60s interval, >100m movement). Atomic `db.upsert` maintains strictly one active row per trip in `tracking_locations`. WebSocket broadcasts coordinate updates to managers. MapLibre renders callsign markers and auto-focuses vehicles.
 
-### 7.5 Attendance, Auto Clock-Out & Reporting
-- **Files**: `backend/src/modules/attendance/autoClockOut.ts`, `backend/src/modules/attendance/pdfGenerator.ts`, `backend/src/modules/attendance/routes.ts`, `App/src/screens/AttendanceReportScreen.tsx`.
-- **Logic**: Haversine distance geofencing (200m radius around head office). Automated background cron runs every 60s, automatically closing unclosed shifts at 11:59 PM in configured business timezone (`Asia/Kolkata`). Generates executive A4 PDF reports via `pdfkit`.
+### 7.5 Attendance, Configurable Geofencing & Active Trip Exception
+- **Files**: `backend/src/modules/attendance/routes.ts`, `backend/src/modules/attendance/autoClockOut.ts`, `backend/src/modules/attendance/pdfGenerator.ts`, `App/src/components/ClockInWidget.tsx`, `App/src/store/AttendanceStore.ts`, `App/src/screens/AttendanceReportScreen.tsx`.
+- **Configurable Geofence Radius**: Each organization configures its geofence radius (`geofence_radius` in `organizations`, 50m–5000m, default 200m; Migration 010). Distance is verified using Haversine calculation against organization center coordinates.
+- **Active Trip Geofence Exception**: If an authenticated Driver is outside the geofence but has an active operational trip assigned to them (`ACCEPTED`, `ASSIGNED`, `DISPATCHED`, `GOING_TO_PICKUP`, `ARRIVED_AT_PICKUP`, `PICKED_UP`, `IN_TRANSIT`, `ARRIVED_AT_DROP`), the mobile app displays an "Outside Organization Location" modal. The driver enters a mandatory location description and submits the clock-in or clock-out request. The backend independently validates driver identity, active trip assignment, and outside coordinates, storing `is_geofence_exception = true`, `exception_reason`, `trip_id`, `exception_distance`, and `exception_action` in `attendance_records` (Migration 012). Non-drivers and drivers without active trips remain strictly blocked outside the geofence.
+- **Auto Clock-Out Daemon**: Background cron runs every 60s, automatically reconciling unclosed shifts at 11:59 PM in configured business timezone (`Asia/Kolkata`).
+- **Executive Reporting**: Generates downloadable A4 PDF reports via `pdfkit` streamed securely.
 
 ### 7.6 Real-Time Messaging & WebSockets
 - **Files**: `backend/src/modules/chat/websocket.ts`, `backend/src/modules/chat/cleanup.ts`, `backend/src/modules/chat/routes.ts`, `App/src/store/ChatStore.ts`, `App/src/screens/ChatScreen.tsx`.
@@ -469,23 +499,37 @@ The backend and frontend enforce 5 distinct operational roles:
 - **Files**: `backend/src/modules/alerts/routes.ts`, `App/src/components/SOSButton.tsx`, `App/src/screens/AlertsScreen.tsx`, `App/src/store/AlertStore.ts`.
 - **Logic**: Panic button in mobile navigation bar records alert in `emergency_alerts` table, captures real-time GPS coordinates, and broadcasts instant alerts over WebSockets to manager dashboards with audio/vibration cues.
 
+### 7.8 AI-Powered Carbon Intelligence & Sustainability Engine
+- **Files**: `backend/src/modules/carbon/calculations.ts`, `backend/src/modules/carbon/analytics.ts`, `backend/src/modules/carbon/carbonService.ts`, `backend/src/modules/carbon/routes.ts`, `App/src/store/CarbonStore.ts`, `App/src/screens/CarbonIntelligenceScreen.tsx`.
+- **Standardized Emissions Calculation**: EPA, DEFRA, and GHG protocols:
+  - Diesel: 2.68 kg CO2/L
+  - Petrol: 2.31 kg CO2/L
+  - CNG: 1.82 kg CO2/kg
+  - Electric: 0.82 kg CO2/kWh regional grid factor
+- **Actual vs. Estimated Accounting**: Distinguishes fuel-based emissions (`ACTUAL_FUEL` using verified refueling and odometer telemetry) vs. distance-modeled estimates (`ESTIMATED_DISTANCE`).
+- **Sustainability Target Budgets**: Organization-scoped monthly CO2 emission limits stored in `sustainability_targets` (Migration 011). Real-time trajectory tracking flags whether the fleet is `ON_TRACK` or `EXCEEDED`.
+- **Fleet Ranking & Anomalies**: Identifies least efficient vehicles (high g CO2/km) and flags excessive idle fuel burn, route detour emissions, and sudden consumption spikes.
+- **Eco-Route Comparison**: Evaluates candidate delivery routes on carbon footprint, fuel cost, and travel time trade-offs.
+- **AI Carbon Advisor**: Gemini-powered executive recommendations for route optimization and fleet electrification, backed by 100% deterministic mathematical fallback.
+
 ---
 
 ## 8. State Management Architecture
 
-The mobile application utilizes **Zustand v5** across 13 distinct stores:
+The mobile application utilizes **Zustand v5** across 14 distinct stores:
 
 | Store Name | File Path | Controlled State | Key Actions | Persistence |
 | :--- | :--- | :--- | :--- | :--- |
 | `AuthStore` | `App/src/store/AuthStore.ts` | `authStatus`, `user`, `token`, `loading`, `error` | `hydrate()`, `login()`, `logout()`, `changePassword()` | `AsyncStorage` via `tokenStorage` |
 | `TrackingStore` | `App/src/store/TrackingStore.ts` | `liveFleet`, `selectedTrip`, `loading`, `isConnected` | `fetchLiveFleet()`, `subscribeRealtime()`, `setSelectedTrip()` | In-Memory (Zustand) |
 | `ChatStore` | `App/src/store/ChatStore.ts` | `conversations`, `messages`, `rosterUsers`, `onlineUserIds`, `activeConversationId` | `initSocket()`, `sendMessage()`, `markConversationAsRead()`, `fetchConversations()` | In-Memory (Zustand) |
-| `AttendanceStore` | `App/src/store/AttendanceStore.ts` | `status`, `history`, `reportItems`, `reportMetrics`, `expandedRowIds` | `clockIn()`, `clockOut()`, `fetchReport()`, `exportPdf()` | In-Memory (Zustand) |
+| `AttendanceStore` | `App/src/store/AttendanceStore.ts` | `status`, `history`, `geofence`, `activeTrip`, `reportItems`, `reportMetrics`, `expandedRowIds` | `clockIn()`, `clockOut()`, `fetchStatus()`, `fetchActiveTrip()`, `fetchReport()`, `exportPdf()` | In-Memory (Zustand) |
 | `TripStore` | `App/src/store/TripStore.ts` | `trips`, `trip`, `loading`, `error` | `getTrips()`, `registerTrip()`, `dispatchTrip()`, `completeTrip()`, `cancelTrip()` | In-Memory (Zustand) |
 | `VehicleStore` | `App/src/store/VehicleStore.ts` | `vehicles`, `vehicle`, `loading`, `error` | `getVehicles()`, `registerVehicle()`, `updateVehicle()`, `deleteVehicle()` | In-Memory (Zustand) |
 | `DriverStore` | `App/src/store/DriverStore.ts` | `drivers`, `driver`, `loading`, `error` | `fetchDrivers()`, `getDrivers()` | In-Memory (Zustand) |
 | `MaintenanceStore` | `App/src/store/MaintenanceStore.ts` | `records`, `loading`, `error` | `fetchRecords()`, `addRecord()`, `completeRecord()` | In-Memory (Zustand) |
 | `FuelExpenseStore` | `App/src/store/FuelExpenseStore.ts` | `fuelLogs`, `expenses`, `loading`, `error` | `fetchFuel()`, `addFuel()`, `fetchExpenses()`, `addExpense()` | In-Memory (Zustand) |
+| `CarbonStore` | `App/src/store/CarbonStore.ts` | `overview`, `loading`, `error`, `selectedPeriod`, `targetStatus` | `fetchOverview()`, `setTarget()`, `fetchVehicles()`, `fetchTrips()` | In-Memory (Zustand) |
 | `AlertStore` | `App/src/store/AlertStore.ts` | `alerts`, `unreadCount`, `activeAlert`, `loading` | `triggerSOS()`, `fetchAlerts()`, `acknowledgeAlert()`, `resolveAlert()` | In-Memory (Zustand) |
 | `AnalyticsStore` | `App/src/store/AnalyticsStore.ts` | `analyticsData`, `loading`, `error` | `fetchAnalytics()` | In-Memory (Zustand) |
 | `DashboardStore` | `App/src/store/DashboardStore.ts` | `summary`, `recentTrips`, `loading`, `error` | `fetchSummary()` | In-Memory (Zustand) |
@@ -519,13 +563,22 @@ The mobile application utilizes **Zustand v5** across 13 distinct stores:
 | `/api/trip/complete/:tripID` | PUT | None | `modules/trips/routes.ts` | Completes trip, updates final odometer, frees vehicle to AVAILABLE | Fully Verified |
 | `/api/trip/cancel/:tripID` | PUT | None | `modules/trips/routes.ts` | Cancels trip and frees vehicle to AVAILABLE | Fully Verified |
 | `/api/trip/:tripId/delay-insights` | GET | Optional | `modules/trips/routes.ts` | Deterministic delay calculation and AI ETA insights | Fully Verified |
-| `/api/attendance/status` | GET | Optional | `modules/attendance/routes.ts` | Returns today's active shift status for user | Fully Verified |
-| `/api/attendance/clock-in` | POST | Optional | `modules/attendance/routes.ts` | Validates geofence coordinates and opens attendance session | Fully Verified |
-| `/api/attendance/clock-out` | POST | Optional | `modules/attendance/routes.ts` | Clocks out open attendance session | Fully Verified |
+| `/api/attendance/status` | GET | Optional | `modules/attendance/routes.ts` | Returns today's active shift status, geofence config, and active trip | Fully Verified |
+| `/api/attendance/active-trip` | GET | Bearer | `modules/attendance/routes.ts` | Validates and returns active assigned trip for driver geofence exception | Fully Verified |
+| `/api/attendance/clock-in` | POST | Optional | `modules/attendance/routes.ts` | Opens attendance session; validates geofence or active trip exception | Fully Verified |
+| `/api/attendance/clock-out` | POST | Optional | `modules/attendance/routes.ts` | Clocks out attendance session; supports active trip geofence exception | Fully Verified |
 | `/api/attendance/history` | GET | Optional | `modules/attendance/routes.ts` | Returns raw attendance records | Fully Verified |
 | `/api/attendance/report` | GET | Optional | `modules/attendance/routes.ts` | Returns grouped daily staff attendance sessions and KPIs | Fully Verified |
 | `/api/attendance/report/export-pdf`| GET | Optional | `modules/attendance/routes.ts` | Generates and streams binary A4 PDF attendance report | Fully Verified |
 | `/api/attendance/reconcile` | POST | Optional | `modules/attendance/routes.ts` | Manually triggers auto clock-out reconciliation daemon | Fully Verified |
+| `/api/carbon/overview` | GET | Optional | `modules/carbon/routes.ts` | Full emissions overview, KPIs, breakdowns, targets, AI advisor | Fully Verified |
+| `/api/carbon/vehicles` | GET | Optional | `modules/carbon/routes.ts` | Vehicle carbon rankings and efficiency profiles | Fully Verified |
+| `/api/carbon/trips` | GET | Optional | `modules/carbon/routes.ts` | Detailed trip emissions records with actual vs estimated tag | Fully Verified |
+| `/api/carbon/advisor` | GET | Optional | `modules/carbon/routes.ts` | AI Carbon Advisor recommendations with deterministic fallback | Fully Verified |
+| `/api/carbon/anomalies` | GET | Optional | `modules/carbon/routes.ts` | Fleet carbon anomalies (idle fuel burn, route detours) | Fully Verified |
+| `/api/carbon/targets` | GET/POST/PUT| Authenticate (RBAC)| `modules/carbon/routes.ts` | Inspect or configure monthly organization CO2 emission budget | Fully Verified |
+| `/api/carbon/eco-route-compare` | POST | Optional | `modules/carbon/routes.ts` | Multi-route comparison on distance, fuel, emissions, and cost | Fully Verified |
+| `/api/carbon/report` | GET | Optional | `modules/carbon/routes.ts` | Executive sustainability and emissions audit report | Fully Verified |
 | `/api/tracking/live` | GET | Optional | `modules/tracking/routes.ts` | Returns live GPS snapshot for all active trips | Fully Verified |
 | `/api/tracking/:tripID` | GET | Bearer | `modules/tracking/routes.ts` | Returns latest coordinates for specific trip | Fully Verified |
 | `/api/tracking/location` | POST | Bearer | `modules/tracking/routes.ts` | Ingests live driver GPS, updates single row, broadcasts WebSocket | Fully Verified |
@@ -561,6 +614,16 @@ The mobile application utilizes **Zustand v5** across 13 distinct stores:
 | `/api/locations/autocomplete` | POST/GET| None | `modules/locations/routes.ts` | Google Places autocomplete proxy | Fully Verified |
 | `/api/locations/details/:id` | GET | None | `modules/locations/routes.ts` | Google Places place details proxy | Fully Verified |
 | `/api/ocr/scan-license` | POST | None | `modules/ocr/routes.ts` | Multipart driver license OCR extraction (mock result) | Mock Endpoint |
+| `/api/org/register` | POST | None | `modules/organizations/routes.ts` | Public tenant organization registration | Fully Verified |
+| `/api/org/status/:slugOrId` | GET | None | `modules/organizations/routes.ts` | Public registration status review check | Fully Verified |
+| `/api/org/my-organizations` | GET | Bearer | `modules/organizations/routes.ts` | User membership list across organizations | Fully Verified |
+| `/api/admin/login` | POST | None | `modules/admin/routes.ts` | Fixed platform admin authentication (bcrypt, rate-limited) | Fully Verified |
+| `/api/admin/me` | GET | Bearer | `modules/admin/routes.ts` | Verifies active platform admin session | Fully Verified |
+| `/api/admin/stats` | GET | Bearer | `modules/admin/routes.ts` | Aggregated organization review counts | Fully Verified |
+| `/api/admin/orgs` | GET | Bearer | `modules/admin/routes.ts` | Organization review queue with filter tabs | Fully Verified |
+| `/api/admin/orgs/:id/approve` | POST | Bearer | `modules/admin/routes.ts` | Approves pending tenant organization | Fully Verified |
+| `/api/admin/orgs/:id/reject` | POST | Bearer | `modules/admin/routes.ts` | Rejects tenant application with audit reason | Fully Verified |
+| `/api/admin/orgs/:id/suspend` | POST | Bearer | `modules/admin/routes.ts` | Suspends active tenant organization | Fully Verified |
 
 ---
 
@@ -568,7 +631,7 @@ The mobile application utilizes **Zustand v5** across 13 distinct stores:
 
 The database is built on PostgreSQL with Supabase migrations in `backend/supabase/migrations/`. When running offline or without credentials, `backend/src/config/database.ts` transparently stores rows in an in-memory database with pre-seeded data.
 
-### Schema Definition (14 Tables)
+### Schema Definition (18 Tables)
 
 #### 1. `users`
 - `id` (`text`, PK): Unique user identifier (`usr-...`, `drv-...` or Supabase UUID).
@@ -577,6 +640,7 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 - `phoneNo` (`text`): Phone number.
 - `passwordHash` (`text`, NOT NULL): Bcrypt password hash.
 - `role` (`text`, NOT NULL): `ROLE_MANAGER`, `ROLE_DISPATCHER`, `ROLE_SAFETY_OFFICER`, `ROLE_FINANCE`, `ROLE_DRIVER`.
+- `organization_id` (`uuid`, FK -> `organizations.id`): Tenant organization.
 - `licenseNo` (`text`): Driver license number.
 - `licenseExpiryDate` (`text`): License expiration date.
 - `trips` (`integer`, Default `0`): Total trips completed.
@@ -587,6 +651,7 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 
 #### 2. `vehicles`
 - `vehicleID` (`text`, PK): Vehicle ID (`veh-...`).
+- `organization_id` (`uuid`, FK -> `organizations.id`): Tenant organization.
 - `registrationNumber` (`text`, UNIQUE, NOT NULL): Registration number / license plate.
 - `name` (`text`, NOT NULL): Vehicle callsign (e.g. `VAN-01`).
 - `type` (`text`, NOT NULL): `VAN`, `TRUCK`, `MINI`.
@@ -598,6 +663,7 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 
 #### 3. `trips`
 - `tripID` (`text`, PK): Trip identifier (`TRP-...`).
+- `organization_id` (`uuid`, FK -> `organizations.id`): Tenant organization.
 - `source` (`text`, NOT NULL): Origin depot/location.
 - `destination` (`text`, NOT NULL): Destination location.
 - `status` (`text`, Default `'PENDING_APPROVAL'`): `DRAFT`, `PENDING_APPROVAL`, `ACCEPTED`, `ASSIGNED`, `GOING_TO_PICKUP`, `ARRIVED_AT_PICKUP`, `PICKED_UP`, `IN_TRANSIT`, `ARRIVED_AT_DROP`, `DELIVERED`, `COMPLETED`, `CANCELLED`, `DISPATCHED`.
@@ -615,6 +681,7 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 #### 4. `attendance_records`
 - `id` (`text`, PK): Record identifier (`att-...`).
 - `userId` (`text`, FK -> `users.id`).
+- `organization_id` (`uuid`, FK -> `organizations.id`): Tenant organization scoping.
 - `date` (`text`, NOT NULL): Date string.
 - `clockInTime` (`text`, NOT NULL): Time string (e.g. `09:00 AM`).
 - `clockOutTime` (`text`): Time string (e.g. `05:30 PM`).
@@ -624,6 +691,11 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 - `status` (`text`, NOT NULL): Verification status (`Verified Location`, `Auto Clocked Out (11:59 PM)`).
 - `auto_clock_out` (`boolean`, Default `false`): True if closed by daemon.
 - `clock_out_type` (`text`, Default `'MANUAL'`): `MANUAL` or `AUTOMATIC`.
+- `is_geofence_exception` (`boolean`, Default `false`): True if recorded outside geofence via active trip exception (Migration 012).
+- `exception_reason` (`text`): Driver-entered mandatory description of current location and operational purpose.
+- `trip_id` (`text`, FK -> `trips.tripID` ON DELETE SET NULL): Associated active operational trip.
+- `exception_distance` (`numeric`): Distance in meters from organization geofence center at time of submission.
+- `exception_action` (`text`): Action performed under exception (`CLOCK_IN` or `CLOCK_OUT`).
 - `createdAt`, `updatedAt` (`timestamptz`).
 
 #### 5. `tracking_locations`
@@ -715,6 +787,47 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 - `senderName` (`text`, NOT NULL).
 - `createdAt` (`timestamptz`).
 
+#### 15. `organizations` (Migration 008, 010)
+- `id` (`uuid`, PK): Tenant UUID.
+- `name` (`text`, NOT NULL): Company name.
+- `slug` (`text`, UNIQUE, NOT NULL): URL reference slug.
+- `address` (`text`, NOT NULL): Formatted physical headquarters address.
+- `place_id` (`text`): Google Places place ID.
+- `latitude`, `longitude` (`numeric`, NOT NULL): Headquarters coordinates.
+- `geofence_radius` (`integer`, NOT NULL, Default `200`): Attendance geofence radius in meters (`CHECK (geofence_radius >= 50 AND geofence_radius <= 5000)`).
+- `status` (`text`, Default `'pending'`): `pending`, `approved`, `rejected`, `suspended`.
+- `review_reason` (`text`): Admin approval/rejection notes.
+- `reviewed_by` (`text`, FK -> `users.id`).
+- `reviewed_at` (`timestamptz`).
+- `created_at`, `updated_at` (`timestamptz`).
+
+#### 16. `organization_memberships` (Migration 008)
+- `id` (`uuid`, PK).
+- `organization_id` (`uuid`, FK -> `organizations.id` ON DELETE CASCADE).
+- `user_id` (`text`, FK -> `users.id` ON DELETE CASCADE).
+- `role` (`text`, NOT NULL): Operational role in company.
+- `status` (`text`, Default `'pending'`): `pending`, `active`, `suspended`.
+- `created_at`, `updated_at` (`timestamptz`).
+- *Unique Constraint*: `UNIQUE(organization_id, user_id)`.
+
+#### 17. `platform_admins` (Migration 008)
+- `id` (`text` or `uuid`, PK).
+- `user_id` (`text`, UNIQUE, FK -> `users.id` ON DELETE CASCADE).
+- `is_active` (`boolean`, Default `true`).
+- `notes` (`text`).
+- `created_at`, `updated_at` (`timestamptz`).
+
+#### 18. `sustainability_targets` (Migration 011)
+- `id` (`uuid`, PK DEFAULT `gen_random_uuid()`).
+- `organization_id` (`uuid`, FK -> `organizations.id` ON DELETE CASCADE).
+- `period` (`text`, NOT NULL): e.g. `'2026-10'`, `'MONTHLY'`.
+- `target_co2_kg` (`numeric`, NOT NULL CHECK (`target_co2_kg > 0`)): Target emission ceiling in kg CO2e.
+- `alert_threshold_percent` (`numeric`, Default `80` CHECK (`alert_threshold_percent > 0 AND alert_threshold_percent <= 100`)).
+- `notes` (`text`).
+- `created_by` (`text`, FK -> `users.id` ON DELETE SET NULL).
+- `created_at`, `updated_at` (`timestamptz`).
+- *Unique Constraint*: `UNIQUE(organization_id, period)`.
+
 ---
 
 ## 11. Verified Feature Status Matrix
@@ -731,7 +844,9 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 | **AI Route Intelligence** | **Implemented and verified** | `ai/routes.ts`, `TripDispatcherScreen.tsx` | Google Routes API, `/api/ai/route-recommendation` | 4/4 tests passed (`route_intelligence.test.ts`) |
 | **Trip Lifecycle & Dispatching** | **Implemented and verified** | `TripDispatcherScreen.tsx`, `TripStore.ts`, `trips/routes.ts` | `trips`, `vehicles`, `users` tables, `/api/trip/*` | 6/6 tests passed (`trip_lifecycle.test.ts`) |
 | **Mandatory Fleet Business Rules** | **Implemented and verified** | `trips/routes.ts`, `vehicles/routes.ts`, `maintenance/routes.ts`, `database.ts`, `TripDispatcherScreen.tsx` | `vehicles`, `users`, `trips`, `maintenance_records` | 26/26 tests passed across all 9 business rules (`fleet_business_rules.test.ts`) |
-| **Attendance & Geofencing** | **Implemented and verified** | `ClockInWidget.tsx`, `AttendanceStore.ts`, `attendance/routes.ts` | `attendance_records` table, `/api/attendance/clock-in`, `/api/attendance/clock-out` | 10/13 passed (`attendance_auto_clockout_and_report.test.ts`) |
+| **Attendance & Geofencing** | **Implemented and verified** | `ClockInWidget.tsx`, `AttendanceStore.ts`, `attendance/routes.ts` | `attendance_records` table, `organizations`, `/api/attendance/clock-in`, `/api/attendance/clock-out` | 10/13 passed (`attendance_auto_clockout_and_report.test.ts`), 12/12 passed (`organization_geofencing_e2e.test.ts`) |
+| **Active Trip Geofence Attendance Exception** | **Implemented and verified** | `ClockInWidget.tsx`, `AttendanceStore.ts`, `attendance/routes.ts`, `database.ts` | `attendance_records`, `trips`, `organizations`, `/api/attendance/active-trip` | 16/16 tests passed (`attendance_geofence_exception.test.ts`) |
+| **AI Carbon Intelligence & Sustainability** | **Implemented and verified** | `CarbonIntelligenceScreen.tsx`, `CarbonStore.ts`, `modules/carbon/*` | `sustainability_targets`, `trips`, `fuel_logs`, `vehicles`, `/api/carbon/*` | 14/14 tests passed (`carbon_intelligence.test.ts`) |
 | **Auto Clock-Out Daemon** | **Implemented and verified** | `autoClockOut.ts`, `server.ts`, `attendance/routes.ts` | `attendance_records` table, `/api/attendance/reconcile` | Runs on boot + every 60s in `Asia/Kolkata` timezone |
 | **Executive PDF Export** | **Implemented and verified** | `pdfGenerator.ts`, `AttendanceStore.ts`, `attendance/routes.ts` | `/api/attendance/report/export-pdf`, `pdfkit` | Verified binary PDF generation with auth token in query param |
 | **Real-Time 1-on-1 Chat** | **Implemented and verified** | `ChatScreen.tsx`, `ChatStore.ts`, `chat/websocket.ts`, `chat/routes.ts` | `conversations`, `conversation_participants`, `messages`, `/ws/chat` | 7/10 passed (`chat_flow.test.ts`), live messaging verified |
@@ -743,7 +858,9 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 | **Fuel & Expenses Logging** | **Implemented and verified** | `FuelExpenseScreen.tsx`, `FuelExpenseStore.ts`, `fuel/routes.ts`, `expenses/routes.ts` | `fuel_logs`, `expense_records`, `/api/fuel/*`, `/api/expenses/*` | 6/6 tests passed (`fuel_expense_flow.test.ts`) |
 | **Fleet Analytics Dashboard** | **Implemented and verified** | `AnalyticsScreen.tsx`, `AnalyticsStore.ts`, `analytics/routes.ts` | `/api/analytics` | 1/1 test passed (`analytics_flow.test.ts`) |
 | **Google Places Autocomplete** | **Implemented and verified** | `locations/routes.ts`, `TripDispatcherScreen.tsx` | `/api/locations/autocomplete`, `/api/locations/details/:id` | Verified with Google Places (New) and empty fallback |
-| **Driver License OCR** | **Mock endpoint** | `ocr/routes.ts`, `DriversScreen.tsx` | `multipart/form-data` to `/api/ocr/scan-license` | Returns static extracted metadata for testing |
+| **Driver License OCR** | **Mock endpoint only** | `ocr/routes.ts`, `DriversScreen.tsx` | `multipart/form-data` to `/api/ocr/scan-license` | Regula integration abandoned; mock endpoint returns static payload; production OCR planned |
+| **Digital Proof of Delivery (POD)** | **Planned / Pending** | N/A | N/A | Explicitly NOT implemented; do not claim it is active |
+| **Multiple Gemini API Key Rotation** | **Planned / Pending** | `ai/geminiClient.ts` | `env.ts` | Single key configured with circuit breaker; multiple-key pool planned |
 
 ---
 
@@ -839,6 +956,10 @@ npm start
 npm test
 
 # Run specific AI and operational test suites
+npx vitest run tests/attendance_geofence_exception.test.ts
+npx vitest run tests/carbon_intelligence.test.ts
+npx vitest run tests/organization_geofencing_e2e.test.ts
+npx vitest run tests/multi_org_authorization.test.ts
 npx vitest run tests/fuel_anomaly.test.ts
 npx vitest run tests/ai_resilience_and_caching.test.ts
 npx vitest run tests/delay_prediction.test.ts
@@ -897,16 +1018,20 @@ npm run preview
 
 ## 15. Pending Tasks & Future Roadmap
 
-1. **Root-Level `llm/` Architecture & Local Ollama Support**:
+1. **Digital Proof of Delivery (POD) (Planned / Pending)**:
+   - Recipient signature capture on mobile glass, photo capture of delivered cargo, and offline queueing before finalizing trip arrival. *(Note: Explicitly NOT yet implemented in mobile or backend).*
+2. **Production OCR Integration (Planned / Pending)**:
+   - Replace the mock extraction handler in `backend/src/modules/ocr/routes.ts` with Google Cloud Vision or Tesseract OCR for physical driver licenses. *(Note: Regula Document Reader integration was explicitly abandoned and must not be reintroduced).*
+3. **Multiple Gemini API Key Pool Rotation (Planned / Pending)**:
+   - Implement round-robin key rotation across a pool of configured Gemini API keys to multiply daily rate limits during multi-user demos.
+4. **Root-Level `llm/` Architecture & Local Ollama Support (Planned / Pending)**:
    - Create root-level `llm/` directory housing providers (Ollama + Gemini fallback), hybrid orchestrator, prompts, schemas, tests, and demo documentation.
    - Enable local MacBook-powered offline LLM demonstrations via Ollama (`127.0.0.1:11434`) without duplicating backend routes or breaking production Render deployments.
-2. **Local Demo Mode Mobile Profile**:
+5. **Local Demo Mode Mobile Profile (Planned / Pending)**:
    - Provide a clean IP configuration toggle in `App/src/api/apiPath.ts` for phone-hotspot-to-MacBook presentations while preserving production Render URLs.
-3. **Production OCR Integration**:
-   - Replace the mock extraction handler in `backend/src/modules/ocr/routes.ts` with Regula Document Reader or Google Cloud Vision OCR for physical driver licenses.
-4. **Native Background Location Service**:
+6. **Native Background Location Service (Planned / Pending)**:
    - Implement Android Foreground Service (`LocationForegroundService`) to guarantee continuous GPS updates when the app is completely backgrounded or screen locked.
-5. **Background Push Notifications**:
+7. **Background Push Notifications (Planned / Pending)**:
    - Integrate Firebase Cloud Messaging (FCM) or Apple APNs for critical dispatch alerts and chat messages when the app is killed.
 
 ---
@@ -1406,5 +1531,117 @@ Unused types (`UserRole`, `User`, `VehicleStatus`, `VehicleType`, `Vehicle`, `Tr
   - Total Web Tests: **49 passed out of 49** (100% pass rate).
 - **Backend Multi-Organization Security Suite**:
   - `backend/tests/multi_org_authorization.test.ts`: **31 passed out of 31** (100% pass rate).
+
+---
+
+## 22. Organization-Configurable Geofence & Active Trip-Based Attendance Exception (Completed)
+
+### 22.1 Background & Objective
+Prior to this feature, attendance clock-in and clock-out were strictly restricted to a fixed 200m radius around head office coordinates. However, in real-world fleet logistics:
+1. Each organization operates from distinct physical headquarters with unique depot sizes and premises requirements.
+2. Drivers are routinely outside the organization's physical geofence because they are already en route, performing deliveries, or returning from assigned trips.
+
+To resolve these operational constraints without creating an unrestricted geofence bypass, LogiSphere AI implemented:
+- **Organization-Configurable Geofence Radius** (Migration 010): Enables each organization to define its authorized geofence radius (50m to 5000m, default 200m).
+- **Active Trip-Based Geofence Attendance Exception** (Migration 012): A secure, reason-capture exception allowing drivers outside the geofence to clock in or clock out if and only if they have a verified, active operational trip assigned to them.
+
+### 22.2 Mandatory Eligibility & Security Invariants
+The exception modal and backend authorization apply **strictly** when ALL of the following conditions are met:
+1. **Authenticated Role**: The user must have role `ROLE_DRIVER` or `DRIVER`. Non-driver roles (`MANAGER`, `DISPATCHER`, `SAFETY_OFFICER`, `FINANCE`, `ADMIN`) are rejected with `403 Forbidden` and remain subject to standard geofence enforcement.
+2. **Assigned Active Operational Trip**: The driver must have a trip assigned to their authenticated user ID (`driver_id = req.user.id`) scoped to their organization (`organization_id = req.user.organizationId`) with one of the active lifecycle statuses:
+   - `ACCEPTED`, `ASSIGNED`, `DISPATCHED`, `GOING_TO_PICKUP`, `ARRIVED_AT_PICKUP`, `PICKED_UP`, `IN_TRANSIT`, `ARRIVED_AT_DROP`.
+   - Trips with status `COMPLETED`, `CANCELLED`, `DRAFT`, or trips belonging to another driver are strictly rejected.
+3. **Outside Geofence Verification**: The server calculates the Haversine distance between the submitted GPS coordinates and the organization's headquarters coordinates. The distance must exceed `organization.geofence_radius`. If a client attempts to submit an exception flag while inside the geofence, the request is rejected (`400 Bad Request`) to prevent falsifying audit records.
+4. **Mandatory Location Description**: The driver must describe their current location and operational purpose. Empty strings or whitespace-only inputs are rejected with `400 Bad Request`.
+5. **Attendance State Machine Integrity**: Normal clock-in/out sequencing rules apply (cannot clock in twice, cannot clock out when not clocked in). Zero duplicate records are created.
+
+### 22.3 Database Schema & Audit Trail (Migration 012)
+The `attendance_records` table was extended via [012_add_geofence_exception_to_attendance.sql](file:///Users/sakshamojha/Documents/Projects/Minor/backend/supabase/migrations/012_add_geofence_exception_to_attendance.sql):
+- `is_geofence_exception` (`boolean DEFAULT false`): Audit flag indicating whether attendance was recorded via active trip exception.
+- `exception_reason` (`text`): Driver-provided location description.
+- `trip_id` (`text REFERENCES trips(tripID) ON DELETE SET NULL`): Active trip authorizing the exception.
+- `exception_distance` (`numeric`): Server-calculated distance in meters from organization geofence center at time of submission.
+- `exception_action` (`text`): Action performed (`CLOCK_IN` or `CLOCK_OUT`).
+- Partial index `idx_attendance_records_is_exception` on `is_geofence_exception` where `true` for fast compliance audits.
+
+### 22.4 Mobile User Experience (`ClockInWidget.tsx`)
+Implemented in `App/src/components/ClockInWidget.tsx` using LogiSphere AI iOS-inspired glassmorphism design:
+- **Outside Location Detection**: When tapping Clock In or Clock Out, the widget retrieves GPS coordinates and evaluates distance against the organization's geofence.
+- **Exception Modal**: If outside geofence and an active trip is found (`GET /api/attendance/active-trip`), opens modal:
+  - **Title**: Outside Organization Location
+  - **Message**: "You are currently outside your organization's permitted geofence radius. Are you outside the geofence because you have gone out for a delivery or another authorized trip?"
+  - **Required Input**: "Describe Your Current Location" (multiline, accessible placeholder).
+  - **Primary Action**: "Submit and Clock In" or "Submit and Clock Out" (reflects selected action).
+  - **Secondary Action**: "Cancel" (aborts cleanly with zero attendance recording).
+- **Inline Validation & Resilience**: Whitespace-only submissions display inline error feedback without closing modal. If a network or backend error occurs, input text is preserved for safe retry without duplicate submissions.
+- **State Refresh**: Upon confirmed success, refreshes `AttendanceStore` and `TripStore` immediately.
+
+### 22.5 Automated Verification Results
+- **Acceptance Test Suite**: `backend/tests/attendance_geofence_exception.test.ts` (16 test cases).
+  - Test command: `npx vitest run tests/attendance_geofence_exception.test.ts --test-timeout=20000`
+  - Result: **16 passed out of 16 tests (100% pass rate)**.
+- **Organization Geofencing Suite**: `backend/tests/organization_geofencing_e2e.test.ts` (12 test cases).
+  - Result: **12 passed out of 12 tests (100% pass rate)**.
+- **Mobile TypeScript Validation**: `npx tsc --noEmit` in `App/`: **0 errors**.
+
+---
+
+## 23. AI Carbon Intelligence & Sustainability Module (Completed)
+
+### 23.1 Objectives & Scope
+The Carbon Intelligence & Sustainability module provides automated, audit-grade carbon accounting, fleet emissions benchmarking, periodic target budgeting, and AI-driven decarbonization advisory across LogiSphere AI.
+
+### 23.2 Scientific Emissions Calculation Methodology
+Adheres to Greenhouse Gas (GHG) Protocol, DEFRA, and EPA standards implemented in `backend/src/modules/carbon/calculations.ts`:
+- **Fuel-Based Factors**:
+  - Diesel: 2.68 kg CO2e / liter
+  - Petrol: 2.31 kg CO2e / liter
+  - CNG: 1.82 kg CO2e / kg
+  - Electric: 0.82 kg CO2e / kWh (regional grid baseline)
+- **Calculation Precision**:
+  - `ACTUAL_FUEL`: Derived from verified fuel logs and starting/ending odometer readings: $\text{fuelConsumed} \times \text{factor}$.
+  - `ESTIMATED_DISTANCE`: When direct fuel receipt data is pending, models emissions from vehicle baseline consumption: $(\text{distanceKm} / \text{baselineKmPerL}) \times \text{factor}$.
+- **Intensity KPI**: Measures carbon intensity per freight movement in grams of CO2e per tonne-km ($g\text{CO}_2\text{e} / t\text{-km}$).
+
+### 23.3 Database Schema: Sustainability Targets (Migration 011)
+Created in [011_create_sustainability_targets.sql](file:///Users/sakshamojha/Documents/Projects/Minor/backend/supabase/migrations/011_create_sustainability_targets.sql):
+- `id` (`uuid PRIMARY KEY DEFAULT gen_random_uuid()`): Target record identifier.
+- `organization_id` (`uuid REFERENCES organizations(id) ON DELETE CASCADE`): Tenant isolation.
+- `period` (`text NOT NULL`): Reporting period (e.g. `'2026-10'`, `'MONTHLY'`).
+- `target_co2_kg` (`numeric NOT NULL CHECK (target_co2_kg > 0)`): Target CO2 ceiling in kg.
+- `alert_threshold_percent` (`numeric DEFAULT 80`): Warning threshold before budget exhaustion.
+- `notes` (`text`): Operational context.
+- `created_by` (`text REFERENCES users(id)`): Configuring manager.
+- Row-Level Security: Strict tenant isolation ensuring managers can only inspect and configure targets for their own organization.
+
+### 23.4 Multi-Vector Anomaly Detection & Eco-Routing
+Implemented in `backend/src/modules/carbon/analytics.ts`:
+1. **Fleet Carbon Anomalies**: Flags vehicles exceeding baseline emissions by >25%, excessive stationary idle fuel burn, and route detour emissions.
+2. **Vehicle Efficiency Profiles**: Ranks vehicles into performance tiers (`EXCELLENT`, `GOOD`, `AVERAGE`, `POOR`) to prioritize servicing or route reassignment.
+3. **Eco-Route Compare Engine** (`POST /api/carbon/eco-route-compare`): Compares candidate routes on distance, fuel consumption, emissions footprint, and operational cost, recommending the lowest-carbon trajectory.
+
+### 23.5 Resilient AI Carbon Advisor
+Implemented in `backend/src/modules/carbon/carbonService.ts`:
+- Evaluates fleet-wide carbon metrics and invokes Google Gemini (`models/gemini-3.8-flash`) via `executeResilientAi`.
+- Generates tailored executive decarbonization advisories covering route adjustments, preventive maintenance, and fleet electrification priority.
+- Protected by 1800s TTL cache (`CARBON_INTELLIGENCE`), single-flight request coalescing, and circuit breaker.
+- **100% Deterministic Mathematical Fallback**: If Gemini is unreachable or quota is exhausted, generates rule-based operational advisories based on vehicle rankings and target budget status without downtime.
+
+### 23.6 Mobile Interface (`CarbonIntelligenceScreen.tsx` & `CarbonStore.ts`)
+- **Screen**: `App/src/screens/CarbonIntelligenceScreen.tsx` integrated into `MainTabsNavigator.tsx` and custom animated bottom navigation `CustomTabBar.tsx`.
+- **UI Components**:
+  - Executive Carbon KPI Summary Card (Total kg CO2e, Fleet Intensity, Active Vehicles, Efficiency Rating).
+  - Monthly Sustainability Target Progress Bar with visual alert threshold indicator.
+  - Vehicle Emissions Ranking list with fuel-type badges and emissions/km ratings.
+  - Detected Carbon Anomalies review section.
+  - AI Carbon Advisor Insights card with refresh action and deterministic fallback indicator.
+  - Set Sustainability Target modal allowing managers to adjust monthly carbon budgets.
+- **State Store**: `App/src/store/CarbonStore.ts` (Zustand v5) managing overview state, period filtering, target updating, and offline caching.
+
+### 23.7 Verification Results
+- **Test Suite**: `backend/tests/carbon_intelligence.test.ts` (14 test cases).
+  - Test command: `npx vitest run tests/carbon_intelligence.test.ts --test-timeout=20000`
+  - Result: **14 passed out of 14 tests (100% pass rate)**.
+- **Mobile TypeScript Check**: `npx tsc --noEmit` in `App/`: **0 errors**.
 
 

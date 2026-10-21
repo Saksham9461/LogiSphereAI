@@ -1,20 +1,62 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, Modal, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  ActivityIndicator,
+  Modal,
+  Alert,
+  TextInput,
+  KeyboardAvoidingView,
+  ScrollView,
+  Platform,
+} from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { MapPin, CheckCircle, AlertTriangle, LogOut } from 'lucide-react-native';
+import {
+  MapPin,
+  CheckCircle,
+  AlertTriangle,
+  LogOut,
+  Truck,
+  Compass,
+  X,
+  Clock,
+} from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
 import { useAttendanceStore } from '../store/AttendanceStore';
-import { handleClockIn, handleClockOut, fetchAttendanceStatus } from '../services/attendanceService';
+import useAuthStore from '../store/AuthStore';
+import useTripStore from '../store/TripStore';
+import {
+  handleClockIn,
+  handleClockOut,
+  fetchAttendanceStatus,
+  getActiveTripForDriver,
+} from '../services/attendanceService';
+import { getCurrentLocation } from '../services/locationService';
+import { checkGeofence } from '../services/geofenceService';
 import MapPreview from './MapPreview';
 
 export default function ClockInWidget() {
-  const { status, clockInTime, distanceFromOffice, loading, fetchStatus } = useAttendanceStore();
-  
+  const { status, clockInTime, distanceFromOffice, loading, fetchStatus, geofence } = useAttendanceStore();
+  const user = useAuthStore((s) => s.user);
+
+  // Standard Result Modal state
   const [modalVisible, setModalVisible] = useState(false);
   const [modalType, setModalType] = useState<'SUCCESS' | 'ERROR'>('SUCCESS');
   const [lastCheckData, setLastCheckData] = useState<any>(null);
   const [serverErrorMessage, setServerErrorMessage] = useState<string | null>(null);
+  const [actionInFlight, setActionInFlight] = useState(false);
+
+  // Active Trip Geofence Exception Modal state
+  const [exceptionModalVisible, setExceptionModalVisible] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'CLOCK_IN' | 'CLOCK_OUT'>('CLOCK_IN');
+  const [pendingLocation, setPendingLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [pendingTrip, setPendingTrip] = useState<any>(null);
+  const [locationDescription, setLocationDescription] = useState('');
+  const [exceptionSubmitting, setExceptionSubmitting] = useState(false);
+  const [exceptionInlineError, setExceptionInlineError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchStatus();
@@ -26,33 +68,221 @@ export default function ClockInWidget() {
     }, [fetchStatus])
   );
 
+  const isDriver = (() => {
+    const role = String(user?.role || '').toUpperCase();
+    return role === 'ROLE_DRIVER' || role === 'DRIVER';
+  })();
+
   const onClockInPress = async () => {
+    if (actionInFlight || loading || status === 'CLOCKED_IN') return;
+    setActionInFlight(true);
     setServerErrorMessage(null);
-    const result = await handleClockIn();
-    
-    setLastCheckData(result.data);
-    
-    if (result.success) {
-      setModalType('SUCCESS');
-      setModalVisible(true);
-    } else {
-      if (result.error && typeof result.error === 'string' && result.error !== 'OUTSIDE_GEOFENCE') {
-        setServerErrorMessage(result.error);
+
+    try {
+      // 1. Obtain driver's current GPS location
+      let location: { latitude: number; longitude: number };
+      try {
+        location = await getCurrentLocation();
+      } catch (locErr: any) {
+        setActionInFlight(false);
+        setServerErrorMessage(locErr?.message || 'Location permission denied or GPS unavailable.');
+        setModalType('ERROR');
+        setModalVisible(true);
+        return;
       }
-      setModalType('ERROR');
-      setModalVisible(true);
+
+      // 2. Check if authenticated user is a Driver
+      if (isDriver) {
+        // 3. Check geofence distance against organization
+        const geoTarget = geofence || undefined;
+        const geoResult = checkGeofence(location.latitude, location.longitude, geoTarget);
+
+        // 4. Verify if outside permitted radius
+        if (!geoResult.isInside) {
+          // 5. Verify if driver has an active authorized trip
+          const activeTrip = await getActiveTripForDriver(user?.id || user?.userId);
+          if (activeTrip) {
+            // Scenario A: Outside geofence + active trip -> Display Exception Modal
+            setPendingAction('CLOCK_IN');
+            setPendingLocation(location);
+            setPendingTrip(activeTrip);
+            setExceptionInlineError(null);
+            setExceptionModalVisible(true);
+            setActionInFlight(false);
+            return;
+          }
+        }
+      }
+
+      // Scenario B, C, D, E: Normal attendance clock-in flow
+      const result = await handleClockIn();
+      setLastCheckData(result.data);
+
+      if (result.success) {
+        setModalType('SUCCESS');
+        setModalVisible(true);
+      } else {
+        // Double-check: if backend rejected due to outside geofence, and driver has active trip
+        if (
+          isDriver &&
+          result.error &&
+          String(result.error).includes('outside the authorized geofence')
+        ) {
+          const activeTrip = await getActiveTripForDriver(user?.id || user?.userId);
+          if (activeTrip) {
+            setPendingAction('CLOCK_IN');
+            setPendingLocation(location);
+            setPendingTrip(activeTrip);
+            setExceptionInlineError(null);
+            setExceptionModalVisible(true);
+            return;
+          }
+        }
+
+        if (result.error && typeof result.error === 'string' && result.error !== 'OUTSIDE_GEOFENCE') {
+          setServerErrorMessage(result.error);
+        }
+        setModalType('ERROR');
+        setModalVisible(true);
+      }
+    } finally {
+      setActionInFlight(false);
     }
   };
 
   const onClockOutPress = async () => {
-    const result = await handleClockOut();
-    if (!result.success && result.message) {
-      Alert.alert('Clock Out Failed', result.message);
+    if (actionInFlight || loading || status !== 'CLOCKED_IN') return;
+    setActionInFlight(true);
+
+    try {
+      // 1. Obtain device GPS location for clock-out verification
+      let location: { latitude: number; longitude: number } | null = null;
+      try {
+        location = await getCurrentLocation();
+      } catch (locErr) {
+        console.warn('[ClockInWidget] Clock-out GPS acquisition skipped:', locErr);
+      }
+
+      // 2. Check if driver is outside geofence with active trip
+      if (isDriver && location) {
+        const geoTarget = geofence || undefined;
+        const geoResult = checkGeofence(location.latitude, location.longitude, geoTarget);
+
+        if (!geoResult.isInside) {
+          const activeTrip = await getActiveTripForDriver(user?.id || user?.userId);
+          if (activeTrip) {
+            // Scenario A (Clock Out): Outside geofence + active trip -> Display Exception Modal
+            setPendingAction('CLOCK_OUT');
+            setPendingLocation(location);
+            setPendingTrip(activeTrip);
+            setExceptionInlineError(null);
+            setExceptionModalVisible(true);
+            setActionInFlight(false);
+            return;
+          }
+        }
+      }
+
+      // Normal clock-out execution
+      const result = await handleClockOut();
+      if (!result.success) {
+        // If rejected due to outside geofence, check if eligible for exception
+        if (
+          isDriver &&
+          location &&
+          result.message &&
+          String(result.message).includes('outside the authorized geofence')
+        ) {
+          const activeTrip = await getActiveTripForDriver(user?.id || user?.userId);
+          if (activeTrip) {
+            setPendingAction('CLOCK_OUT');
+            setPendingLocation(location);
+            setPendingTrip(activeTrip);
+            setExceptionInlineError(null);
+            setExceptionModalVisible(true);
+            return;
+          }
+        }
+
+        Alert.alert('Clock Out Failed', result.message || 'Unable to clock out session');
+      } else {
+        // Refresh attendance status and trips
+        fetchStatus();
+        useTripStore.getState().getTrips();
+      }
+    } finally {
+      setActionInFlight(false);
     }
   };
 
+  const onExceptionSubmit = async () => {
+    const trimmedDesc = locationDescription.trim();
+    if (!trimmedDesc) {
+      setExceptionInlineError('Please describe your current location.');
+      return;
+    }
+
+    if (!pendingLocation || !pendingTrip) {
+      setExceptionInlineError('Missing location or active trip context. Please retry.');
+      return;
+    }
+
+    setExceptionSubmitting(true);
+    setExceptionInlineError(null);
+
+    const tripId = pendingTrip.tripID || pendingTrip.tripid || pendingTrip.id;
+
+    try {
+      if (pendingAction === 'CLOCK_IN') {
+        const result = await handleClockIn({
+          locationDescription: trimmedDesc,
+          tripId,
+        });
+
+        if (result.success) {
+          setExceptionModalVisible(false);
+          setLocationDescription('');
+          setLastCheckData(result.data);
+          setModalType('SUCCESS');
+          setModalVisible(true);
+          fetchStatus();
+          useTripStore.getState().getTrips();
+        } else {
+          // Preserve input description and show error for retry
+          setExceptionInlineError(result.error || 'Clock in exception was rejected by server.');
+        }
+      } else {
+        const result = await handleClockOut({
+          locationDescription: trimmedDesc,
+          tripId,
+        });
+
+        if (result.success) {
+          setExceptionModalVisible(false);
+          setLocationDescription('');
+          fetchStatus();
+          useTripStore.getState().getTrips();
+          Alert.alert('Clock Out Successful', 'Your active trip attendance exception was recorded.');
+        } else {
+          // Preserve input description and show error for retry
+          setExceptionInlineError(result.message || 'Clock out exception was rejected by server.');
+        }
+      }
+    } catch (err: any) {
+      setExceptionInlineError(err?.message || 'Network error while submitting exception. Please retry.');
+    } finally {
+      setExceptionSubmitting(false);
+    }
+  };
+
+  const onExceptionCancel = () => {
+    if (exceptionSubmitting) return;
+    setExceptionModalVisible(false);
+    setExceptionInlineError(null);
+  };
+
   const isClockedIn = status === 'CLOCKED_IN';
-  const isChecking = status === 'CHECKING_LOCATION' || loading;
+  const isChecking = status === 'CHECKING_LOCATION' || loading || actionInFlight;
 
   return (
     <View style={styles.card}>
@@ -87,8 +317,8 @@ export default function ClockInWidget() {
       </View>
 
       {!isClockedIn ? (
-        <Pressable 
-          style={[styles.actionBtn, isChecking && { opacity: 0.7 }]} 
+        <Pressable
+          style={[styles.actionBtn, isChecking && { opacity: 0.7 }]}
           onPress={onClockInPress}
           disabled={isChecking}
         >
@@ -102,10 +332,14 @@ export default function ClockInWidget() {
           )}
         </Pressable>
       ) : (
-        <Pressable 
-          style={[styles.actionBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }, loading && { opacity: 0.7 }]} 
+        <Pressable
+          style={[
+            styles.actionBtn,
+            { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+            (loading || actionInFlight) && { opacity: 0.7 },
+          ]}
           onPress={onClockOutPress}
-          disabled={loading}
+          disabled={loading || actionInFlight}
         >
           {loading ? (
             <ActivityIndicator color={colors.error} style={{ marginRight: rf(8) }} />
@@ -116,8 +350,133 @@ export default function ClockInWidget() {
         </Pressable>
       )}
 
+      {/* ========================================================================= */}
+      {/* Active Trip Geofence Exception Modal                                      */}
+      {/* ========================================================================= */}
+      <Modal
+        visible={exceptionModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={onExceptionCancel}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.exceptionModalCard}>
+            <ScrollView
+              contentContainerStyle={styles.exceptionScrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Header Icon & Title */}
+              <View style={styles.exceptionHeader}>
+                <View style={styles.exceptionIconCircle}>
+                  <Compass color={colors.amber} size={28} />
+                </View>
+                <Pressable
+                  style={styles.exceptionCloseBtn}
+                  onPress={onExceptionCancel}
+                  hitSlop={10}
+                  disabled={exceptionSubmitting}
+                >
+                  <X color={colors.textSecondary} size={20} />
+                </Pressable>
+              </View>
 
-      {/* Result Modal */}
+              <Text style={styles.exceptionTitle}>Outside Organization Location</Text>
+
+              {/* Explanatory Message */}
+              <Text style={styles.exceptionMessage}>
+                You are currently outside your organization's permitted geofence radius.
+                Are you outside the geofence because you have gone out for a delivery or another authorized trip?
+              </Text>
+
+              {/* Active Trip Info Badge */}
+              {pendingTrip && (
+                <View style={styles.tripBadgeCard}>
+                  <View style={styles.tripBadgeHeader}>
+                    <Truck color={colors.amber} size={16} />
+                    <Text style={styles.tripBadgeTitle}>
+                      Active Trip: {pendingTrip.tripID || pendingTrip.tripid || pendingTrip.id}
+                    </Text>
+                    <View style={styles.tripStatusPill}>
+                      <Text style={styles.tripStatusPillText}>{pendingTrip.status || 'ACTIVE'}</Text>
+                    </View>
+                  </View>
+                  {(pendingTrip.source || pendingTrip.destination) && (
+                    <Text style={styles.tripRouteText} numberOfLines={1}>
+                      {pendingTrip.source || 'Origin'} → {pendingTrip.destination || 'Destination'}
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {/* Input Label */}
+              <View style={styles.inputLabelRow}>
+                <Text style={styles.inputLabel}>Describe Your Current Location</Text>
+                <Text style={styles.requiredAsterisk}> *</Text>
+              </View>
+
+              {/* Location Description Multiline TextInput */}
+              <TextInput
+                style={[
+                  styles.multilineInput,
+                  Boolean(exceptionInlineError) && styles.inputErrorBorder,
+                ]}
+                placeholder="For example, delivering an order near the customer's location, travelling to a delivery destination, or returning from an assigned trip."
+                placeholderTextColor={colors.textMuted}
+                multiline={true}
+                numberOfLines={4}
+                textAlignVertical="top"
+                value={locationDescription}
+                onChangeText={(txt) => {
+                  setLocationDescription(txt);
+                  if (exceptionInlineError) setExceptionInlineError(null);
+                }}
+                editable={!exceptionSubmitting}
+              />
+
+              {/* Inline Validation / Error Message */}
+              {exceptionInlineError ? (
+                <View style={styles.inlineErrorRow}>
+                  <AlertTriangle color={colors.error} size={14} />
+                  <Text style={styles.inlineErrorText}>{exceptionInlineError}</Text>
+                </View>
+              ) : null}
+
+              {/* Action Buttons */}
+              <View style={styles.exceptionActionsRow}>
+                <Pressable
+                  style={[styles.cancelBtn, exceptionSubmitting && { opacity: 0.6 }]}
+                  onPress={onExceptionCancel}
+                  disabled={exceptionSubmitting}
+                >
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.submitExceptionBtn, exceptionSubmitting && { opacity: 0.7 }]}
+                  onPress={onExceptionSubmit}
+                  disabled={exceptionSubmitting}
+                >
+                  {exceptionSubmitting ? (
+                    <ActivityIndicator color="#1a1200" size="small" />
+                  ) : (
+                    <Text style={styles.submitExceptionBtnText}>
+                      {pendingAction === 'CLOCK_IN' ? 'Submit and Clock In' : 'Submit and Clock Out'}
+                    </Text>
+                  )}
+                </Pressable>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* Standard Success / Error Result Modal                                     */}
+      {/* ========================================================================= */}
       <Modal visible={modalVisible} transparent={true} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -127,11 +486,15 @@ export default function ClockInWidget() {
                   <CheckCircle color={colors.success} size={32} />
                 </View>
                 <Text style={styles.modalTitle}>Clock In Successful</Text>
-                <Text style={styles.modalSubtitle}>You are inside the authorized location.</Text>
-                
+                <Text style={styles.modalSubtitle}>
+                  {lastCheckData?.isException
+                    ? 'Attendance recorded outside geofence via authorized trip exception.'
+                    : 'You are inside the authorized location.'}
+                </Text>
+
                 {lastCheckData && (
-                  <MapPreview 
-                    distance={lastCheckData.distance} 
+                  <MapPreview
+                    distance={lastCheckData.distance}
                     requiredRadius={lastCheckData.requiredRadius}
                     isInside={lastCheckData.isInside}
                   />
@@ -140,11 +503,13 @@ export default function ClockInWidget() {
                 <View style={styles.statsRow}>
                   <View style={styles.statBox}>
                     <Text style={styles.statLabel}>Distance</Text>
-                    <Text style={styles.statVal}>{lastCheckData?.distance} m</Text>
+                    <Text style={styles.statVal}>{lastCheckData?.distance ?? 0} m</Text>
                   </View>
                   <View style={styles.statBox}>
                     <Text style={styles.statLabel}>Location</Text>
-                    <Text style={styles.statVal} numberOfLines={1}>{lastCheckData?.organizationName}</Text>
+                    <Text style={styles.statVal} numberOfLines={1}>
+                      {lastCheckData?.organizationName || 'Authorized Area'}
+                    </Text>
                   </View>
                 </View>
 
@@ -157,20 +522,33 @@ export default function ClockInWidget() {
                 <View style={styles.iconCircleError}>
                   <AlertTriangle color={colors.error} size={32} />
                 </View>
-                <Text style={styles.modalTitle}>{serverErrorMessage ? 'Clock In Rejected' : 'Location Not Allowed'}</Text>
-                <Text style={styles.modalSubtitle}>{serverErrorMessage || 'You are not within the authorized attendance location.'}</Text>
-                
+                <Text style={styles.modalTitle}>
+                  {serverErrorMessage ? 'Clock In Rejected' : 'Location Not Allowed'}
+                </Text>
+                <Text style={styles.modalSubtitle}>
+                  {serverErrorMessage || 'You are not within the authorized attendance location.'}
+                </Text>
+
                 {lastCheckData && (
-                  <MapPreview 
-                    distance={lastCheckData.distance} 
+                  <MapPreview
+                    distance={lastCheckData.distance}
                     requiredRadius={lastCheckData.requiredRadius}
                     isInside={lastCheckData.isInside}
                   />
                 )}
 
                 <View style={styles.errorStatsBox}>
-                  <Text style={styles.errorStatText}>Required radius: <Text style={styles.bold}>{lastCheckData?.requiredRadius} m</Text></Text>
-                  <Text style={styles.errorStatText}>Your distance: <Text style={styles.bold}>{lastCheckData?.distance} m</Text></Text>
+                  <Text style={styles.errorStatText}>
+                    Required radius: <Text style={styles.bold}>{lastCheckData?.requiredRadius ?? 200} m</Text>
+                  </Text>
+                  <Text style={styles.errorStatText}>
+                    Your distance:{' '}
+                    <Text style={styles.bold}>
+                      {lastCheckData?.distance !== undefined && lastCheckData?.distance !== null
+                        ? `${lastCheckData.distance} m`
+                        : 'Location unavailable'}
+                    </Text>
+                  </Text>
                 </View>
 
                 <Pressable style={styles.modalBtnError} onPress={() => setModalVisible(false)}>
@@ -181,7 +559,6 @@ export default function ClockInWidget() {
           </View>
         </View>
       </Modal>
-
     </View>
   );
 }
@@ -209,35 +586,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: rf(16),
     fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  devToggle: {
-    flexDirection: 'row',
-    backgroundColor: colors.surface,
-    borderRadius: rf(8),
-    padding: rf(2),
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  toggleBtn: {
-    paddingHorizontal: rf(8),
-    paddingVertical: rf(4),
-    borderRadius: rf(6),
-  },
-  toggleBtnActive: {
-    backgroundColor: colors.panel,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  toggleText: {
-    fontSize: rf(10),
-    fontWeight: '600',
-    color: colors.textMuted,
-  },
-  toggleTextActive: {
     color: colors.textPrimary,
   },
   content: {
@@ -302,8 +650,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.5,
   },
-  
-  // Modal
+
+  // Modal Overlays
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -421,5 +769,171 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: rf(16),
     fontWeight: '600',
-  }
+  },
+
+  // =========================================================================
+  // Exception Modal Styles
+  // =========================================================================
+  exceptionModalCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: rf(28),
+    borderTopRightRadius: rf(28),
+    maxHeight: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 25,
+  },
+  exceptionScrollContent: {
+    padding: rf(20),
+    paddingBottom: Platform.OS === 'ios' ? rf(36) : rf(24),
+  },
+  exceptionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: rf(12),
+  },
+  exceptionIconCircle: {
+    width: rf(48),
+    height: rf(48),
+    borderRadius: rf(24),
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exceptionCloseBtn: {
+    padding: rf(6),
+    borderRadius: rf(16),
+    backgroundColor: 'rgba(0,0,0,0.04)',
+  },
+  exceptionTitle: {
+    fontSize: rf(18),
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: rf(8),
+  },
+  exceptionMessage: {
+    fontSize: rf(13),
+    color: colors.textSecondary,
+    lineHeight: rf(19),
+    marginBottom: rf(14),
+  },
+  tripBadgeCard: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: rf(12),
+    padding: rf(12),
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    marginBottom: rf(16),
+  },
+  tripBadgeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: rf(8),
+    marginBottom: rf(4),
+  },
+  tripBadgeTitle: {
+    fontSize: rf(13),
+    fontWeight: '700',
+    color: '#92400E',
+    flex: 1,
+  },
+  tripStatusPill: {
+    backgroundColor: '#FDE68A',
+    paddingHorizontal: rf(8),
+    paddingVertical: rf(2),
+    borderRadius: rf(6),
+  },
+  tripStatusPillText: {
+    fontSize: rf(10),
+    fontWeight: '800',
+    color: '#78350F',
+  },
+  tripRouteText: {
+    fontSize: rf(12),
+    color: '#B45309',
+    marginTop: rf(2),
+  },
+  inputLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: rf(6),
+  },
+  inputLabel: {
+    fontSize: rf(13),
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  requiredAsterisk: {
+    fontSize: rf(13),
+    fontWeight: '700',
+    color: colors.error,
+  },
+  multilineInput: {
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: rf(12),
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    padding: rf(12),
+    fontSize: rf(13),
+    color: colors.textPrimary,
+    minHeight: rf(90),
+    textAlignVertical: 'top',
+    marginBottom: rf(8),
+  },
+  inputErrorBorder: {
+    borderColor: colors.error,
+  },
+  inlineErrorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: rf(6),
+    marginBottom: rf(12),
+  },
+  inlineErrorText: {
+    fontSize: rf(12),
+    color: colors.error,
+    fontWeight: '500',
+    flex: 1,
+  },
+  exceptionActionsRow: {
+    flexDirection: 'row',
+    gap: rf(12),
+    marginTop: rf(12),
+  },
+  cancelBtn: {
+    flex: 1,
+    height: rf(46),
+    borderRadius: rf(12),
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelBtnText: {
+    fontSize: rf(14),
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  submitExceptionBtn: {
+    flex: 2,
+    height: rf(46),
+    borderRadius: rf(12),
+    backgroundColor: colors.amber,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.amber,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  submitExceptionBtnText: {
+    fontSize: rf(14),
+    fontWeight: '700',
+    color: '#1a1200',
+  },
 });

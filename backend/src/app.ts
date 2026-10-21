@@ -23,6 +23,7 @@ import { locationRouter } from './modules/locations/routes';
 import { alertRouter } from './modules/alerts/routes';
 import { organizationRouter } from './modules/organizations/routes';
 import { adminRouter } from './modules/admin/routes';
+import { carbonRouter } from './modules/carbon/routes';
 
 export const app = express();
 
@@ -54,6 +55,7 @@ app.use('/api/locations', locationRouter);
 app.use('/api/v1/locations', locationRouter);
 app.use('/api/alerts', alertRouter);
 app.use('/api/sos', alertRouter);
+app.use(['/api/carbon', '/api/sustainability'], carbonRouter);
 
 app.all(['/ws/chat', '/chat', '/ws', '/api/chat/ws', '/ws/tracking', '/tracking', '/api/tracking/ws', '/ws/alerts', '/alerts', '/api/alerts/ws'], (_req, res) => {
   return res.status(426).json({

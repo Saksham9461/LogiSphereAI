@@ -16,6 +16,7 @@ import {
   GroupedAttendanceReportItem,
   AttendanceSessionReportItem,
 } from './pdfGenerator';
+import { ACTIVE_TRIP_STATUSES } from '../trips/routes';
 
 export const attendanceRouter = Router();
 
@@ -29,8 +30,36 @@ function normalizeRecord(row: any) {
     row.clockOutType ||
     (isAuto ? 'AUTOMATIC' : clockOut ? 'MANUAL' : null);
 
+  const isException = Boolean(
+    row.is_geofence_exception ??
+    row.isgeofenceexception ??
+    row.isGeofenceException ??
+    false
+  );
+  const exceptionReason =
+    row.exception_reason ||
+    row.exceptionreason ||
+    row.exceptionReason ||
+    null;
+  const tripId =
+    row.trip_id ||
+    row.tripid ||
+    row.tripId ||
+    null;
+  const exceptionDistance =
+    row.exception_distance ??
+    row.exceptiondistance ??
+    row.exceptionDistance ??
+    null;
+  const exceptionAction =
+    row.exception_action ||
+    row.exceptionaction ||
+    row.exceptionAction ||
+    null;
+
   return {
     id: row.id,
+    organization_id: row.organization_id || row.organizationId || row.organizationid,
     userId: row.userId || row.userid,
     date: row.date || new Date().toLocaleDateString('en-IN'),
     clockInTime: row.clockInTime || row.clockintime,
@@ -42,9 +71,60 @@ function normalizeRecord(row: any) {
     locationName: row.locationName || row.locationname || 'LogiSphere Head Office',
     distanceFromOffice: Number(row.distanceFromOffice ?? row.distancefromoffice ?? 0),
     status: row.status || 'Verified Location',
+    isGeofenceException: isException,
+    exceptionReason,
+    tripId,
+    exceptionDistance: exceptionDistance !== null ? Number(exceptionDistance) : null,
+    exceptionAction,
     createdAt: row.createdAt || row.createdat || row.created_at,
     updatedAt: row.updatedAt || row.updatedat || row.updated_at,
   };
+}
+
+/**
+ * Validates whether an active trip assigned to the driver qualifies for geofence exception.
+ */
+export async function validateActiveTripForDriver(
+  driverId: string,
+  tripId: string,
+  orgId?: string
+): Promise<{ valid: boolean; error?: string; trip?: any }> {
+  if (!tripId || typeof tripId !== 'string' || !tripId.trim()) {
+    return { valid: false, error: 'Active trip identifier is required for geofence exception' };
+  }
+
+  const cleanTripId = tripId.trim();
+  const allTrips = await db.list('trips');
+  const trip = (allTrips || []).find((t: any) => {
+    const tid = String(t.tripID || t.tripid || t.id || '');
+    return tid === cleanTripId;
+  });
+
+  if (!trip) {
+    return { valid: false, error: `Trip with ID '${cleanTripId}' was not found` };
+  }
+
+  // 1. Verify organization matching (prevent cross-tenant spoofing)
+  if (orgId && trip.organization_id && trip.organization_id !== orgId) {
+    return { valid: false, error: 'Unauthorized: Trip belongs to another organization' };
+  }
+
+  // 2. Verify driver assignment
+  const tripDriverId = String(trip.driverID || trip.driverid || '');
+  if (!tripDriverId || tripDriverId.toLowerCase() !== String(driverId).toLowerCase()) {
+    return { valid: false, error: 'Unauthorized: Trip is not assigned to this driver' };
+  }
+
+  // 3. Verify active status
+  const tripStatus = String(trip.status || '').toUpperCase();
+  if (!ACTIVE_TRIP_STATUSES.includes(tripStatus)) {
+    return {
+      valid: false,
+      error: `Trip '${cleanTripId}' is not in an active operational state (current status: ${tripStatus}). Geofence exception is not permitted.`,
+    };
+  }
+
+  return { valid: true, trip };
 }
 
 export function parseTimeToMinutes(timeStr: string): number | null {
@@ -147,12 +227,55 @@ attendanceRouter.get('/status', optionalAuth, async (req, res) => {
       return recKey === todayDateKey;
     });
 
+    // Resolve geofence & active trip context for client
+    let geofenceData: any = null;
+    let activeTripData: any = null;
+    try {
+      const orgResult = await resolveDriverOrganization(userId, user);
+      if (!('error' in orgResult && orgResult.error)) {
+        const { orgLat, orgLon, geofenceRadius, orgName } = orgResult as any;
+        geofenceData = {
+          latitude: orgLat,
+          longitude: orgLon,
+          geofenceRadius,
+          organizationName: orgName,
+        };
+      }
+    } catch (_) {}
+
+    const userRole = String(user?.role || '').toUpperCase();
+    const isDriver = !user?.role || userRole === 'ROLE_DRIVER' || userRole === 'DRIVER';
+    if (isDriver) {
+      try {
+        const allTrips = await db.list('trips');
+        const activeTrip = (allTrips || []).find((t: any) => {
+          const tripDriverId = String(t.driverID || t.driverid || '');
+          const tripStatus = String(t.status || '').toUpperCase();
+          return (
+            tripDriverId.toLowerCase() === String(userId).toLowerCase() &&
+            ACTIVE_TRIP_STATUSES.includes(tripStatus)
+          );
+        });
+        if (activeTrip) {
+          activeTripData = {
+            tripID: activeTrip.tripID || activeTrip.tripid || activeTrip.id,
+            status: activeTrip.status,
+            source: activeTrip.source,
+            destination: activeTrip.destination,
+            vehicleID: activeTrip.vehicleID || activeTrip.vehicleid,
+          };
+        }
+      } catch (_) {}
+    }
+
     if (openRecord) {
       return res.json({
         success: true,
         status: 'CLOCKED_IN',
         record: openRecord,
         history: todayRecords,
+        geofence: geofenceData,
+        activeTrip: activeTripData,
       });
     }
 
@@ -161,6 +284,8 @@ attendanceRouter.get('/status', optionalAuth, async (req, res) => {
       status: 'NOT_CLOCKED_IN',
       record: null,
       history: todayRecords,
+      geofence: geofenceData,
+      activeTrip: activeTripData,
     });
   } catch (error: any) {
     console.error('[Attendance API Error] GET /status failed:', error);
@@ -168,13 +293,143 @@ attendanceRouter.get('/status', optionalAuth, async (req, res) => {
   }
 });
 
-// POST /api/attendance/clock-in - Clock in user after geofence & active session check
+// GET /api/attendance/active-trip - Check if authenticated driver has an active authorized trip
+attendanceRouter.get('/active-trip', optionalAuth, async (req, res) => {
+  try {
+    const user = resolveAuthUser(req);
+    const userId = user?.userId || (req.headers['x-user-id'] as string) || (req.query.userId as string);
+    if (!userId) {
+      return fail(res, 401, 'User identification required');
+    }
+
+    const userRole = String(user?.role || '').toUpperCase();
+    const isDriver = !user?.role || userRole === 'ROLE_DRIVER' || userRole === 'DRIVER';
+    if (!isDriver) {
+      return res.json({
+        success: true,
+        hasActiveTrip: false,
+        trip: null,
+      });
+    }
+
+    const allTrips = await db.list('trips');
+    const activeTrip = (allTrips || []).find((t: any) => {
+      const tripDriverId = String(t.driverID || t.driverid || '');
+      const tripStatus = String(t.status || '').toUpperCase();
+      return (
+        tripDriverId.toLowerCase() === String(userId).toLowerCase() &&
+        ACTIVE_TRIP_STATUSES.includes(tripStatus)
+      );
+    });
+
+    if (activeTrip) {
+      return res.json({
+        success: true,
+        hasActiveTrip: true,
+        trip: {
+          tripID: activeTrip.tripID || activeTrip.tripid || activeTrip.id,
+          status: activeTrip.status,
+          source: activeTrip.source,
+          destination: activeTrip.destination,
+          vehicleID: activeTrip.vehicleID || activeTrip.vehicleid,
+        },
+      });
+    }
+
+    return res.json({
+      success: true,
+      hasActiveTrip: false,
+      trip: null,
+    });
+  } catch (error: any) {
+    console.error('[Attendance API Error] GET /active-trip failed:', error);
+    return fail(res, 500, error.message || 'Failed to check active trip');
+  }
+});
+
+/**
+ * Resolves trusted driver's organization details and registered coordinates.
+ * Looks up active organization_memberships, users table, and organizations table.
+ */
+export async function resolveDriverOrganization(userId: string, reqUser?: any) {
+  // 1. Check organization_memberships for active membership
+  const memberships = await db.list('organization_memberships', { user_id: userId });
+  const activeMem = memberships?.find((m: any) => m.status === 'active') || memberships?.[0];
+
+  let targetOrgId = activeMem?.organization_id;
+
+  // 2. Check users table organization_id
+  if (!targetOrgId) {
+    const userRow = await db.find('users', { id: userId });
+    targetOrgId = userRow?.organization_id || userRow?.organizationId;
+  }
+
+  // 3. Fallback to authenticated request organization context (never trusting unauthenticated body claims)
+  if (!targetOrgId && reqUser) {
+    targetOrgId = reqUser.organizationId || reqUser.organization_id || reqUser.businessId || reqUser.business_id;
+  }
+
+  // 4. Default fallback if still unlinked
+  if (!targetOrgId) {
+    targetOrgId = '00000000-0000-0000-0000-000000000001';
+  }
+
+  // 5. Look up organization in database
+  const org = await db.find('organizations', { id: targetOrgId });
+  if (!org) {
+    return { error: `Assigned organization (${targetOrgId}) was not found in database`, org: null };
+  }
+
+  if (org.status !== 'approved') {
+    return { error: `Organization '${org.name || targetOrgId}' is not approved for fleet operations (status: ${org.status})`, org };
+  }
+
+  const orgLat = Number(org.latitude);
+  const orgLon = Number(org.longitude);
+
+  if (
+    org.latitude === null ||
+    org.latitude === undefined ||
+    org.longitude === null ||
+    org.longitude === undefined ||
+    isNaN(orgLat) ||
+    isNaN(orgLon) ||
+    !isFinite(orgLat) ||
+    !isFinite(orgLon) ||
+    (orgLat === 0 && orgLon === 0)
+  ) {
+    return {
+      error: `Organization '${org.name}' does not have valid registered facility coordinates for geofencing. Please contact your administrator.`,
+      org,
+    };
+  }
+
+  const radiusRaw = Number(org.geofence_radius ?? org.geofenceRadius ?? env.OFFICE_GEOFENCE_RADIUS ?? 200);
+  const geofenceRadius = (!isNaN(radiusRaw) && radiusRaw >= 50 && radiusRaw <= 5000) ? radiusRaw : 200;
+
+  return {
+    org,
+    orgId: org.id,
+    orgName: org.name,
+    orgAddress: org.formatted_address || org.name,
+    orgLat,
+    orgLon,
+    geofenceRadius,
+  };
+}
+
+// POST /api/attendance/clock-in - Clock in user after organization geofence & active session check
 attendanceRouter.post('/clock-in', optionalAuth, async (req, res) => {
   try {
     const user = resolveAuthUser(req);
-    const userId = user?.userId || req.body?.userId || req.query?.userId || (req.headers['x-user-id'] as string);
+    const userId = user?.userId || (req.headers['x-user-id'] as string) || req.body?.userId;
     if (!userId) {
       return fail(res, 401, 'User identification required for clock in');
+    }
+
+    // Prevent driver A from clocking in on behalf of driver B if authenticated
+    if (user && user.userId && req.body?.userId && req.body.userId !== user.userId && !['ROLE_MANAGER', 'FLEET_MANAGER', 'ADMIN'].includes(user.role)) {
+      return fail(res, 403, 'Unauthorized to clock in on behalf of another driver');
     }
 
     // 1. Reconcile any open past sessions first so yesterday's open session never blocks today!
@@ -196,32 +451,144 @@ attendanceRouter.post('/clock-in', optionalAuth, async (req, res) => {
       });
     }
 
-    // 3. Validate Geofence
+    // 3. Resolve Driver's Registered Organization & Coordinates from Database
+    const orgResult = await resolveDriverOrganization(userId, user);
+    if ('error' in orgResult && orgResult.error) {
+      return fail(res, 400, orgResult.error);
+    }
+    const { orgId, orgName, orgAddress, orgLat, orgLon, geofenceRadius } = orgResult as any;
+
+    // 4. Validate Driver GPS Coordinates
     const { latitude, longitude, locationName } = req.body ?? {};
-    if (latitude === undefined || longitude === undefined) {
+    if (latitude === undefined || longitude === undefined || latitude === null || longitude === null) {
       return fail(res, 400, 'GPS coordinates (latitude, longitude) are required for clock in');
     }
 
-    const calculatedDistance = Math.round(
-      distanceMeters(Number(latitude), Number(longitude), env.OFFICE_LATITUDE, env.OFFICE_LONGITUDE)
-    );
-    const distanceFromOffice = Number(req.body?.distanceFromOffice ?? calculatedDistance);
+    const driverLat = Number(latitude);
+    const driverLon = Number(longitude);
 
-    if (distanceFromOffice > env.OFFICE_GEOFENCE_RADIUS) {
+    if (isNaN(driverLat) || isNaN(driverLon) || !isFinite(driverLat) || !isFinite(driverLon)) {
+      return fail(res, 400, 'Invalid GPS coordinates: latitude and longitude must be valid finite numbers');
+    }
+
+    if (driverLat < -90 || driverLat > 90 || driverLon < -180 || driverLon > 180) {
+      return fail(res, 400, 'GPS coordinates out of valid geographic range (-90..90, -180..180)');
+    }
+
+    // 5. Independently Calculate Distance against Organization Coordinates (Server-side ONLY)
+    // NEVER trust req.body.distanceFromOffice or client-calculated distances!
+    const serverCalculatedDistance = Math.round(
+      distanceMeters(driverLat, driverLon, orgLat, orgLon)
+    );
+
+    if (serverCalculatedDistance > geofenceRadius) {
+      const { tripId, tripID, locationDescription, reason } = req.body ?? {};
+      const targetTripId = tripId || tripID;
+      const hasReasonParam = locationDescription !== undefined || reason !== undefined;
+      const targetReason = String(locationDescription || reason || '').trim();
+
+      if (!targetTripId && !hasReasonParam) {
+        return fail(
+          res,
+          400,
+          `You are outside the authorized geofence boundary (${serverCalculatedDistance}m from ${orgName}, permitted <= ${geofenceRadius}m)`,
+          {
+            distance: serverCalculatedDistance,
+            requiredRadius: geofenceRadius,
+            isInside: false,
+            organizationName: orgName,
+          }
+        );
+      }
+
+      // Role check: Only drivers can request exception
+      const userRole = String(user?.role || '').toUpperCase();
+      const isDriver = userRole === 'ROLE_DRIVER' || userRole === 'DRIVER';
+      if (!isDriver) {
+        return fail(
+          res,
+          403,
+          'Geofence attendance exceptions are strictly restricted to drivers on active trips'
+        );
+      }
+
+      // Location description check: Must be non-empty and not whitespace only
+      if (!targetReason) {
+        return fail(
+          res,
+          400,
+          'A non-empty location description is required to request a geofence exception'
+        );
+      }
+
+      // Active Trip validation
+      const tripValidation = await validateActiveTripForDriver(userId, targetTripId, orgId);
+      if (!tripValidation.valid) {
+        return fail(res, 400, tripValidation.error || 'Invalid active trip for geofence exception');
+      }
+
+      // Record Clock In with Exception
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('en-IN');
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      const newRecordData = {
+        id: db.makeId('att-'),
+        organization_id: orgId,
+        userId,
+        date: dateStr,
+        clockInTime: timeStr,
+        clockOutTime: null,
+        autoClockOut: false,
+        clockOutType: 'MANUAL',
+        latitude: driverLat,
+        longitude: driverLon,
+        locationName: targetReason,
+        distanceFromOffice: serverCalculatedDistance,
+        status: 'Exception: Active Trip',
+        is_geofence_exception: true,
+        exception_reason: targetReason,
+        trip_id: tripValidation.trip.tripID || tripValidation.trip.tripid || tripValidation.trip.id,
+        exception_distance: serverCalculatedDistance,
+        exception_action: 'CLOCK_IN',
+      };
+
+      const savedRaw = await db.insert('attendance_records', newRecordData);
+      const savedRecord = normalizeRecord(savedRaw) || newRecordData;
+
+      const todayDateKey = getBusinessDateString();
+      const updatedHistory = [savedRecord, ...userRecords].filter((r: any) => {
+        const recKey = extractRecordDateKey(r, BUSINESS_TIMEZONE);
+        return recKey === todayDateKey;
+      });
+
+      return res.status(201).json({
+        success: true,
+        status: 'CLOCKED_IN',
+        record: savedRecord,
+        history: updatedHistory,
+        data: {
+          distance: serverCalculatedDistance,
+          requiredRadius: geofenceRadius,
+          isInside: false,
+          isException: true,
+          organizationName: orgName,
+          tripId: newRecordData.trip_id,
+        },
+      });
+    }
+
+    // Inside geofence: reject exception attempt if client requested one while inside
+    const { tripId, tripID, locationDescription, reason } = req.body ?? {};
+    if (tripId || tripID || locationDescription !== undefined || reason !== undefined) {
       return fail(
         res,
         400,
-        `You are outside the authorized geofence boundary (${distanceFromOffice}m from office, required <= ${env.OFFICE_GEOFENCE_RADIUS}m)`,
-        {
-          distance: distanceFromOffice,
-          requiredRadius: env.OFFICE_GEOFENCE_RADIUS,
-          isInside: false,
-        }
+        'Geofence exception is only permitted when driver coordinates are outside the permitted geofence boundary'
       );
     }
 
-    // 4. Create Attendance Record
-    const orgId = getTrustedOrgId(req);
+    // 6. Create Attendance Record
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-IN');
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -235,10 +602,10 @@ attendanceRouter.post('/clock-in', optionalAuth, async (req, res) => {
       clockOutTime: null,
       autoClockOut: false,
       clockOutType: 'MANUAL',
-      latitude: Number(latitude),
-      longitude: Number(longitude),
-      locationName: locationName || 'LogiSphere Head Office',
-      distanceFromOffice,
+      latitude: driverLat,
+      longitude: driverLon,
+      locationName: locationName || orgAddress || orgName,
+      distanceFromOffice: serverCalculatedDistance,
       status: 'Verified Location',
     };
 
@@ -256,6 +623,12 @@ attendanceRouter.post('/clock-in', optionalAuth, async (req, res) => {
       status: 'CLOCKED_IN',
       record: savedRecord,
       history: updatedHistory,
+      data: {
+        distance: serverCalculatedDistance,
+        requiredRadius: geofenceRadius,
+        isInside: true,
+        organizationName: orgName,
+      },
     });
   } catch (error: any) {
     console.error('[Attendance API Error] POST /clock-in failed:', error);
@@ -263,13 +636,18 @@ attendanceRouter.post('/clock-in', optionalAuth, async (req, res) => {
   }
 });
 
-// POST /api/attendance/clock-out - Clock out active session for user
+// POST /api/attendance/clock-out - Clock out active session for user with optional geofence verification
 attendanceRouter.post('/clock-out', optionalAuth, async (req, res) => {
   try {
     const user = resolveAuthUser(req);
-    const userId = user?.userId || req.body?.userId || req.query?.userId || (req.headers['x-user-id'] as string);
+    const userId = user?.userId || (req.headers['x-user-id'] as string) || req.body?.userId;
     if (!userId) {
       return fail(res, 401, 'User identification required for clock out');
+    }
+
+    // Prevent unauthorized clock-out of another driver's attendance record
+    if (user && user.userId && req.body?.userId && req.body.userId !== user.userId && !['ROLE_MANAGER', 'FLEET_MANAGER', 'ADMIN'].includes(user.role)) {
+      return fail(res, 403, 'Unauthorized to clock out on behalf of another driver');
     }
 
     const allRecords = await db.list('attendance_records');
@@ -281,6 +659,161 @@ attendanceRouter.post('/clock-out', optionalAuth, async (req, res) => {
     const openRecord = userRecords.find((r: any) => !r.clockOutTime);
     if (!openRecord) {
       return fail(res, 400, 'No active clock-in session found to clock out');
+    }
+
+    // Ensure session belongs to the user
+    if (String(openRecord.userId).toLowerCase() !== String(userId).toLowerCase()) {
+      return fail(res, 403, 'Unauthorized: Attendance session belongs to another user');
+    }
+
+    // If driver coordinates are submitted, validate geofence against driver's organization
+    const { latitude, longitude } = req.body ?? {};
+    let clockOutDistance: number | null = null;
+    let orgName = 'Authorized Facility';
+    let geofenceRadius = 200;
+
+    if (latitude !== undefined && longitude !== undefined && latitude !== null && longitude !== null) {
+      const driverLat = Number(latitude);
+      const driverLon = Number(longitude);
+
+      if (isNaN(driverLat) || isNaN(driverLon) || !isFinite(driverLat) || !isFinite(driverLon)) {
+        return fail(res, 400, 'Invalid GPS coordinates: latitude and longitude must be valid finite numbers');
+      }
+
+      if (driverLat < -90 || driverLat > 90 || driverLon < -180 || driverLon > 180) {
+        return fail(res, 400, 'GPS coordinates out of valid geographic range (-90..90, -180..180)');
+      }
+
+      const orgResult = await resolveDriverOrganization(userId, user);
+      if (!('error' in orgResult && orgResult.error)) {
+        const { orgId, orgLat, orgLon, geofenceRadius: orgRadius, orgName: resolvedOrgName } = orgResult as any;
+        orgName = resolvedOrgName;
+        geofenceRadius = orgRadius;
+        clockOutDistance = Math.round(distanceMeters(driverLat, driverLon, orgLat, orgLon));
+
+        // Enforce geofence boundary if coordinates are provided
+        if (clockOutDistance > geofenceRadius) {
+          const { tripId, tripID, locationDescription, reason } = req.body ?? {};
+          const targetTripId = tripId || tripID;
+          const hasReasonParam = locationDescription !== undefined || reason !== undefined;
+          const targetReason = String(locationDescription || reason || '').trim();
+
+          if (!targetTripId && !hasReasonParam) {
+            return fail(
+              res,
+              400,
+              `You are outside the authorized geofence boundary (${clockOutDistance}m from ${orgName}, permitted <= ${geofenceRadius}m)`,
+              {
+                distance: clockOutDistance,
+                requiredRadius: geofenceRadius,
+                isInside: false,
+                organizationName: orgName,
+              }
+            );
+          }
+
+          // 1. Role: Must be Driver
+          const userRole = String(user?.role || '').toUpperCase();
+          const isDriver = userRole === 'ROLE_DRIVER' || userRole === 'DRIVER';
+          if (!isDriver) {
+            return fail(
+              res,
+              403,
+              'Geofence attendance exceptions are strictly restricted to drivers on active trips'
+            );
+          }
+
+          // 2. Location description must not be empty or whitespace only
+          if (!targetReason) {
+            return fail(
+              res,
+              400,
+              'A non-empty location description is required to request a geofence exception'
+            );
+          }
+
+          // 3. Active Trip Validation
+          const tripValidation = await validateActiveTripForDriver(userId, targetTripId, orgId);
+          if (!tripValidation.valid) {
+            return fail(res, 400, tripValidation.error || 'Invalid active trip for geofence exception');
+          }
+
+          const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const recordId = openRecord.id;
+
+          const updatedRaw = await db.update(
+            'attendance_records',
+            { id: recordId },
+            {
+              clockOutTime: timeStr,
+              clockouttime: timeStr,
+              autoClockOut: false,
+              auto_clock_out: false,
+              clockOutType: 'MANUAL',
+              clock_out_type: 'MANUAL',
+              is_geofence_exception: true,
+              exception_reason: targetReason,
+              trip_id: tripValidation.trip.tripID || tripValidation.trip.tripid || tripValidation.trip.id,
+              exception_distance: clockOutDistance,
+              exception_action: 'CLOCK_OUT',
+              status: openRecord.isGeofenceException ? 'Exception: Active Trip' : 'Verified Location (Trip Exception Clock-Out)',
+            }
+          );
+          const updatedRecord = normalizeRecord(updatedRaw) || {
+            ...openRecord,
+            clockOutTime: timeStr,
+            clockOutType: 'MANUAL',
+            autoClockOut: false,
+            isGeofenceException: true,
+            exceptionReason: targetReason,
+            tripId: tripValidation.trip.tripID || tripValidation.trip.tripid || tripValidation.trip.id,
+            exceptionDistance: clockOutDistance,
+            exceptionAction: 'CLOCK_OUT',
+          };
+
+          const freshAll = await db.list('attendance_records');
+          const todayDateKey = getBusinessDateString();
+          const updatedHistory = (freshAll || [])
+            .filter((r: any) => String(r.userId || r.userid || '').toLowerCase() === String(userId).toLowerCase())
+            .map(normalizeRecord)
+            .filter(Boolean)
+            .filter((r: any) => {
+              const recKey = extractRecordDateKey(r, BUSINESS_TIMEZONE);
+              return recKey === todayDateKey;
+            });
+
+          return res.json({
+            success: true,
+            status: 'NOT_CLOCKED_IN',
+            record: updatedRecord,
+            history: updatedHistory,
+            data: {
+              distance: clockOutDistance,
+              requiredRadius: geofenceRadius,
+              isInside: false,
+              isException: true,
+              organizationName: orgName,
+              tripId: tripValidation.trip.tripID || tripValidation.trip.tripid || tripValidation.trip.id,
+            },
+          });
+        }
+
+        // Inside geofence: reject exception attempt if client requested one while inside
+        const { tripId, tripID, locationDescription, reason } = req.body ?? {};
+        if (tripId || tripID || locationDescription !== undefined || reason !== undefined) {
+          return fail(
+            res,
+            400,
+            'Geofence exception is only permitted when driver coordinates are outside the permitted geofence boundary'
+          );
+        }
+      }
+    } else {
+      // If coordinates are omitted but an exception is attempted
+      const { tripId, tripID, locationDescription, reason } = req.body ?? {};
+      if (tripId || tripID || locationDescription !== undefined || reason !== undefined) {
+        return fail(res, 400, 'GPS coordinates (latitude, longitude) are required for geofence exception');
+      }
     }
 
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -321,6 +854,12 @@ attendanceRouter.post('/clock-out', optionalAuth, async (req, res) => {
       status: 'NOT_CLOCKED_IN',
       record: updatedRecord,
       history: updatedHistory,
+      data: {
+        distance: clockOutDistance,
+        requiredRadius: geofenceRadius,
+        isInside: true,
+        organizationName: orgName,
+      },
     });
   } catch (error: any) {
     console.error('[Attendance API Error] POST /clock-out failed:', error);

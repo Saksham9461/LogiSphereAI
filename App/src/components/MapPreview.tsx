@@ -1,26 +1,29 @@
 import React from 'react';
 import { View, StyleSheet, Text } from 'react-native';
-import Svg, { Circle, Defs, RadialGradient, Stop, Line } from 'react-native-svg';
+import Svg, { Circle, Line } from 'react-native-svg';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
 
 interface MapPreviewProps {
-  distance: number;
-  requiredRadius: number;
-  isInside: boolean;
+  distance?: number | null;
+  requiredRadius?: number | null;
+  isInside?: boolean;
 }
 
-export default function MapPreview({ distance, requiredRadius, isInside }: MapPreviewProps) {
+export default function MapPreview({ distance = 0, requiredRadius = 200, isInside = false }: MapPreviewProps) {
+  const safeRadius = Math.max(Number(requiredRadius) || 200, 10);
+  const safeDistance = Math.max(Number(distance) || 0, 0);
+
   const mapSize = rf(220);
   const center = mapSize / 2;
-  const maxVisualDistance = requiredRadius * 1.5; // Scale the map so radius is at 2/3 of map
+  const maxVisualDistance = Math.max(safeRadius * 1.5, 30); // Scale the map so radius is at 2/3 of map
   
   const pixelsPerMeter = (mapSize / 2) / maxVisualDistance;
-  const geofenceVisualRadius = requiredRadius * pixelsPerMeter;
+  const geofenceVisualRadius = Math.max(safeRadius * pixelsPerMeter, 10);
   
   // Calculate user dot position (arbitrary 45 degree angle for visual effect)
   const angle = Math.PI / 4;
-  const clampedDistance = Math.min(distance, maxVisualDistance - 20); // Keep dot inside SVG bounds
+  const clampedDistance = Math.min(safeDistance, Math.max(maxVisualDistance - 20, 10)); // Keep dot inside SVG bounds
   const userVisualDistance = clampedDistance * pixelsPerMeter;
   
   const userX = center + userVisualDistance * Math.cos(angle);
@@ -29,19 +32,12 @@ export default function MapPreview({ distance, requiredRadius, isInside }: MapPr
   return (
     <View style={styles.container}>
       <Svg width={mapSize} height={mapSize}>
-        <Defs>
-          <RadialGradient id="grad" cx="50%" cy="50%" rx="50%" ry="50%" fx="50%" fy="50%">
-            <Stop offset="0%" stopColor={colors.success} stopOpacity="0.1" />
-            <Stop offset="100%" stopColor={colors.success} stopOpacity="0.0" />
-          </RadialGradient>
-        </Defs>
-
         {/* Grid lines */}
         <Line x1="0" y1={center} x2={mapSize} y2={center} stroke={colors.borderSoft} strokeWidth="1" strokeDasharray="4 4" />
         <Line x1={center} y1="0" x2={center} y2={mapSize} stroke={colors.borderSoft} strokeWidth="1" strokeDasharray="4 4" />
 
         {/* Geofence area */}
-        <Circle cx={center} cy={center} r={geofenceVisualRadius} fill="url(#grad)" />
+        <Circle cx={center} cy={center} r={geofenceVisualRadius} fill="rgba(34, 197, 94, 0.12)" />
         <Circle cx={center} cy={center} r={geofenceVisualRadius} stroke={colors.success} strokeWidth="2" strokeDasharray="6 4" />
         
         {/* Office Center */}
@@ -61,7 +57,7 @@ export default function MapPreview({ distance, requiredRadius, isInside }: MapPr
         </View>
         <View style={styles.legendItem}>
           <View style={[styles.dot, { backgroundColor: isInside ? colors.success : colors.error }]} />
-          <Text style={styles.legendText}>You ({distance}m)</Text>
+          <Text style={styles.legendText}>You ({Math.round(safeDistance)}m)</Text>
         </View>
       </View>
     </View>
