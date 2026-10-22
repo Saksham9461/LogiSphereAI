@@ -46,13 +46,16 @@ export const getActiveTripForDriver = async (providedUserId?: string) => {
   return null;
 };
 
-export const handleClockIn = async (exceptionData?: { locationDescription?: string; tripId?: string }) => {
+export const handleClockIn = async (
+  exceptionData?: { locationDescription?: string; tripId?: string },
+  preAcquiredLocation?: { latitude: number; longitude: number; accuracy?: number }
+) => {
   const store = useAttendanceStore.getState();
   store.setStatus('CHECKING_LOCATION');
 
   try {
-    // 1. Get device actual GPS location
-    const location = await getCurrentLocation();
+    // 1. Get device location (use pre-acquired or acquire fresh balanced location)
+    const location = preAcquiredLocation || (await getCurrentLocation());
     
     // 2. Authoritative geofence validation is executed by backend against driver's registered organization
     const res = await store.clockIn(location.latitude, location.longitude, undefined, undefined, exceptionData);
@@ -73,15 +76,20 @@ export const handleClockIn = async (exceptionData?: { locationDescription?: stri
   }
 };
 
-export const handleClockOut = async (exceptionData?: { locationDescription?: string; tripId?: string }) => {
+export const handleClockOut = async (
+  exceptionData?: { locationDescription?: string; tripId?: string },
+  preAcquiredLocation?: { latitude: number; longitude: number; accuracy?: number } | null
+) => {
   const store = useAttendanceStore.getState();
   try {
-    // 1. Acquire fresh device GPS location for clock-out verification
-    let location: { latitude: number; longitude: number } | null = null;
-    try {
-      location = await getCurrentLocation();
-    } catch (locErr) {
-      console.warn('[AttendanceService] Clock-out GPS acquisition skipped:', locErr);
+    // 1. Acquire device location for clock-out verification if not pre-provided
+    let location: { latitude: number; longitude: number } | null = preAcquiredLocation ?? null;
+    if (!location) {
+      try {
+        location = await getCurrentLocation();
+      } catch (locErr) {
+        console.warn('[AttendanceService] Clock-out location acquisition skipped:', locErr);
+      }
     }
 
     // 2. Submit Clock Out request with coordinates and optional exceptionData

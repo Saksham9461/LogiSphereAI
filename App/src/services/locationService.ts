@@ -38,21 +38,43 @@ export function resetSessionToken(): void {
 }
 
 /**
+ * Location request options
+ */
+export interface CurrentLocationOptions {
+  enableHighAccuracy?: boolean;
+  timeout?: number;
+  maximumAge?: number;
+  allowCachedFallback?: boolean;
+}
+
+/**
  * Requests location permission on Android and iOS.
+ * On Android, checks for fine or coarse location. If not granted, requests permissions
+ * allowing coarse/approximate access without forcing high-accuracy GPS.
  */
 export async function requestLocationPermission(): Promise<boolean> {
   if (Platform.OS === 'android') {
     try {
-      const granted = await PermissionsAndroid.request(
+      const fineGranted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+      const coarseGranted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION);
+
+      if (fineGranted || coarseGranted) {
+        return true;
+      }
+
+      // Android requests fine and coarse location allowing approximate permission
+      const requested = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-        {
-          title: 'Location Permission',
-          message: 'LogiSphere AI requires your precise GPS location to verify attendance geofencing.',
-          buttonPositive: 'Allow',
-          buttonNegative: 'Deny',
-        }
+        PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+      ]);
+
+      const fineResult = requested[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
+      const coarseResult = requested[PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION];
+
+      return (
+        fineResult === PermissionsAndroid.RESULTS.GRANTED ||
+        coarseResult === PermissionsAndroid.RESULTS.GRANTED
       );
-      return granted === PermissionsAndroid.RESULTS.GRANTED;
     } catch {
       return false;
     }
@@ -72,79 +94,120 @@ export async function requestLocationPermission(): Promise<boolean> {
 }
 
 /**
- * Obtains device's actual current GPS location using @react-native-community/geolocation.
- * Never silently substitutes mock coordinates when GPS fails.
+ * Obtains device's actual current location using @react-native-community/geolocation.
+ * Uses balanced/normal accuracy (enableHighAccuracy: false by default) to prevent
+ * GPS timeouts on physical Android devices.
+ * If fresh fix fails or times out, safely falls back to a recent cached fix if valid.
+ * Never silently substitutes mock or organization coordinates when location fails.
  */
-export async function getCurrentLocation(): Promise<{ latitude: number; longitude: number; accuracy?: number }> {
+export async function getCurrentLocation(
+  options: CurrentLocationOptions = {}
+): Promise<{ latitude: number; longitude: number; accuracy?: number; isCached?: boolean }> {
   const hasPermission = await requestLocationPermission();
   if (!hasPermission) {
     throw new Error('Location permission denied. Please enable location access in settings to record attendance.');
   }
 
-  return new Promise((resolve, reject) => {
-    let resolved = false;
+  const {
+    enableHighAccuracy = false,
+    timeout = 15000,
+    maximumAge = 60000, // 1 minute fresh cache preference
+    allowCachedFallback = true,
+  } = options;
 
-    // Safety timeout: 10s maximum wait for GPS fix
-    const timeoutHandle = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        reject(new Error('GPS location fix timed out. Please ensure location services are enabled and try again.'));
-      }
-    }, 10000);
+  // Try to get position using given configuration
+  const tryGetPosition = (highAccuracy: boolean, reqTimeout: number, maxAge: number): Promise<{ latitude: number; longitude: number; accuracy?: number }> => {
+    return new Promise((resolve, reject) => {
+      let resolved = false;
 
-    try {
-      Geolocation.getCurrentPosition(
-        (position) => {
-          if (resolved) return;
+      // Safety timeout: 1.5s margin beyond native timeout to prevent indefinite hanging
+      const safetyHandle = setTimeout(() => {
+        if (!resolved) {
           resolved = true;
-          clearTimeout(timeoutHandle);
-
-          const { latitude, longitude, accuracy } = position.coords;
-          if (
-            typeof latitude !== 'number' ||
-            typeof longitude !== 'number' ||
-            !isFinite(latitude) ||
-            !isFinite(longitude)
-          ) {
-            reject(new Error('Acquired GPS coordinates are invalid. Please retry.'));
-            return;
-          }
-
-          resolve({
-            latitude,
-            longitude,
-            accuracy: accuracy ?? undefined,
-          });
-        },
-        (error) => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(timeoutHandle);
-
-          let msg = error?.message || 'Unable to obtain current GPS location';
-          if (error?.code === 1) {
-            msg = 'Location permission denied by user.';
-          } else if (error?.code === 2) {
-            msg = 'GPS location unavailable. Please verify device location services are turned on.';
-          } else if (error?.code === 3) {
-            msg = 'GPS location fix timed out. Please try again.';
-          }
-          reject(new Error(msg));
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 9000,
-          maximumAge: 10000,
+          reject(new Error('Location request timed out.'));
         }
-      );
-    } catch (err: any) {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeoutHandle);
-        reject(new Error(err?.message || 'Failed to initialize device GPS.'));
+      }, reqTimeout + 1500);
+
+      try {
+        Geolocation.getCurrentPosition(
+          (position) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(safetyHandle);
+
+            const { latitude, longitude, accuracy } = position.coords;
+            if (
+              typeof latitude !== 'number' ||
+              typeof longitude !== 'number' ||
+              !isFinite(latitude) ||
+              !isFinite(longitude)
+            ) {
+              reject(new Error('Acquired coordinates are invalid. Please retry.'));
+              return;
+            }
+
+            resolve({
+              latitude,
+              longitude,
+              accuracy: accuracy ?? undefined,
+            });
+          },
+          (error) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(safetyHandle);
+
+            let msg = error?.message || 'Unable to obtain current location';
+            if (error?.code === 1) {
+              msg = 'Location permission denied by user.';
+            } else if (error?.code === 2) {
+              msg = 'Location unavailable. Please verify device location services are turned on.';
+            } else if (error?.code === 3) {
+              msg = 'Location fix timed out. Please try again.';
+            }
+            reject(new Error(msg));
+          },
+          {
+            enableHighAccuracy: highAccuracy,
+            timeout: reqTimeout,
+            maximumAge: maxAge,
+          }
+        );
+      } catch (err: any) {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(safetyHandle);
+          reject(new Error(err?.message || 'Failed to initialize device location provider.'));
+        }
+      }
+    });
+  };
+
+  try {
+    // Primary attempt with normal/balanced accuracy and fresh cache window
+    const position = await tryGetPosition(enableHighAccuracy, timeout, maximumAge);
+    return position;
+  } catch (primaryErr: any) {
+    // If primary attempt timed out or failed, and cached fallback is permitted,
+    // attempt to read recent system cached location (maximumAge: 10 minutes)
+    if (allowCachedFallback) {
+      try {
+        const cachedPosition = await tryGetPosition(false, 3000, 600000);
+        return {
+          ...cachedPosition,
+          isCached: true,
+        };
+      } catch {
+        // Cached fallback also unavailable; throw actionable message from primary error
       }
     }
-  });
+
+    const primaryMsg = primaryErr?.message || 'Unable to acquire location fix.';
+    if (primaryMsg.toLowerCase().includes('timed out')) {
+      throw new Error('Location acquisition timed out. Please ensure location services are enabled with good reception and try again.');
+    }
+    throw primaryErr;
+  }
 }
 
 // Popular logistics hubs & major cities for fallback geocoding

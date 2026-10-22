@@ -115,7 +115,7 @@ export default function ClockInWidget() {
       }
 
       // Scenario B, C, D, E: Normal attendance clock-in flow
-      const result = await handleClockIn();
+      const result = await handleClockIn(undefined, location);
       setLastCheckData(result.data);
 
       if (result.success) {
@@ -155,12 +155,12 @@ export default function ClockInWidget() {
     setActionInFlight(true);
 
     try {
-      // 1. Obtain device GPS location for clock-out verification
+      // 1. Obtain device location for clock-out verification
       let location: { latitude: number; longitude: number } | null = null;
       try {
         location = await getCurrentLocation();
       } catch (locErr) {
-        console.warn('[ClockInWidget] Clock-out GPS acquisition skipped:', locErr);
+        console.warn('[ClockInWidget] Clock-out location acquisition skipped:', locErr);
       }
 
       // 2. Check if driver is outside geofence with active trip
@@ -184,7 +184,7 @@ export default function ClockInWidget() {
       }
 
       // Normal clock-out execution
-      const result = await handleClockOut();
+      const result = await handleClockOut(undefined, location);
       if (!result.success) {
         // If rejected due to outside geofence, check if eligible for exception
         if (
@@ -234,10 +234,13 @@ export default function ClockInWidget() {
 
     try {
       if (pendingAction === 'CLOCK_IN') {
-        const result = await handleClockIn({
-          locationDescription: trimmedDesc,
-          tripId,
-        });
+        const result = await handleClockIn(
+          {
+            locationDescription: trimmedDesc,
+            tripId,
+          },
+          pendingLocation
+        );
 
         if (result.success) {
           setExceptionModalVisible(false);
@@ -252,10 +255,13 @@ export default function ClockInWidget() {
           setExceptionInlineError(result.error || 'Clock in exception was rejected by server.');
         }
       } else {
-        const result = await handleClockOut({
-          locationDescription: trimmedDesc,
-          tripId,
-        });
+        const result = await handleClockOut(
+          {
+            locationDescription: trimmedDesc,
+            tripId,
+          },
+          pendingLocation
+        );
 
         if (result.success) {
           setExceptionModalVisible(false);
