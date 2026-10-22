@@ -1,6 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../../config/database';
-import { authenticate, optionalAuth, getTrustedOrgId } from '../../middleware/auth';
+import {
+  authenticate,
+  requireOrgMembership,
+  getTrustedOrgId,
+  Permission,
+  CanonicalRole,
+  hasPermission,
+  normalizeRole,
+} from '../../middleware/auth';
 import { fail } from '../../utils/http';
 import { broadcastTrackingLocation } from '../chat/websocket';
 
@@ -19,11 +27,18 @@ const ACTIVE_TRIP_STATUSES = [
 
 /**
  * GET /api/tracking/live
- * Returns all active trips merged with their latest real GPS coordinates.
- * Exposes freshness status (LIVE, UPDATING, STALE, NO_SIGNAL).
+ * Returns active trips merged with their latest real GPS coordinates.
+ * Scoped by role: Driver gets only assigned trip; Finance is forbidden; Managers/Dispatchers/Safety get fleet view.
  */
-trackingRouter.get('/live', optionalAuth, async (req: Request, res: Response) => {
+trackingRouter.get('/live', requireOrgMembership(), async (req: Request, res: Response) => {
   try {
+    const currentRole = normalizeRole(req.user?.role);
+    const currentUserId = req.user?.id || req.user?.userId;
+
+    if (currentRole === CanonicalRole.FINANCE) {
+      return fail(res, 403, 'Forbidden: Finance role is not authorized to access live GPS tracking');
+    }
+
     const orgId = getTrustedOrgId(req);
     const orgFilter = orgId ? { organization_id: orgId } : undefined;
     const allTrips = await db.list('trips', orgFilter);
@@ -31,10 +46,17 @@ trackingRouter.get('/live', optionalAuth, async (req: Request, res: Response) =>
     const allDrivers = await db.list('users', orgFilter);
     const allLocations = await db.list('tracking_locations', orgFilter);
 
-    const activeTrips = (allTrips || []).filter((t: any) => {
+    let activeTrips = (allTrips || []).filter((t: any) => {
       const normStatus = String(t.status || '').toUpperCase().replace(/[\s-]+/g, '_');
       return ACTIVE_TRIP_STATUSES.includes(normStatus);
     });
+
+    if (currentRole === CanonicalRole.DRIVER) {
+      activeTrips = activeTrips.filter((t: any) => {
+        const dId = String(t.driverID || t.driverid || '');
+        return dId.toLowerCase() === String(currentUserId).toLowerCase();
+      });
+    }
 
     const now = Date.now();
 
@@ -174,6 +196,17 @@ trackingRouter.get('/:tripID', authenticate, async (req: Request, res: Response)
 
     if (!trip || (trip.organization_id && trip.organization_id !== orgId)) {
       return fail(res, 404, `Trip ${tripID} not found`);
+    }
+
+    const currentRole = normalizeRole(req.user?.role);
+    if (currentRole === CanonicalRole.FINANCE) {
+      return fail(res, 403, 'Forbidden: Finance role is not authorized to access live GPS tracking');
+    }
+    if (currentRole === CanonicalRole.DRIVER) {
+      const driverId = String(trip.driverID || trip.driverid || '').toLowerCase();
+      if (driverId !== String(req.user?.userId || req.user?.id).toLowerCase()) {
+        return fail(res, 403, 'Forbidden: You are not assigned to this trip');
+      }
     }
 
     const locations = await db.list('tracking_locations', orgId ? { organization_id: orgId } : undefined);

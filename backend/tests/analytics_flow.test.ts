@@ -1,6 +1,6 @@
 import request from 'supertest';
-import {describe, expect, it} from 'vitest';
-import {app} from '../src/app';
+import { describe, expect, it } from 'vitest';
+import { app } from '../src/app';
 
 describe('Analytics API Integration Flow', () => {
   it('1. GET /api/analytics returns calculated KPIs, monthly revenue, and costliest vehicles', async () => {

@@ -1,8 +1,17 @@
-import type {NextFunction, Request, Response} from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import {env} from '../config/env';
-import {db} from '../config/database';
-import {fail} from '../utils/http';
+import { env } from '../config/env';
+import { db } from '../config/database';
+import { fail } from '../utils/http';
+import {
+  Permission,
+  CanonicalRole,
+  hasPermission,
+  hasAnyPermission,
+  normalizeRole,
+} from '../config/permissions';
+
+export { Permission, CanonicalRole, hasPermission, hasAnyPermission, normalizeRole };
 
 export const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -51,9 +60,10 @@ export const signToken = (user: any) => {
       business_id: orgId,
       organizationId: orgId,
       organization_id: orgId,
+      isPlatformAdmin: Boolean(user.isPlatformAdmin),
     },
     env.JWT_SECRET,
-    {expiresIn: env.JWT_EXPIRES_IN as any}
+    { expiresIn: env.JWT_EXPIRES_IN as any }
   );
 };
 
@@ -115,7 +125,7 @@ export const optionalAuth = (req: Request, _res: Response, next: NextFunction) =
         businessId: orgId,
         business_id: orgId,
       };
-    } catch {}
+    } catch { }
   }
   next();
 };
@@ -163,16 +173,30 @@ export const requireOrgMembership = (allowedRoles?: string[]) => async (
   try {
     const decoded: any = jwt.verify(token, env.JWT_SECRET);
     const userId = decoded.userId || decoded.id;
-    let targetOrgId =
-      (req.headers['x-organization-id'] as string) ||
+    const tokenOrgId =
       decoded.organizationId ||
       decoded.organization_id ||
       decoded.businessId ||
       decoded.business_id;
+    const requestedOrgHeader = req.headers['x-organization-id'] as string;
+
+    let targetOrgId = tokenOrgId || requestedOrgHeader;
 
     // 2. Query trusted server-side membership
     let membership: any = null;
-    if (targetOrgId) {
+    if (requestedOrgHeader && requestedOrgHeader !== tokenOrgId) {
+      // Validate if caller has legitimate active membership in requested organization
+      const requestedMembership = await db.find('organization_memberships', {
+        user_id: userId,
+        organization_id: requestedOrgHeader,
+      });
+      if (requestedMembership && requestedMembership.status === 'active') {
+        membership = requestedMembership;
+        targetOrgId = requestedOrgHeader;
+      }
+    }
+
+    if (!membership && targetOrgId) {
       membership = await db.find('organization_memberships', {
         user_id: userId,
         organization_id: targetOrgId,
@@ -281,6 +305,28 @@ export const requireOrgMembership = (allowedRoles?: string[]) => async (
   } catch {
     return fail(res, 401, 'Invalid or expired token');
   }
+};
+
+/**
+ * Role-Based Access Control (RBAC) permission guard.
+ * Validates active organization membership and ensures the user's role possesses
+ * at least one of the specified fine-grained permissions.
+ */
+export const requireOrgPermission = (...permissions: Permission[]) => async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  return requireOrgMembership()(req, res, () => {
+    if (!req.user) {
+      return fail(res, 401, 'Authentication required');
+    }
+    const userRole = req.user.role;
+    if (!hasAnyPermission(userRole, permissions)) {
+      return fail(res, 403, 'Forbidden: insufficient role permissions');
+    }
+    return next();
+  });
 };
 
 /**

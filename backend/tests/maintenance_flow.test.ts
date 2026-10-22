@@ -1,6 +1,6 @@
 import request from 'supertest';
-import {describe, expect, it, beforeAll} from 'vitest';
-import {app} from '../src/app';
+import { describe, expect, it, beforeAll } from 'vitest';
+import { app } from '../src/app';
 
 describe('Maintenance API Integration Flow', () => {
   let createdId = '';

@@ -1,23 +1,18 @@
-import {Router} from 'express';
-import {db} from '../../config/database';
-import {fail} from '../../utils/http';
-import {optionalAuth, getTrustedOrgId} from '../../middleware/auth';
+import { Router } from 'express';
+import { db } from '../../config/database';
+import { fail } from '../../utils/http';
+import {
+  requireOrgMembership,
+  requireOrgPermission,
+  optionalAuth,
+  getTrustedOrgId,
+  Permission,
+  CanonicalRole,
+  hasPermission,
+  normalizeRole,
+} from '../../middleware/auth';
 
 export const vehicleRouter = Router();
-
-const isManagerOrDispatcher = (role?: string) => {
-  if (!role) return false;
-  const normalized = role.toUpperCase().trim();
-  return (
-    normalized === 'ROLE_MANAGER' ||
-    normalized === 'ROLE_DISPATCHER' ||
-    normalized === 'ROLE_ADMIN' ||
-    normalized === 'MANAGER' ||
-    normalized === 'FLEET_MANAGER' ||
-    normalized === 'DISPATCHER' ||
-    normalized === 'ADMIN'
-  );
-};
 
 function fromDbVehicle(row: any) {
   if (!row) return row;
@@ -46,7 +41,10 @@ function fromDbVehicle(row: any) {
 
 vehicleRouter.get('/', optionalAuth, async (req, res) => {
   try {
-    const orgId = getTrustedOrgId(req);
+    const orgId = req.user ? getTrustedOrgId(req) : null;
+    const currentRole = req.user ? normalizeRole(req.user?.role) : null;
+    const currentUserId = req.user?.id || req.user?.userId;
+
     const orgFilter = orgId ? { organization_id: orgId } : undefined;
     const [rawVehicles, allMaint] = await Promise.all([
       db.list('vehicles', orgFilter),
@@ -62,13 +60,35 @@ vehicleRouter.get('/', optionalAuth, async (req, res) => {
       }
     }
 
-    const vehicles = (rawVehicles || []).map((row: any) => {
+    let vehicles = (rawVehicles || []).map((row: any) => {
       const v = fromDbVehicle(row);
       if (activeMaintVehIds.has(String(v.vehicleID)) || (v.id && activeMaintVehIds.has(String(v.id)))) {
         v.status = 'IN_SHOP';
       }
       return v;
     });
+
+    if (currentRole === CanonicalRole.DRIVER) {
+      const allTrips = await db.list('trips', orgFilter);
+      const driverVehIds = new Set<string>();
+      for (const t of allTrips || []) {
+        const tDriver = String(t.driverID || t.driverid || t.driver?.id || '').toLowerCase();
+        if (tDriver === String(currentUserId).toLowerCase()) {
+          const vId = t.vehicleID || t.vehicleid || t.vehicle?.id;
+          if (vId) driverVehIds.add(String(vId).toLowerCase());
+        }
+      }
+      vehicles = vehicles.filter(v => 
+        driverVehIds.has(String(v.vehicleID || '').toLowerCase()) ||
+        driverVehIds.has(String(v.id || '').toLowerCase())
+      );
+      return res.json(vehicles);
+    }
+
+    if (currentRole && !hasPermission(currentRole, Permission.VEHICLES_VIEW) && !req.user?.isPlatformAdmin) {
+      return fail(res, 403, 'Forbidden: insufficient role permissions to view vehicles');
+    }
+
     return res.json(vehicles);
   } catch (error: any) {
     console.error('Error fetching vehicles:', error?.message || error);
@@ -78,9 +98,11 @@ vehicleRouter.get('/', optionalAuth, async (req, res) => {
 
 vehicleRouter.post('/create', optionalAuth, async (req, res) => {
   try {
-    // Check RBAC if authenticated
-    if (req.user && !isManagerOrDispatcher(req.user.role)) {
-      return fail(res, 403, 'Only managers and dispatchers are authorized to create vehicles');
+    if (req.user) {
+      const callerRole = normalizeRole(req.user.role);
+      if (!hasPermission(callerRole, Permission.VEHICLES_CREATE) && !req.user.isPlatformAdmin) {
+        return fail(res, 403, 'Forbidden: insufficient role permissions to create vehicle');
+      }
     }
 
     const body = req.body ?? {};
@@ -120,7 +142,7 @@ vehicleRouter.post('/create', optionalAuth, async (req, res) => {
 
     // Duplicate Check scoped to organization
     const orgId = getTrustedOrgId(req);
-    const existing = await db.find('vehicles', {registrationNumber, organization_id: orgId});
+    const existing = await db.find('vehicles', { registrationNumber, organization_id: orgId });
     if (existing) {
       return fail(res, 409, `Vehicle with registration number '${registrationNumber}' already exists`);
     }
@@ -162,18 +184,22 @@ vehicleRouter.post('/create', optionalAuth, async (req, res) => {
   }
 });
 
-vehicleRouter.put('/update/', optionalAuth, async (req, res) => {
+vehicleRouter.put(['/update', '/update/'], optionalAuth, async (req, res) => {
   try {
-    if (req.user && !isManagerOrDispatcher(req.user.role)) {
-      return fail(res, 403, 'Only managers and dispatchers are authorized to update vehicles');
-    }
-
     const id = String(req.query.id ?? req.body?.vehicleID ?? req.body?.vehicleid ?? '');
     if (!id) return fail(res, 400, 'Vehicle ID is required');
 
-    const orgId = getTrustedOrgId(req);
-    const existing = (await db.find('vehicles', {vehicleid: id})) || (await db.find('vehicles', {vehicleID: id}));
-    if (!existing || (existing.organization_id && existing.organization_id !== orgId)) {
+    let orgId: string | null = null;
+    if (req.user) {
+      const callerRole = normalizeRole(req.user.role);
+      if (!hasPermission(callerRole, Permission.VEHICLES_UPDATE) && !req.user.isPlatformAdmin) {
+        return fail(res, 403, 'Forbidden: insufficient role permissions to update vehicle');
+      }
+      orgId = getTrustedOrgId(req);
+    }
+
+    const existing = (await db.find('vehicles', { vehicleid: id })) || (await db.find('vehicles', { vehicleID: id }));
+    if (!existing || (orgId && existing.organization_id && existing.organization_id !== orgId)) {
       return fail(res, 404, 'Vehicle not found');
     }
 
@@ -187,7 +213,7 @@ vehicleRouter.put('/update/', optionalAuth, async (req, res) => {
         patch.registrationNumber = cleanReg;
 
         // Check if another vehicle in this organization already has this registration number
-        const allVehicles = await db.list('vehicles', { organization_id: orgId });
+        const allVehicles = await db.list('vehicles', orgId ? { organization_id: orgId } : undefined);
         const conflict = (allVehicles || []).find((v: any) => {
           const vId = String(v.vehicleID || v.vehicleid || v.id || '');
           const vReg = String(v.registrationNumber || v.registrationnumber || v.reg || '').trim().toUpperCase();
@@ -225,29 +251,33 @@ vehicleRouter.put('/update/', optionalAuth, async (req, res) => {
       patch.status = allowedStatuses.includes(rawStatus) ? rawStatus : 'AVAILABLE';
     }
 
-    const updated = await db.update('vehicles', {vehicleid: id}, patch);
+    const updated = await db.update('vehicles', { vehicleid: id }, patch);
     if (!updated) return fail(res, 404, 'Vehicle not found');
     const formatted = fromDbVehicle(updated);
-    return res.json({success: true, vehicle: formatted, data: formatted});
+    return res.json({ success: true, vehicle: formatted, data: formatted });
   } catch (error: any) {
     console.error('Error updating vehicle:', error?.message || error);
     return fail(res, 500, error?.message || 'Failed to update vehicle');
   }
 });
 
-vehicleRouter.delete('/delete/', optionalAuth, async (req, res) => {
+vehicleRouter.delete(['/delete', '/delete/'], optionalAuth, async (req, res) => {
   try {
-    if (req.user && !isManagerOrDispatcher(req.user.role)) {
-      return fail(res, 403, 'Only managers and dispatchers are authorized to delete vehicles');
-    }
-
     const id = String(req.query.id ?? req.body?.id ?? req.body?.vehicleID ?? req.body?.vehicleid ?? '');
     const forceConfirm = req.query.confirm === 'true' || req.body?.confirm === true;
     if (!id) return fail(res, 400, 'Vehicle ID is required');
 
-    const orgId = getTrustedOrgId(req);
+    let orgId: string | null = null;
+    if (req.user) {
+      const callerRole = normalizeRole(req.user.role);
+      if (!hasPermission(callerRole, Permission.VEHICLES_DEACTIVATE) && !req.user.isPlatformAdmin) {
+        return fail(res, 403, 'Forbidden: insufficient role permissions to delete vehicle');
+      }
+      orgId = getTrustedOrgId(req);
+    }
+
     const existing = (await db.find('vehicles', { vehicleid: id })) || (await db.find('vehicles', { vehicleID: id }));
-    if (!existing || (existing.organization_id && existing.organization_id !== orgId)) {
+    if (!existing || (orgId && existing.organization_id && existing.organization_id !== orgId)) {
       return fail(res, 404, 'Vehicle not found');
     }
 

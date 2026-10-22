@@ -24,6 +24,7 @@ import { alertRouter } from './modules/alerts/routes';
 import { organizationRouter } from './modules/organizations/routes';
 import { adminRouter } from './modules/admin/routes';
 import { carbonRouter } from './modules/carbon/routes';
+import { weatherRouter } from './modules/weather/routes';
 
 export const app = express();
 
@@ -40,6 +41,7 @@ app.use('/api/auth', authRouter);
 app.use(['/api/user', '/api/users'], userRouter);
 app.use(['/api/vehicle', '/api/vehicles'], vehicleRouter);
 app.use(['/api/trip', '/api/trips'], tripRouter);
+app.use('/api/weather', weatherRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/maintenance', maintenanceRouter);
 app.use('/api/fuel', fuelRouter);

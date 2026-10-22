@@ -72,7 +72,7 @@ const CITY_COORDINATES: Record<string, { lat: number; lng: number }> = {
   rajkot: { lat: 22.3039, lng: 70.8022 },
 };
 
-function resolveCityCoords(cityName?: string): { lat: number; lng: number } | null {
+export function resolveCityCoords(cityName?: string): { lat: number; lng: number } | null {
   if (!cityName) return null;
   const lower = cityName.toLowerCase();
   for (const [key, coords] of Object.entries(CITY_COORDINATES)) {

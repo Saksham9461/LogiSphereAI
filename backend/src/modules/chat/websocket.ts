@@ -594,7 +594,7 @@ export async function broadcastRealtimeRead(
 
 export async function findOrCreateConversation(userIdA: string, userIdB: string): Promise<string> {
   const allParticipants = await db.list('conversation_participants');
-  
+
   // Group by conversation_id
   const userConvsMap = new Map<string, Set<string>>();
   allParticipants.forEach((p: any) => {

@@ -1,6 +1,6 @@
 import request from 'supertest';
-import {describe, expect, it} from 'vitest';
-import {app} from '../src/app';
+import { describe, expect, it } from 'vitest';
+import { app } from '../src/app';
 
 describe('Dashboard API Integration Flow', () => {
   it('1. GET /api/dashboard/summary returns summary stats and status breakdown', async () => {

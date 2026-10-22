@@ -34,12 +34,12 @@ describe('LogiSphere AI — Attendance Auto Clock-Out & Staff Report System', { 
     role: 'ROLE_DRIVER',
   };
 
+  const testOrgId = '00000000-0000-0000-0000-00000000000b';
   let managerToken = '';
   let driver1Token = '';
   let driver2Token = '';
   let pastRecordId = '';
   beforeAll(async () => {
-    const testOrgId = '00000000-0000-0000-0000-00000000000b';
     // Ensure test organization exists in organizations table
     const existingOrg = await db.find('organizations', { id: testOrgId });
     if (!existingOrg) {
@@ -229,12 +229,14 @@ describe('LogiSphere AI — Attendance Auto Clock-Out & Staff Report System', { 
       name: 'Peyton Baker',
       role: 'ROLE_DRIVER',
       password: 'password',
+      organization_id: testOrgId,
     });
 
     // Session 1: 08:00 AM -> 02:00 PM (6 hours = 360 mins)
     await db.insert('attendance_records', {
       id: db.makeId('att-s1-'),
       userId: testUserId,
+      organization_id: testOrgId,
       date: testDate,
       clockInTime: '08:00 AM',
       clockOutTime: '02:00 PM',
@@ -252,6 +254,7 @@ describe('LogiSphere AI — Attendance Auto Clock-Out & Staff Report System', { 
     await db.insert('attendance_records', {
       id: db.makeId('att-s2-'),
       userId: testUserId,
+      organization_id: testOrgId,
       date: testDate,
       clockInTime: '03:00 PM',
       clockOutTime: '05:30 PM',

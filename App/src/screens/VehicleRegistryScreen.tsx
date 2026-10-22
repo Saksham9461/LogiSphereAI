@@ -25,6 +25,7 @@ import useVehicleStore from '../store/VehicleStore';
 import useAuthStore from '../store/AuthStore';
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
+import { usePermissions, Permission } from '../utils/rbac';
 
 // --- MOCK CONSTANTS ---
 const STATUS_STYLES: Record<string, { bg: string; text: string; border: string }> = {
@@ -171,16 +172,11 @@ export default function VehicleRegistryScreen() {
   const { vehicles, getVehicles, registerVehicle, updateVehicle, deleteVehicle, loading, error } = useVehicleStore();
   const user = useAuthStore((state) => state.user);
 
-  const userRole = String(user?.role || '').toUpperCase().trim();
-  const canManageVehicles = [
-    'ROLE_MANAGER',
-    'FLEET_MANAGER',
-    'MANAGER',
-    'ROLE_ADMIN',
-    'ADMIN',
-    'ROLE_DISPATCHER',
-    'DISPATCHER',
-  ].includes(userRole);
+  const { can } = usePermissions();
+  const canCreateVehicle = can(Permission.VEHICLES_CREATE);
+  const canUpdateVehicle = can(Permission.VEHICLES_UPDATE);
+  const canDeleteVehicle = can(Permission.VEHICLES_DEACTIVATE);
+  const canManageVehicles = canCreateVehicle || canUpdateVehicle || canDeleteVehicle;
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('All');
@@ -367,7 +363,7 @@ export default function VehicleRegistryScreen() {
         {/* HEADER */}
         <View style={styles.headerRow}>
           <Text style={styles.pageTitle}>Vehicle Registry</Text>
-          {canManageVehicles && (
+          {canCreateVehicle && (
             <Pressable style={styles.addButton} onPress={openAddModal}>
               <Plus size={16} color="#1a1200" strokeWidth={2.5} />
               <Text style={styles.addButtonText}>Add</Text>

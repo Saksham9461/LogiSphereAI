@@ -3,8 +3,8 @@ import jwt from 'jsonwebtoken';
 import { env } from '../../config/env';
 import { db } from '../../config/database';
 import { distanceMeters } from '../../utils/distance';
-import { optionalAuth, getTrustedOrgId } from '../../middleware/auth';
 import { fail, ok } from '../../utils/http';
+import { optionalAuth, getTrustedOrgId, hasPermission, normalizeRole, Permission, CanonicalRole } from '../../middleware/auth';
 import {
   BUSINESS_TIMEZONE,
   getBusinessDateString,
@@ -144,7 +144,7 @@ export function parseTimeToMinutes(timeStr: string): number | null {
     if (!isNaN(d.getTime())) {
       return d.getHours() * 60 + d.getMinutes();
     }
-  } catch (_) {}
+  } catch (_) { }
   return null;
 }
 
@@ -189,7 +189,7 @@ function resolveAuthUser(req: any) {
           role: decoded.role || 'USER',
         };
       }
-    } catch (_) {}
+    } catch (_) { }
   }
   return null;
 }
@@ -241,7 +241,7 @@ attendanceRouter.get('/status', optionalAuth, async (req, res) => {
           organizationName: orgName,
         };
       }
-    } catch (_) {}
+    } catch (_) { }
 
     const userRole = String(user?.role || '').toUpperCase();
     const isDriver = !user?.role || userRole === 'ROLE_DRIVER' || userRole === 'DRIVER';
@@ -265,7 +265,7 @@ attendanceRouter.get('/status', optionalAuth, async (req, res) => {
             vehicleID: activeTrip.vehicleID || activeTrip.vehicleid,
           };
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     if (openRecord) {
@@ -883,16 +883,32 @@ attendanceRouter.post('/reconcile', optionalAuth, async (req, res) => {
 attendanceRouter.get('/history', optionalAuth, async (req, res) => {
   try {
     const user = resolveAuthUser(req);
-    const isManager = user && ['ROLE_MANAGER', 'FLEET_MANAGER', 'ADMIN'].includes(user.role);
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+    const canonicalRole = normalizeRole(user.role);
+    const canViewOrg = hasPermission(canonicalRole, Permission.ATTENDANCE_VIEW_ORG);
+    const canViewLimited = hasPermission(canonicalRole, Permission.ATTENDANCE_VIEW_LIMITED);
     const requestedUserId = req.query.userId as string;
 
-    // Strict Role authorization: non-managers can only see their own history
-    const userId = !isManager && user ? user.userId : requestedUserId;
-
     const allRecords = await db.list('attendance_records');
-    const filtered = userId
-      ? (allRecords || []).filter((r: any) => String(r.userId || r.userid || '').toLowerCase() === String(userId).toLowerCase())
-      : allRecords || [];
+    let filtered = allRecords || [];
+
+    if (canViewOrg) {
+      if (requestedUserId) {
+        filtered = filtered.filter((r: any) => String(r.userId || r.userid || '').toLowerCase() === String(requestedUserId).toLowerCase());
+      }
+    } else if (canViewLimited) {
+      // Dispatchers see today's active/on-duty shifts or requested user
+      const todayDateKey = getBusinessDateString();
+      filtered = filtered.filter((r: any) => {
+        const recKey = extractRecordDateKey(r, BUSINESS_TIMEZONE);
+        return recKey === todayDateKey || !r.clockOutTime || (requestedUserId && String(r.userId || r.userid || '').toLowerCase() === String(requestedUserId).toLowerCase());
+      });
+    } else {
+      // Drivers and Finance see strictly their own attendance records
+      filtered = filtered.filter((r: any) => String(r.userId || r.userid || '').toLowerCase() === String(user.userId).toLowerCase());
+    }
 
     const normalized = filtered.map(normalizeRecord).filter(Boolean);
     if (req.query.today === 'true') {
@@ -932,7 +948,10 @@ async function buildGroupedAttendanceReport(
     throw new Error('Authentication required');
   }
 
-  const isManager = ['ROLE_MANAGER', 'FLEET_MANAGER', 'ADMIN'].includes(user.role);
+  const canonicalRole = normalizeRole(user.role);
+  const canViewOrg = hasPermission(canonicalRole, Permission.ATTENDANCE_VIEW_ORG);
+  const canViewLimited = hasPermission(canonicalRole, Permission.ATTENDANCE_VIEW_LIMITED);
+  const isManager = canViewOrg;
 
   // 1. Run reconciliation to ensure any open sessions past 11:59 PM are cleanly closed
   await runAutoClockOutReconciliation();
@@ -953,17 +972,26 @@ async function buildGroupedAttendanceReport(
     .map(normalizeRecord)
     .filter((r): r is NonNullable<ReturnType<typeof normalizeRecord>> => Boolean(r));
 
-  // 4. Role-based filtering
+  // 4. Role-based filtering according to Authoritative Matrix
   let authorizedRecords = allRecords;
-  if (!isManager) {
-    // Non-managers strictly view only their own records
+  if (canViewOrg) {
+    // Managers & Safety Officers can view organization-wide records
+    if (req.query.userId) {
+      authorizedRecords = allRecords.filter(
+        (r: any) => String(r.userId).toLowerCase() === String(req.query.userId).toLowerCase()
+      );
+    }
+  } else if (canViewLimited) {
+    // Dispatchers view limited operational attendance (today's active / on-duty records)
+    const todayDateKey = getBusinessDateString();
+    authorizedRecords = allRecords.filter((r: any) => {
+      const recKey = extractRecordDateKey(r, BUSINESS_TIMEZONE);
+      return recKey === todayDateKey || !r.clockOutTime;
+    });
+  } else {
+    // Drivers & Finance view strictly their own records
     authorizedRecords = allRecords.filter(
       (r: any) => String(r.userId).toLowerCase() === String(user.userId).toLowerCase()
-    );
-  } else if (req.query.userId) {
-    // Managers can optionally filter by specific staff
-    authorizedRecords = allRecords.filter(
-      (r: any) => String(r.userId).toLowerCase() === String(req.query.userId).toLowerCase()
     );
   }
 
@@ -1074,8 +1102,8 @@ async function buildGroupedAttendanceReport(
     const dayStatus: 'COMPLETED' | 'IN_PROGRESS' | 'AUTO_CLOSED' = hasInProgress
       ? 'IN_PROGRESS'
       : hasAutoClosed
-      ? 'AUTO_CLOSED'
-      : 'COMPLETED';
+        ? 'AUTO_CLOSED'
+        : 'COMPLETED';
 
     reportData.push({
       id: groupKey,
@@ -1157,6 +1185,15 @@ attendanceRouter.get('/report', optionalAuth, async (req, res) => {
 // GET /api/attendance/report/export-pdf - Export attendance report as PDF
 attendanceRouter.get('/report/export-pdf', optionalAuth, async (req, res) => {
   try {
+    const user = resolveAuthUser(req);
+    if (!user) {
+      return fail(res, 401, 'Authentication required');
+    }
+    const canonicalRole = normalizeRole(user.role);
+    if (!hasPermission(canonicalRole, Permission.ATTENDANCE_EXPORT)) {
+      return fail(res, 403, 'Forbidden: Insufficient permissions to export attendance reports');
+    }
+
     const { reportData, currentUser, isManager } = await buildGroupedAttendanceReport(req);
 
     const { startDate, endDate, search, status } = req.query;

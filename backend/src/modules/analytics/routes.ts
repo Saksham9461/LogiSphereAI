@@ -1,24 +1,33 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../../config/database';
-import { optionalAuth, getTrustedOrgId } from '../../middleware/auth';
+import {
+  requireOrgMembership,
+  optionalAuth,
+  getTrustedOrgId,
+  Permission,
+  CanonicalRole,
+  hasPermission,
+  normalizeRole,
+} from '../../middleware/auth';
 import { fail } from '../../utils/http';
 import { calculateMaintenanceForecast } from './maintenanceForecastService';
 import { calculateFuelAnomalies } from './fuelAnomalyService';
 
 export const analyticsRouter = Router();
 
-const isManagerOrDispatcher = (role?: string) => {
-  if (!role) return false;
-  const normalized = role.toUpperCase().trim();
-  return (
-    normalized === 'ROLE_MANAGER' ||
-    normalized === 'ROLE_DISPATCHER' ||
-    normalized === 'ROLE_ADMIN' ||
-    normalized === 'MANAGER' ||
-    normalized === 'FLEET_MANAGER' ||
-    normalized === 'DISPATCHER' ||
-    normalized === 'ADMIN'
-  );
+const isAuthorizedForAnalytics = (role?: string) => {
+  const canonical = normalizeRole(role);
+  return [
+    CanonicalRole.MANAGER,
+    CanonicalRole.DISPATCHER,
+    CanonicalRole.SAFETY_OFFICER,
+    CanonicalRole.FINANCE,
+  ].includes(canonical);
+};
+
+const isAuthorizedForForecast = (role?: string) => {
+  const canonical = normalizeRole(role);
+  return [CanonicalRole.MANAGER, CanonicalRole.DISPATCHER, CanonicalRole.FINANCE].includes(canonical);
 };
 
 /**
@@ -26,7 +35,14 @@ const isManagerOrDispatcher = (role?: string) => {
  * Returns overall fleet KPIs and top costliest vehicles.
  */
 analyticsRouter.get('/', optionalAuth, async (req, res) => {
-  const orgId = getTrustedOrgId(req);
+  if (req.user) {
+    const currentRole = normalizeRole(req.user?.role);
+    if (currentRole === CanonicalRole.DRIVER) {
+      return fail(res, 403, 'Forbidden: Drivers cannot access fleet analytics');
+    }
+  }
+
+  const orgId = req.user ? getTrustedOrgId(req) : null;
   const orgFilter = orgId ? { organization_id: orgId } : undefined;
   const [vehicles, trips, fuel, maint, expenses] = await Promise.all([
     db.list('vehicles', orgFilter),
@@ -68,10 +84,10 @@ analyticsRouter.get('/', optionalAuth, async (req, res) => {
  * Returns next month's deterministic maintenance forecast, historical trends,
  * vehicle risk classification, and Gemini AI budget explanation.
  */
-analyticsRouter.get('/maintenance-forecast', optionalAuth, async (req: Request, res: Response) => {
+analyticsRouter.get('/maintenance-forecast', requireOrgMembership(), async (req: Request, res: Response) => {
   try {
-    if (req.user && !isManagerOrDispatcher(req.user.role)) {
-      return fail(res, 403, 'Forbidden: Only managers and dispatchers are authorized to view maintenance forecasts');
+    if (!isAuthorizedForForecast(req.user?.role)) {
+      return fail(res, 403, 'Forbidden: Insufficient permissions to view maintenance forecasts');
     }
 
     const forecast = await calculateMaintenanceForecast();
@@ -89,10 +105,10 @@ analyticsRouter.get('/maintenance-forecast', optionalAuth, async (req: Request, 
  * GET /api/analytics/maintenance-forecast/:vehicleId
  * Returns maintenance forecast and risk assessment for a specific vehicle.
  */
-analyticsRouter.get('/maintenance-forecast/:vehicleId', optionalAuth, async (req: Request, res: Response) => {
+analyticsRouter.get('/maintenance-forecast/:vehicleId', requireOrgMembership(), async (req: Request, res: Response) => {
   try {
-    if (req.user && !isManagerOrDispatcher(req.user.role)) {
-      return fail(res, 403, 'Forbidden: Only managers and dispatchers are authorized to view vehicle maintenance forecasts');
+    if (!isAuthorizedForForecast(req.user?.role)) {
+      return fail(res, 403, 'Forbidden: Insufficient permissions to view vehicle maintenance forecasts');
     }
 
     const { vehicleId } = req.params;
@@ -132,10 +148,10 @@ analyticsRouter.get('/maintenance-forecast/:vehicleId', optionalAuth, async (req
  * Returns fleet-wide deterministic fuel anomaly report, baseline metrics,
  * and optional resilient Gemini advisory.
  */
-analyticsRouter.get('/fuel-anomalies', optionalAuth, async (req: Request, res: Response) => {
+analyticsRouter.get('/fuel-anomalies', requireOrgMembership(), async (req: Request, res: Response) => {
   try {
-    if (req.user && !isManagerOrDispatcher(req.user.role)) {
-      return fail(res, 403, 'Forbidden: Only managers and dispatchers are authorized to view fuel anomaly analytics');
+    if (!isAuthorizedForAnalytics(req.user?.role)) {
+      return fail(res, 403, 'Forbidden: Insufficient permissions to view fuel anomaly analytics');
     }
 
     const report = await calculateFuelAnomalies();
@@ -153,10 +169,10 @@ analyticsRouter.get('/fuel-anomalies', optionalAuth, async (req: Request, res: R
  * GET /api/analytics/fuel-anomalies/:vehicleId
  * Returns vehicle-specific fuel baseline, anomaly history, and efficiency metrics.
  */
-analyticsRouter.get('/fuel-anomalies/:vehicleId', optionalAuth, async (req: Request, res: Response) => {
+analyticsRouter.get('/fuel-anomalies/:vehicleId', requireOrgMembership(), async (req: Request, res: Response) => {
   try {
-    if (req.user && !isManagerOrDispatcher(req.user.role)) {
-      return fail(res, 403, 'Forbidden: Only managers and dispatchers are authorized to view fuel anomaly analytics');
+    if (!isAuthorizedForAnalytics(req.user?.role)) {
+      return fail(res, 403, 'Forbidden: Insufficient permissions to view fuel anomaly analytics');
     }
 
     const { vehicleId } = req.params;

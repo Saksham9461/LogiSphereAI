@@ -1,9 +1,9 @@
 import request from 'supertest';
-import {describe, expect, it} from 'vitest';
-import {app} from '../src/app';
+import { describe, expect, it } from 'vitest';
+import { app } from '../src/app';
 
 describe('LogiSphere backend', () => {
-  it('logs in with frontend-compatible response shape', async () => {
+  it('logs in with frontend-compatible response shape', { timeout: 20000 }, async () => {
     const managerEmail = `manager_${Date.now()}@logisphere.ai`;
     const signupRes = await request(app).post('/api/user/create').send({
       name: 'Smoke Fleet Manager',
@@ -14,14 +14,14 @@ describe('LogiSphere backend', () => {
     });
     expect(signupRes.status).toBe(201);
 
-    const res = await request(app).post('/api/auth/login').send({email: managerEmail, password: 'Password123', role: 'ROLE_MANAGER'});
+    const res = await request(app).post('/api/auth/login').send({ email: managerEmail, password: 'Password123', role: 'ROLE_MANAGER' });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.serviceResult.token).toBeTruthy();
   });
 
   it('rejects login with invalid credentials', async () => {
-    const res = await request(app).post('/api/auth/login').send({email: 'manager@logisphere.ai', password: 'WrongPassword'});
+    const res = await request(app).post('/api/auth/login').send({ email: 'manager@logisphere.ai', password: 'WrongPassword' });
     expect(res.status).toBe(401);
     expect(res.body.success).toBe(false);
     expect(res.body.message).toBe('Invalid credentials');

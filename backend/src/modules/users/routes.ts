@@ -1,27 +1,22 @@
-import {Router} from 'express';
+import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import {db} from '../../config/database';
-import {supabase} from '../../config/supabase';
-import {optionalAuth, signToken, getTrustedOrgId} from '../../middleware/auth';
-import {fail, mustChangePasswordUsers, publicUser} from '../../utils/http';
+import { db } from '../../config/database';
+import { supabase } from '../../config/supabase';
+import {
+  requireOrgMembership,
+  requireOrgPermission,
+  optionalAuth,
+  signToken,
+  getTrustedOrgId,
+  Permission,
+  CanonicalRole,
+  hasPermission,
+  normalizeRole,
+} from '../../middleware/auth';
+import { fail, mustChangePasswordUsers, publicUser } from '../../utils/http';
 
 export const userRouter = Router();
-const normalizeRole = (role: string) => role?.startsWith('ROLE_') ? role : ({FLEET_MANAGER: 'ROLE_MANAGER', DISPATCHER: 'ROLE_DISPATCHER', SAFETY_OFFICER: 'ROLE_SAFETY_OFFICER', FINANCIAL_ANALYST: 'ROLE_FINANCE', DRIVER: 'ROLE_DRIVER'} as any)[role] ?? role;
-
-const isManagerOrDispatcher = (role?: string) => {
-  if (!role) return false;
-  const normalized = normalizeRole(role).toUpperCase().trim();
-  return (
-    normalized === 'ROLE_MANAGER' ||
-    normalized === 'ROLE_DISPATCHER' ||
-    normalized === 'ROLE_ADMIN' ||
-    normalized === 'MANAGER' ||
-    normalized === 'FLEET_MANAGER' ||
-    normalized === 'DISPATCHER' ||
-    normalized === 'ADMIN'
-  );
-};
 
 function generateTempPassword(): string {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
@@ -50,11 +45,13 @@ const formatLicenseExpiry = (raw: any): string | null => {
 };
 
 userRouter.post('/create', optionalAuth, async (req, res) => {
-  if (req.user && !isManagerOrDispatcher(req.user.role)) {
-    return fail(res, 403, 'Only managers and dispatchers are authorized to create users or drivers');
+  if (req.user) {
+    const callerRole = normalizeRole(req.user.role);
+    if (!hasPermission(callerRole, Permission.DRIVERS_CREATE) && callerRole !== CanonicalRole.MANAGER && !req.user.isPlatformAdmin) {
+      return fail(res, 403, 'Forbidden: insufficient role permissions to create user');
+    }
   }
-
-  const {name, email, phoneNo, licenseNo, licenseExpiryDate} = req.body ?? {};
+  const { name, email, phoneNo, licenseNo, licenseExpiryDate } = req.body ?? {};
   const role = normalizeRole(req.body?.role);
 
   let passwordToUse = req.body?.password;
@@ -69,7 +66,7 @@ userRouter.post('/create', optionalAuth, async (req, res) => {
     return fail(res, 400, 'name, email, password and role are required');
   }
 
-  if (await db.find('users', {email})) {
+  if (await db.find('users', { email })) {
     return fail(res, 409, 'Email already exists');
   }
 
@@ -123,7 +120,7 @@ userRouter.post('/create', optionalAuth, async (req, res) => {
     driver: formattedUser,
     success: true,
     message: role === 'ROLE_DRIVER' ? 'Driver account created successfully' : 'User created successfully',
-    serviceResult: {...formattedUser, token}
+    serviceResult: { ...formattedUser, token }
   };
 
   if (tempPasswordGenerated) {
@@ -137,32 +134,63 @@ userRouter.post('/create', optionalAuth, async (req, res) => {
 });
 
 userRouter.get('/', optionalAuth, async (req, res) => {
-  const orgId = getTrustedOrgId(req);
+  if (req.user) {
+    const currentRole = normalizeRole(req.user?.role);
+    const currentUserId = req.user?.id || req.user?.userId;
+    const orgId = getTrustedOrgId(req);
+
+    // Driver can only view own profile
+    if (currentRole === CanonicalRole.DRIVER) {
+      const self = await db.find('users', { id: currentUserId, organization_id: orgId });
+      return res.json(self ? [publicUser(self)] : []);
+    }
+
+    if (!hasPermission(currentRole, Permission.DRIVERS_VIEW) && !req.user.isPlatformAdmin) {
+      return fail(res, 403, 'Forbidden: insufficient role permissions');
+    }
+
+    const role = req.query.role ? normalizeRole(String(req.query.role)) : undefined;
+    const filter: Record<string, any> = {};
+    if (orgId) {
+      filter.organization_id = orgId;
+    }
+    if (role) {
+      filter.role = role;
+    }
+    const users = await db.list('users', Object.keys(filter).length > 0 ? filter : undefined);
+    return res.json(users.map(publicUser));
+  }
+
   const role = req.query.role ? normalizeRole(String(req.query.role)) : undefined;
-  const filter: Record<string, any> = {};
-  if (orgId) {
-    filter.organization_id = orgId;
-  }
-  if (role) {
-    filter.role = role;
-  }
-  const users = await db.list('users', Object.keys(filter).length > 0 ? filter : undefined);
-  res.json(users.map(publicUser));
+  const users = await db.list('users', role ? { role } : undefined);
+  return res.json(users.map(publicUser));
 });
 
 userRouter.put('/update', optionalAuth, async (req, res) => {
   try {
-    if (req.user && !isManagerOrDispatcher(req.user.role)) {
-      return fail(res, 403, 'Only managers and dispatchers are authorized to update users or drivers');
-    }
-
     const id = String(req.query.id ?? req.body?.id ?? req.body?.userID ?? req.body?.driverID ?? '');
     if (!id) return fail(res, 400, 'User ID is required');
 
-    const orgId = getTrustedOrgId(req);
-    const existing = await db.find('users', { id });
-    if (!existing || (existing.organization_id && existing.organization_id !== orgId)) {
-      return fail(res, 404, 'User not found');
+    const currentRole = req.user ? normalizeRole(req.user?.role) : undefined;
+    const currentUserId = req.user?.id || req.user?.userId;
+
+    if (req.user) {
+      if (currentRole === CanonicalRole.DRIVER) {
+        if (id !== currentUserId) {
+          return fail(res, 403, 'Drivers can only update their own profile');
+        }
+      } else if (!hasPermission(currentRole, Permission.DRIVERS_UPDATE) && !req.user.isPlatformAdmin) {
+        return fail(res, 403, 'Only authorized personnel can update user or driver accounts');
+      }
+
+      const orgId = getTrustedOrgId(req);
+      const existing = await db.find('users', { id });
+      if (!existing || (existing.organization_id && existing.organization_id !== orgId)) {
+        return fail(res, 404, 'User not found');
+      }
+    } else {
+      const existing = await db.find('users', { id });
+      if (!existing) return fail(res, 404, 'User not found');
     }
 
     const body = req.body ?? {};
@@ -172,28 +200,32 @@ userRouter.put('/update', optionalAuth, async (req, res) => {
     if (body.phoneNo !== undefined || body.phone !== undefined || body.contact !== undefined) {
       patch.phoneNo = String(body.phoneNo ?? body.phone ?? body.contact).trim();
     }
-    if (body.licenseNo !== undefined || body.licenseNumber !== undefined) {
-      patch.licenseNo = String(body.licenseNo ?? body.licenseNumber).trim();
-    }
-    if (body.licenseExpiryDate !== undefined || body.licenseExpiry !== undefined) {
-      patch.licenseExpiryDate = formatLicenseExpiry(body.licenseExpiryDate ?? body.licenseExpiry);
-    }
-    if (body.trips !== undefined || body.tripsCompleted !== undefined) {
-      const tripsVal = Number(body.trips ?? body.tripsCompleted);
-      if (!isNaN(tripsVal)) patch.trips = tripsVal;
-    }
-    if (body.safetyScore !== undefined) {
-      const safetyVal = Number(body.safetyScore);
-      if (!isNaN(safetyVal)) patch.safetyScore = safetyVal;
-    }
-    if (body.status !== undefined || body.driverStatus !== undefined) {
-      patch.status = String(body.status ?? body.driverStatus).trim().toUpperCase().replace(/\s+/g, '_');
+
+    // Sensitive fields restricted from driver self-editing
+    if (currentRole !== CanonicalRole.DRIVER) {
+      if (body.licenseNo !== undefined || body.licenseNumber !== undefined) {
+        patch.licenseNo = String(body.licenseNo ?? body.licenseNumber).trim();
+      }
+      if (body.licenseExpiryDate !== undefined || body.licenseExpiry !== undefined) {
+        patch.licenseExpiryDate = formatLicenseExpiry(body.licenseExpiryDate ?? body.licenseExpiry);
+      }
+      if (body.trips !== undefined || body.tripsCompleted !== undefined) {
+        const tripsVal = Number(body.trips ?? body.tripsCompleted);
+        if (!isNaN(tripsVal)) patch.trips = tripsVal;
+      }
+      if (body.safetyScore !== undefined) {
+        const safetyVal = Number(body.safetyScore);
+        if (!isNaN(safetyVal)) patch.safetyScore = safetyVal;
+      }
+      if (body.status !== undefined || body.driverStatus !== undefined) {
+        patch.status = String(body.status ?? body.driverStatus).trim().toUpperCase().replace(/\s+/g, '_');
+      }
     }
 
-    const updated = await db.update('users', {id}, patch);
+    const updated = await db.update('users', { id }, patch);
     if (!updated) return fail(res, 404, 'User not found');
     const formatted = publicUser(updated);
-    return res.json({success: true, user: formatted, data: formatted});
+    return res.json({ success: true, user: formatted, data: formatted });
   } catch (error: any) {
     console.error('Error updating user:', error?.message || error);
     return fail(res, 500, error?.message || 'Failed to update user');
@@ -202,18 +234,25 @@ userRouter.put('/update', optionalAuth, async (req, res) => {
 
 userRouter.delete('/delete', optionalAuth, async (req, res) => {
   try {
-    if (req.user && !isManagerOrDispatcher(req.user.role)) {
-      return fail(res, 403, 'Only managers and dispatchers are authorized to delete driver records');
-    }
-
     const id = String(req.query.id ?? req.body?.id ?? req.body?.driverID ?? '');
     const forceConfirm = req.query.confirm === 'true' || req.body?.confirm === true;
     if (!id) return fail(res, 400, 'Driver / User ID is required');
 
-    const orgId = getTrustedOrgId(req);
-    const existing = await db.find('users', { id });
-    if (!existing || (existing.organization_id && existing.organization_id !== orgId)) {
-      return fail(res, 404, 'Driver not found');
+    let existing: any;
+    if (req.user) {
+      const currentRole = normalizeRole(req.user.role);
+      if (!hasPermission(currentRole, Permission.DRIVERS_DEACTIVATE) && !req.user.isPlatformAdmin) {
+        return fail(res, 403, 'Forbidden: insufficient role permissions to delete user');
+      }
+
+      const orgId = getTrustedOrgId(req);
+      existing = await db.find('users', { id });
+      if (!existing || (existing.organization_id && existing.organization_id !== orgId)) {
+        return fail(res, 404, 'Driver not found');
+      }
+    } else {
+      existing = await db.find('users', { id });
+      if (!existing) return fail(res, 404, 'Driver not found');
     }
 
     const driverIdLower = id.toLowerCase();

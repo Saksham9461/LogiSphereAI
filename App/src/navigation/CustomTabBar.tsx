@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet, Dimensions, Alert } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -32,8 +32,10 @@ import useChatStore from '../store/ChatStore';
 import { useAlertStore } from '../store/AlertStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { usePermissions } from '../utils/rbac';
+
 const { width } = Dimensions.get('window');
-const GRID_ITEM_WIDTH = Math.floor((width - 88) / 3); // (width - 32 for menu - 32 for padding - 24 for gaps) / 3
+const GRID_ITEM_WIDTH = Math.floor((width - 88) / 3);
 
 const getIcon = (routeName: string, color: string, size: number) => {
   switch (routeName) {
@@ -71,7 +73,7 @@ const getIcon = (routeName: string, color: string, size: number) => {
   }
 };
 
-const getLabel = (routeName: string) => {
+const getLabel = (routeName: string, isDriver: boolean = false) => {
   switch (routeName) {
     case 'Dashboard':
       return 'Dashboard';
@@ -82,7 +84,7 @@ const getLabel = (routeName: string) => {
     case 'Alerts':
       return 'Alerts';
     case 'TripDispatcher':
-      return 'Trips';
+      return isDriver ? 'My Trips' : 'Trips';
     case 'Maintenance':
       return 'Maintenance';
     case 'FuelExpense':
@@ -114,6 +116,7 @@ export default function CustomTabBar({ state, descriptors, navigation }: any) {
   const isClockedIn = status === 'CLOCKED_IN';
   const insets = useSafeAreaInsets();
   const activeAlertCount = useAlertStore((s) => s.activeCount);
+  const { isDriver, isRouteAllowed } = usePermissions();
 
   useEffect(() => {
     animation.value = withTiming(isMoreOpen ? 1 : 0, {
@@ -141,20 +144,44 @@ export default function CustomTabBar({ state, descriptors, navigation }: any) {
     };
   });
 
-  const primaryRoutes = state.routes.slice(0, 4);
-  const secondaryRoutes = state.routes.slice(4);
+  // Filter routes strictly according to role authorization
+  const allowedRoutes = useMemo(() => {
+    return state.routes.filter((route: any) => isRouteAllowed(route.name));
+  }, [state.routes, isRouteAllowed]);
+
+  // Partition routes strictly so that the bottom navigation bar invariant is always enforced across all roles:
+  // [Screen 1, Screen 2, AIAssistant (center sparks), Screen 3, More (expanded menu with all remaining screens)]
+  const { primaryRoutes, secondaryRoutes } = useMemo(() => {
+    const aiRoute = allowedRoutes.find((r: any) => r.name === 'AIAssistant');
+    const nonAiRoutes = allowedRoutes.filter((r: any) => r.name !== 'AIAssistant');
+
+    const screen1 = nonAiRoutes[0];
+    const screen2 = nonAiRoutes[1];
+    const screen3 = nonAiRoutes[2];
+    const remainingNonAi = nonAiRoutes.slice(3);
+
+    const primary: any[] = [];
+    if (screen1) primary.push(screen1);
+    if (screen2) primary.push(screen2);
+    if (aiRoute) {
+      primary.push(aiRoute);
+    } else {
+      const next = remainingNonAi.shift();
+      if (next) primary.push(next);
+    }
+    if (screen3) primary.push(screen3);
+
+    return {
+      primaryRoutes: primary,
+      secondaryRoutes: remainingNonAi,
+    };
+  }, [allowedRoutes]);
 
   // Check if active screen is in the secondary list
-  const isSecondaryActive = secondaryRoutes.some((route: any) => route.key === state.routes[state.index].key);
+  const currentActiveRoute = state.routes[state.index];
+  const isSecondaryActive = secondaryRoutes.some((route: any) => route.key === currentActiveRoute?.key);
 
   const handlePress = (route: any, isFocused: boolean) => {
-    // TEMPORARILY DISABLED: Clock-in check
-    // if (route.name !== 'Dashboard' && !isClockedIn) {
-    //   Alert.alert('Clock In Required', 'Please clock in first to access other features.');
-    //   if (isMoreOpen) setIsMoreOpen(false);
-    //   return;
-    // }
-
     if (isMoreOpen) setIsMoreOpen(false);
 
     const event = navigation.emit({
@@ -185,30 +212,38 @@ export default function CustomTabBar({ state, descriptors, navigation }: any) {
       {/* Expanded Glassmorphic Menu */}
       <Animated.View style={[styles.expandedMenu, animatedMenuStyle]}>
         <View style={styles.grid}>
-          {secondaryRoutes.map((route: any, index: number) => {
-            const isFocused = state.index === state.routes.findIndex((r: any) => r.key === route.key);
-            const color = isFocused ? colors.amber : colors.textPrimary;
-            const bg = isFocused ? 'rgba(245, 158, 11, 0.15)' : 'rgba(0, 0, 0, 0.03)';
+          {secondaryRoutes.length > 0 ? (
+            secondaryRoutes.map((route: any) => {
+              const isFocused = state.index === state.routes.findIndex((r: any) => r.key === route.key);
+              const color = isFocused ? colors.amber : colors.textPrimary;
+              const bg = isFocused ? 'rgba(245, 158, 11, 0.15)' : 'rgba(0, 0, 0, 0.03)';
 
-            return (
-              <Pressable
-                key={route.key}
-                style={[styles.gridItem, { backgroundColor: bg }]}
-                onPress={() => handlePress(route, isFocused)}>
-                <View style={[styles.iconBox, isFocused && { backgroundColor: 'transparent' }]}>
-                  {getIcon(route.name, color, 24)}
-                  {route.name === 'Alerts' && activeAlertCount > 0 && (
-                    <View style={styles.menuBadge}>
-                      <Text style={styles.menuBadgeText}>
-                        {activeAlertCount > 99 ? '99+' : activeAlertCount}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={[styles.gridItemText, { color }]}>{getLabel(route.name)}</Text>
-              </Pressable>
-            );
-          })}
+              return (
+                <Pressable
+                  key={route.key}
+                  style={[styles.gridItem, { backgroundColor: bg }]}
+                  onPress={() => handlePress(route, isFocused)}>
+                  <View style={[styles.iconBox, isFocused && { backgroundColor: 'transparent' }]}>
+                    {getIcon(route.name, color, 24)}
+                    {route.name === 'Alerts' && activeAlertCount > 0 && (
+                      <View style={styles.menuBadge}>
+                        <Text style={styles.menuBadgeText}>
+                          {activeAlertCount > 99 ? '99+' : activeAlertCount}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[styles.gridItemText, { color }]}>{getLabel(route.name, isDriver)}</Text>
+                </Pressable>
+              );
+            })
+          ) : (
+            <View style={{ width: '100%', padding: 24, alignItems: 'center' }}>
+              <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '600' }}>
+                No additional modules available
+              </Text>
+            </View>
+          )}
         </View>
       </Animated.View>
 
@@ -220,8 +255,8 @@ export default function CustomTabBar({ state, descriptors, navigation }: any) {
           height: 64 + (insets.bottom > 0 ? insets.bottom : 12)
         }
       ]}>
-        {primaryRoutes.map((route: any, index: number) => {
-          const isFocused = state.index === index;
+        {primaryRoutes.map((route: any) => {
+          const isFocused = currentActiveRoute?.key === route.key;
           const color = isFocused ? colors.amber : colors.textMuted;
 
           if (route.name === 'AIAssistant') {
@@ -245,12 +280,12 @@ export default function CustomTabBar({ state, descriptors, navigation }: any) {
               onPress={() => handlePress(route, isFocused)}>
               <View style={[styles.activeIndicator, { opacity: isFocused ? 1 : 0 }]} />
               {getIcon(route.name, color, 22)}
-              <Text style={[styles.tabLabel, { color }]}>{getLabel(route.name)}</Text>
+              <Text style={[styles.tabLabel, { color }]}>{getLabel(route.name, isDriver)}</Text>
             </Pressable>
           );
         })}
 
-        {/* More Button */}
+        {/* More Button - Invariant 5th item across all roles */}
         <Pressable
           style={styles.tabItem}
           onPress={() => setIsMoreOpen(!isMoreOpen)}>

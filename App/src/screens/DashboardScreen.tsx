@@ -24,6 +24,7 @@ import {
   SearchX,
   AlertTriangle,
   RefreshCw,
+  ShieldCheck,
 } from 'lucide-react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import ClockInWidget from '../components/ClockInWidget';
@@ -36,6 +37,7 @@ import useDashboardStore from '../store/DashboardStore';
 import useTripStore from '../store/TripStore';
 import useVehicleStore from '../store/VehicleStore';
 import useDriverStore from '../store/DriverStore';
+import { usePermissions, Permission } from '../utils/rbac';
 
 const STATUS_META: Record<string, { color: string; icon: any }> = {
   'On Trip': { color: colors.teal, icon: Truck },
@@ -145,7 +147,8 @@ const TripCard = ({ trip }: any) => {
 
 export default function DashboardScreen({ navigation }: any) {
   const user = useAuthStore(state => state.user);
-  const { stats, vehicleStatus, fetchDashboardSummary, loading: loadingSummary, error: summaryError } = useDashboardStore();
+  const { can, isDriver } = usePermissions();
+  const { stats, vehicleStatus, summary, fetchDashboardSummary, loading: loadingSummary, error: summaryError } = useDashboardStore();
   const { trips, getTrips, loading: loadingTrips, error: tripsError } = useTripStore();
   const { vehicles, getVehicles } = useVehicleStore();
   const { drivers, fetchDrivers } = useDriverStore();
@@ -332,49 +335,67 @@ export default function DashboardScreen({ navigation }: any) {
             {/* STATS & VEHICLE STATUS (Hidden when searching) */}
             {!search && (
               <>
-                <ClockInWidget />
-                <AttendanceHistory />
+                {(isDriver || can(Permission.ATTENDANCE_CLOCK_IN_OUT)) && (
+                  <>
+                    <ClockInWidget />
+                    <AttendanceHistory />
+                  </>
+                )}
 
-                <View style={styles.section}>
-                  <Text style={styles.sectionHeader}>Overview</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statsScroll}>
-                    <StatCard title="Active Vehicles" value={stats.activeVehicles} color={colors.amber} icon={Truck} />
-                    <StatCard title="Available Vehicles" value={stats.availableVehicles} color={colors.success} icon={CheckCircle2} />
-                    <StatCard title="In Maintenance" value={String(stats.vehiclesInMaintenance).padStart(2, '0')} color={colors.rose} icon={Wrench} />
-                    <StatCard title="Active Trips" value={stats.activeTrips} color={colors.teal} icon={ListChecks} />
-                    <StatCard title="Previous Trips" value={String(stats.previousTrips).padStart(2, '0')} color={colors.violet} icon={History} />
-                    <StatCard title="Drivers on Duty" value={stats.driversOnDuty} color={colors.amber} icon={Users} />
-                    <StatCard title="Fleet Util." value={`${stats.fleetUtilization}%`} color={colors.success} icon={Gauge} />
-                  </ScrollView>
-                </View>
-
-                <View style={styles.section}>
-                  <Text style={styles.sectionHeader}>Vehicle Status</Text>
-                  <View style={styles.statusPanel}>
-                    {(vehicleStatus && vehicleStatus.length > 0 ? vehicleStatus : [
-                      { label: 'Available', value: stats.availableVehicles, max: Math.max(stats.activeVehicles, 1), color: colors.success },
-                      { label: 'On Trip', value: stats.activeTrips, max: Math.max(stats.activeVehicles, 1), color: colors.teal },
-                      { label: 'In Shop', value: stats.vehiclesInMaintenance, max: Math.max(stats.activeVehicles, 1), color: colors.amber },
-                      { label: 'Not Avail', value: 0, max: Math.max(stats.activeVehicles, 1), color: colors.rose },
-                    ]).map((row: any) => {
-                      const fillPercent = row.max ? Math.min(100, Math.max(0, (row.value / row.max) * 100)) : 0;
-                      return (
-                        <View key={row.label} style={styles.statusRow}>
-                          <Text style={styles.statusLabel}>{row.label}</Text>
-                          <View style={styles.progressBarBg}>
-                            <View
-                              style={[
-                                styles.progressBarFill,
-                                { width: `${fillPercent}%`, backgroundColor: row.color }
-                              ]}
-                            />
-                          </View>
-                          <Text style={styles.statusValue}>{row.value}</Text>
-                        </View>
-                      );
-                    })}
+                {isDriver ? (
+                  <View style={styles.section}>
+                    <Text style={styles.sectionHeader}>My Driver Summary</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statsScroll}>
+                      <StatCard title="Active Trips" value={stats.activeTrips ?? summary?.activeTrips ?? 0} color={colors.teal} icon={ListChecks} />
+                      <StatCard title="Completed Trips" value={stats.previousTrips ?? summary?.previousTrips ?? 0} color={colors.success} icon={CheckCircle2} />
+                      <StatCard title="Safety Score" value={`${summary?.safetyScore ?? 95}/100`} color={colors.amber} icon={ShieldCheck} />
+                      <StatCard title="Duty Status" value={summary?.status || 'Active'} color={colors.violet} icon={History} />
+                    </ScrollView>
                   </View>
-                </View>
+                ) : (
+                  <>
+                    <View style={styles.section}>
+                      <Text style={styles.sectionHeader}>Overview</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statsScroll}>
+                        <StatCard title="Active Vehicles" value={stats.activeVehicles} color={colors.amber} icon={Truck} />
+                        <StatCard title="Available Vehicles" value={stats.availableVehicles} color={colors.success} icon={CheckCircle2} />
+                        <StatCard title="In Maintenance" value={String(stats.vehiclesInMaintenance).padStart(2, '0')} color={colors.rose} icon={Wrench} />
+                        <StatCard title="Active Trips" value={stats.activeTrips} color={colors.teal} icon={ListChecks} />
+                        <StatCard title="Previous Trips" value={String(stats.previousTrips).padStart(2, '0')} color={colors.violet} icon={History} />
+                        <StatCard title="Drivers on Duty" value={stats.driversOnDuty} color={colors.amber} icon={Users} />
+                        <StatCard title="Fleet Util." value={`${stats.fleetUtilization}%`} color={colors.success} icon={Gauge} />
+                      </ScrollView>
+                    </View>
+
+                    <View style={styles.section}>
+                      <Text style={styles.sectionHeader}>Vehicle Status</Text>
+                      <View style={styles.statusPanel}>
+                        {(vehicleStatus && vehicleStatus.length > 0 ? vehicleStatus : [
+                          { label: 'Available', value: stats.availableVehicles, max: Math.max(stats.activeVehicles, 1), color: colors.success },
+                          { label: 'On Trip', value: stats.activeTrips, max: Math.max(stats.activeVehicles, 1), color: colors.teal },
+                          { label: 'In Shop', value: stats.vehiclesInMaintenance, max: Math.max(stats.activeVehicles, 1), color: colors.amber },
+                          { label: 'Not Avail', value: 0, max: Math.max(stats.activeVehicles, 1), color: colors.rose },
+                        ]).map((row: any) => {
+                          const fillPercent = row.max ? Math.min(100, Math.max(0, (row.value / row.max) * 100)) : 0;
+                          return (
+                            <View key={row.label} style={styles.statusRow}>
+                              <Text style={styles.statusLabel}>{row.label}</Text>
+                              <View style={styles.progressBarBg}>
+                                <View
+                                  style={[
+                                    styles.progressBarFill,
+                                    { width: `${fillPercent}%`, backgroundColor: row.color }
+                                  ]}
+                                />
+                              </View>
+                              <Text style={styles.statusValue}>{row.value}</Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  </>
+                )}
               </>
             )}
 

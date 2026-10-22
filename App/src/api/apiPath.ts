@@ -10,7 +10,8 @@ import { Platform } from 'react-native';
 //     ? 'http://10.0.2.2:5001'
 //     : 'http://localhost:5001';
 
-export const BASE_URL = 'http://10.120.151.18:5001';
+const isOther = true;
+export const BASE_URL = isOther ? 'http://10.120.151.18:5001' : 'http://192.168.1.65:5001';
 
 export const WS_URL = BASE_URL.replace(/^http/, 'ws');
 
@@ -80,6 +81,14 @@ export const GetVehicleMaintenanceForecast = (vehicleId: string) => `${BASE_URL}
 export const GetTripDelayInsights = (tripId: string) => {
   const cleanId = String(tripId || '').trim().replace(/^#/, '');
   return `${BASE_URL}/api/trip/${encodeURIComponent(cleanId)}/delay-insights`;
+};
+export const GetDestinationWeather = (tripId: string, lat?: number | null, lon?: number | null) => {
+  const cleanId = String(tripId || '').trim().replace(/^#/, '');
+  let url = `${BASE_URL}/api/trip/${encodeURIComponent(cleanId)}/destination-weather`;
+  if (lat !== undefined && lat !== null && lon !== undefined && lon !== null) {
+    url += `?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;
+  }
+  return url;
 };
 
 // Carbon Intelligence & Sustainability

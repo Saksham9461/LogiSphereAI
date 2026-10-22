@@ -41,6 +41,7 @@ import { useAlertStore, EmergencyAlert, AlertStatusFilter } from '../store/Alert
 import useAuthStore from '../store/AuthStore';
 import { offlineSOSQueue, QueuedSOSRequest } from '../services/offlineSOSQueue';
 import { sosSyncWorker } from '../services/sosSyncWorker';
+import { usePermissions, Permission } from '../utils/rbac';
 
 const { width, height } = Dimensions.get('window');
 
@@ -72,6 +73,10 @@ export default function AlertsScreen() {
 
   const currentUser = useAuthStore((state) => state.user);
   const insets = useSafeAreaInsets();
+  const { can } = usePermissions();
+  const canViewOrgAlerts = can(Permission.ALERTS_VIEW);
+  const canAcknowledge = can(Permission.ALERTS_ACKNOWLEDGE);
+  const canResolve = can(Permission.ALERTS_RESOLVE);
 
   const [mapModalVisible, setMapModalVisible] = useState(false);
   const [resolveModalVisible, setResolveModalVisible] = useState(false);
@@ -84,7 +89,7 @@ export default function AlertsScreen() {
   // Subscribe to durable offline SOS queue (for authenticated drivers)
   useEffect(() => {
     const currentDriverId = currentUser?.id || currentUser?.userId;
-    if (!currentDriverId || isManager) {
+    if (!currentDriverId || canViewOrgAlerts) {
       setQueuedRequests([]);
       return;
     }
@@ -97,7 +102,7 @@ export default function AlertsScreen() {
     });
 
     return () => unsub();
-  }, [currentUser, isManager]);
+  }, [currentUser, canViewOrgAlerts]);
 
   // Fetch alerts on screen focus
   useFocusEffect(
@@ -115,7 +120,7 @@ export default function AlertsScreen() {
 
   const handleRefresh = async () => {
     await fetchAlerts(true);
-    if (!isManager) {
+    if (!canViewOrgAlerts) {
       await sosSyncWorker.syncPendingSOS('pull_to_refresh');
     }
   };
@@ -245,7 +250,7 @@ export default function AlertsScreen() {
             <Text style={styles.screenTitle}>Emergency Alerts</Text>
           </View>
           <Text style={styles.roleSubtext}>
-            {isManager ? 'Fleet Control Center • Manager View' : 'My Emergency SOS Records'}
+            {canViewOrgAlerts ? 'Fleet Control Center • Incident Monitoring' : 'My Emergency SOS Records'}
           </Text>
         </View>
 
@@ -274,7 +279,7 @@ export default function AlertsScreen() {
           <Search color={colors.textMuted} size={18} />
           <TextInput
             style={styles.searchInput}
-            placeholder={isManager ? "Search by driver or status..." : "Search alerts..."}
+            placeholder={canViewOrgAlerts ? "Search by driver or status..." : "Search alerts..."}
             placeholderTextColor={colors.textMuted}
             value={searchQuery}
             onChangeText={(txt) => {
@@ -536,7 +541,7 @@ export default function AlertsScreen() {
                     </View>
                   )}
 
-                  {isManager && alert.status === 'ACTIVE' && (
+                  {canAcknowledge && alert.status === 'ACTIVE' && (
                     <Pressable
                       style={[styles.btnAction, styles.btnAck]}
                       onPress={() => handleAcknowledge(alert.id)}
@@ -553,7 +558,7 @@ export default function AlertsScreen() {
                     </Pressable>
                   )}
 
-                  {isManager && (alert.status === 'ACTIVE' || alert.status === 'ACKNOWLEDGED') && (
+                  {canResolve && (alert.status === 'ACTIVE' || alert.status === 'ACKNOWLEDGED') && (
                     <Pressable
                       style={[styles.btnAction, styles.btnResolve]}
                       onPress={() => openResolveModal(alert.id)}

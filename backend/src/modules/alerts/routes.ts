@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { db } from '../../config/database';
 import { env } from '../../config/env';
-import { optionalAuth } from '../../middleware/auth';
+import { optionalAuth, hasPermission, normalizeRole, Permission } from '../../middleware/auth';
 import { ok, fail } from '../../utils/http';
 import {
   broadcastEmergencyAlertCreated,
@@ -56,7 +56,7 @@ function resolveUser(req: Request): ResolvedUser | null {
         businessId: orgId,
         business_id: orgId,
       };
-    } catch {}
+    } catch { }
   }
   if (req.headers['x-user-id']) {
     return {
@@ -89,8 +89,8 @@ export function normalizeAlertRecord(row: any) {
     locationAccuracy: row.location_accuracy_meters !== null && row.location_accuracy_meters !== undefined
       ? Number(row.location_accuracy_meters)
       : row.locationAccuracy !== null && row.locationAccuracy !== undefined
-      ? Number(row.locationAccuracy)
-      : null,
+        ? Number(row.locationAccuracy)
+        : null,
     locationCapturedAt: row.location_captured_at || row.locationCapturedAt || row.createdAt || row.created_at,
     locationStatus: row.location_status || row.locationStatus || (lat !== null ? 'PRECISE' : 'UNAVAILABLE'),
     message: row.message || 'EMERGENCY SOS: Driver triggered emergency alert',
@@ -400,7 +400,8 @@ alertRouter.get('/', optionalAuth, async (req: Request, res: Response) => {
       return fail(res, 401, 'Authentication required to view emergency alerts');
     }
 
-    const isManager = isManagerRole(user.role);
+    const canonicalRole = normalizeRole(user.role);
+    const canViewOrgAlerts = hasPermission(canonicalRole, Permission.ALERTS_VIEW);
     const dbUser = await db.find('users', { id: user.userId });
     const userOrg = dbUser?.businessId || dbUser?.business_id || user.businessId || 'default_org';
 
@@ -442,13 +443,13 @@ alertRouter.get('/', optionalAuth, async (req: Request, res: Response) => {
           }
         }
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // Strict access control:
-    // - Non-managers (drivers): see strictly only their own alerts.
-    // - Managers: see alerts belonging to their authorized organization.
+    // - Roles without org-wide view (drivers): see strictly only their own alerts.
+    // - Roles with ALERTS_VIEW: see alerts belonging to their authorized organization.
     let filtered = normalized;
-    if (!isManager) {
+    if (!canViewOrgAlerts) {
       filtered = filtered.filter(
         (a: any) => String(a.driverId).toLowerCase() === String(user.userId).toLowerCase()
       );
@@ -516,7 +517,7 @@ alertRouter.get('/', optionalAuth, async (req: Request, res: Response) => {
       limit,
       totalPages,
       activeCount,
-      isManager,
+      isManager: canViewOrgAlerts,
     });
   } catch (error: any) {
     console.error('[Alerts API Error] GET /api/alerts failed:', error);
@@ -535,7 +536,8 @@ alertRouter.get('/count', optionalAuth, async (req: Request, res: Response) => {
       return res.json({ success: true, activeCount: 0, totalCount: 0 });
     }
 
-    const isManager = isManagerRole(user.role);
+    const canonicalRole = normalizeRole(user.role);
+    const canViewOrgAlerts = hasPermission(canonicalRole, Permission.ALERTS_VIEW);
     const dbUser = await db.find('users', { id: user.userId });
     const userOrg = dbUser?.businessId || dbUser?.business_id || user.businessId || 'default_org';
 
@@ -543,7 +545,7 @@ alertRouter.get('/count', optionalAuth, async (req: Request, res: Response) => {
     const normalized = (allAlertsRaw || []).map(normalizeAlertRecord).filter(Boolean);
 
     let scoped = normalized;
-    if (!isManager) {
+    if (!canViewOrgAlerts) {
       scoped = scoped.filter(
         (a: any) => String(a.driverId).toLowerCase() === String(user.userId).toLowerCase()
       );
@@ -559,7 +561,7 @@ alertRouter.get('/count', optionalAuth, async (req: Request, res: Response) => {
       success: true,
       activeCount,
       totalCount: scoped.length,
-      isManager,
+      isManager: canViewOrgAlerts,
     });
   } catch (error: any) {
     return fail(res, 500, error.message || 'Failed to count alerts');
@@ -586,15 +588,16 @@ alertRouter.get('/:id', optionalAuth, async (req: Request, res: Response) => {
     if (!alert) {
       return fail(res, 404, 'Emergency alert not found');
     }
-    const isManager = isManagerRole(user.role);
+    const canonicalRole = normalizeRole(user.role);
+    const canViewOrgAlerts = hasPermission(canonicalRole, Permission.ALERTS_VIEW);
 
     // Drivers can only access their own alert
-    if (!isManager && String(alert.driverId).toLowerCase() !== String(user.userId).toLowerCase()) {
+    if (!canViewOrgAlerts && String(alert.driverId).toLowerCase() !== String(user.userId).toLowerCase()) {
       return fail(res, 403, 'Forbidden: You cannot access alerts created by other drivers');
     }
 
-    // Managers can only access alerts from their own organization
-    if (isManager) {
+    // Organization-scoped alert verification
+    if (canViewOrgAlerts) {
       const dbUser = await db.find('users', { id: user.userId });
       const userOrg = dbUser?.businessId || dbUser?.business_id || user.businessId || 'default_org';
       const alertOrg = alert.businessId || 'default_org';
@@ -627,7 +630,7 @@ alertRouter.get('/:id', optionalAuth, async (req: Request, res: Response) => {
           alert.resolvedBy = 'Fleet Manager';
         }
       }
-    } catch (_) {}
+    } catch (_) { }
 
     return ok(res, alert);
   } catch (error: any) {
@@ -646,8 +649,9 @@ async function handleAcknowledgeAlert(req: Request, res: Response) {
       return fail(res, 401, 'Authentication required');
     }
 
-    if (!isManagerRole(user.role)) {
-      return fail(res, 403, 'Forbidden: Only authorized managers can acknowledge emergency alerts');
+    const canonicalRole = normalizeRole(user.role);
+    if (!hasPermission(canonicalRole, Permission.ALERTS_ACKNOWLEDGE)) {
+      return fail(res, 403, 'Forbidden: Insufficient permissions to acknowledge emergency alerts');
     }
 
     const alertId = req.params.id;
@@ -709,8 +713,9 @@ async function handleResolveAlert(req: Request, res: Response) {
       return fail(res, 401, 'Authentication required');
     }
 
-    if (!isManagerRole(user.role)) {
-      return fail(res, 403, 'Forbidden: Only authorized managers can resolve emergency alerts');
+    const canonicalRole = normalizeRole(user.role);
+    if (!hasPermission(canonicalRole, Permission.ALERTS_RESOLVE)) {
+      return fail(res, 403, 'Forbidden: Insufficient permissions to resolve emergency alerts');
     }
 
     const alertId = req.params.id;

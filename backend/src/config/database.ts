@@ -126,7 +126,7 @@ export const db = {
     const defaultOrgId = '00000000-0000-0000-0000-000000000001';
     const entries = Object.entries(filter ?? {});
     const norm = (s: string) => s.replace(/_/g, '').toLowerCase();
-    const getMemoryRows = () => memory[table].filter(row =>
+    const filterRow = (row: any) =>
       entries.every(([k, v]) => {
         const targetNormKey = norm(k);
         const matchPropKey = Object.keys(row).find(rk => norm(rk) === targetNormKey);
@@ -139,8 +139,8 @@ export const db = {
           return !val || val === defaultOrgId || String(val) === String(v);
         }
         return val === v || String(val) === String(v);
-      })
-    );
+      });
+    const getMemoryRows = () => (memory[table] || []).filter(filterRow);
 
     if (supabase) {
       try {
@@ -199,14 +199,14 @@ export const db = {
         }
 
         const isGlobalTable = table === 'organizations' || table === 'platform_admins';
-        const memRows = getMemoryRows();
+        const allMem = memory[table] || [];
         const seen = new Set<string>();
         const combined: any[] = [];
 
         for (const row of supaData) {
           const key = getRowKey(table, row);
-          const memMatch = memRows.find(m => getRowKey(table, m) === key);
-          const merged = memMatch ? { ...memMatch, ...row } : row;
+          const memMatch = allMem.find(m => getRowKey(table, m) === key);
+          const merged = memMatch ? { ...row, ...memMatch } : row;
           const finalRow = !isGlobalTable && !merged.organization_id ? { ...merged, organization_id: defaultOrgId } : merged;
           if (key) {
             if (seen.has(key)) continue;
@@ -215,7 +215,7 @@ export const db = {
           combined.push(finalRow);
         }
 
-        for (const row of memRows) {
+        for (const row of allMem) {
           const key = getRowKey(table, row);
           const finalRow = !isGlobalTable && !row.organization_id ? { ...row, organization_id: defaultOrgId } : row;
           if (key) {
@@ -225,13 +225,13 @@ export const db = {
           combined.push(finalRow);
         }
 
-        if (combined.length > 0) return combined;
+        if (combined.length > 0) return combined.filter(filterRow);
       } catch (err) {
         console.error(`[db.list] Error querying Supabase for table ${table}:`, err);
       }
     }
     const isGlobalTable = table === 'organizations' || table === 'platform_admins';
-    return getMemoryRows().map(row => (!isGlobalTable && !row.organization_id ? { ...row, organization_id: defaultOrgId } : row));
+    return (memory[table] || []).map(row => (!isGlobalTable && !row.organization_id ? { ...row, organization_id: defaultOrgId } : row)).filter(filterRow);
   },
 
   async find(table: Table, filter: Record<string, any>) {
@@ -503,7 +503,7 @@ export const db = {
         if (!error && created) {
           console.log(`[DB Insert SUCCESS] Saved to Supabase table "${table}":`, JSON.stringify(created, null, 2));
           console.log(`--------------------------------------------------\n`);
-          const merged = { ...row, ...created };
+          const merged = { ...created, ...row };
           if (table === 'emergency_alerts' && (data.client_request_id || data.clientRequestId)) {
             const idx = memory.emergency_alerts.findIndex(a => a.id === row.id);
             if (idx >= 0) memory.emergency_alerts[idx] = merged;
@@ -588,8 +588,8 @@ export const db = {
               table === 'organization_memberships' ||
               table === 'platform_admins' ||
               table === 'emergency_alerts'
-            ? 'updated_at'
-            : 'updatedat';
+              ? 'updated_at'
+              : 'updatedat';
         let cleanPatch: Record<string, any> = { ...patch, [timeField]: now() };
         if (table === 'attendance_records') {
           cleanPatch = {};

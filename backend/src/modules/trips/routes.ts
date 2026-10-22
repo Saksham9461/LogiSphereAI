@@ -1,28 +1,56 @@
-import {Router} from 'express';
-import {db} from '../../config/database';
-import {optionalAuth, getTrustedOrgId} from '../../middleware/auth';
-import {fail} from '../../utils/http';
-import {broadcastTrackingTripEnded} from '../chat/websocket';
-import {calculateTripDelayInsights} from './delayPredictionService';
+import { Router } from 'express';
+import { db } from '../../config/database';
+import {
+  requireOrgMembership,
+  requireOrgPermission,
+  optionalAuth,
+  getTrustedOrgId,
+  Permission,
+  CanonicalRole,
+  hasPermission,
+  normalizeRole,
+} from '../../middleware/auth';
+import { fail } from '../../utils/http';
+import { broadcastTrackingTripEnded } from '../chat/websocket';
+import { calculateTripDelayInsights, resolveCityCoords } from './delayPredictionService';
+import { getDestinationWeather, validateCoordinates } from '../weather/weatherService';
 
 export const tripRouter = Router();
 
 // GET all trips (Filtered by organization and driver if authenticated as ROLE_DRIVER)
-tripRouter.get('/', optionalAuth, async (req, res) => {
+tripRouter.get('/', requireOrgMembership(), async (req, res) => {
   try {
     const orgId = getTrustedOrgId(req);
+    const currentRole = normalizeRole(req.user?.role);
+    const currentUserId = req.user?.id || req.user?.userId;
+
     const filter: Record<string, any> = {};
     if (orgId) {
       filter.organization_id = orgId;
     }
-    
-    // If driver role or query driverID provided
-    const driverId = req.user?.role === 'ROLE_DRIVER' ? req.user.userId : (req.query.driverID as string);
-    if (driverId) {
-      filter.driverID = driverId;
+
+    if (currentRole === CanonicalRole.DRIVER) {
+      filter.driverID = currentUserId;
+    } else if (req.query.driverID) {
+      filter.driverID = req.query.driverID as string;
     }
 
-    const trips = await db.list('trips', Object.keys(filter).length > 0 ? filter : undefined);
+    const rawTrips = await db.list('trips', Object.keys(filter).length > 0 ? filter : undefined);
+    const trips = (rawTrips || []).map((t: any) => {
+      const tripID = t.tripID || t.tripid || t.id;
+      const driverID = t.driverID || t.driverid;
+      const vehicleID = t.vehicleID || t.vehicleid;
+      return {
+        ...t,
+        tripID,
+        tripid: tripID,
+        id: tripID,
+        driverID,
+        driverid: driverID,
+        vehicleID,
+        vehicleid: vehicleID,
+      };
+    });
     return res.json(trips);
   } catch (error: any) {
     return fail(res, 500, error.message || 'Failed to fetch trips');
@@ -102,15 +130,15 @@ export function parseLicenseExpiryDate(raw: any): string | null {
     if (!isNaN(d.getTime())) {
       return d.toISOString().split('T')[0];
     }
-  } catch {}
+  } catch { }
 
   return null;
 }
 
 // Helper to look up vehicle robustly
 async function findVehicle(vehicleID: string) {
-  let vehicle = await db.find('vehicles', {vehicleID});
-  if (!vehicle) vehicle = await db.find('vehicles', {vehicleid: vehicleID});
+  let vehicle = await db.find('vehicles', { vehicleID });
+  if (!vehicle) vehicle = await db.find('vehicles', { vehicleid: vehicleID });
   if (!vehicle) {
     const all = await db.list('vehicles');
     vehicle = (all || []).find((v: any) =>
@@ -122,8 +150,8 @@ async function findVehicle(vehicleID: string) {
 
 // Helper to look up driver robustly
 async function findDriver(driverID: string) {
-  let driver = await db.find('users', {id: driverID});
-  if (!driver) driver = await db.find('users', {id: driverID.toLowerCase()});
+  let driver = await db.find('users', { id: driverID });
+  if (!driver) driver = await db.find('users', { id: driverID.toLowerCase() });
   if (!driver) {
     const all = await db.list('users');
     driver = (all || []).find((u: any) =>
@@ -135,8 +163,8 @@ async function findDriver(driverID: string) {
 
 // Helper to look up trip robustly
 async function findTrip(tripID: string) {
-  let trip = await db.find('trips', {tripID});
-  if (!trip) trip = await db.find('trips', {tripid: tripID});
+  let trip = await db.find('trips', { tripID });
+  if (!trip) trip = await db.find('trips', { tripid: tripID });
   if (!trip) {
     const all = await db.list('trips');
     trip = (all || []).find((t: any) =>
@@ -257,9 +285,14 @@ async function checkActiveTripConflict(
   return { hasConflict: false };
 }
 
-// POST Create Trip (Status defaults to PENDING_APPROVAL)
 tripRouter.post('/create', optionalAuth, async (req, res) => {
   try {
+    if (req.user) {
+      const callerRole = normalizeRole(req.user.role);
+      if (!hasPermission(callerRole, Permission.TRIPS_CREATE) && !req.user.isPlatformAdmin) {
+        return fail(res, 403, 'Forbidden: insufficient permissions to create trips');
+      }
+    }
     console.log('\n==================================================');
     console.log('[Trip API] POST /api/trip/create REQUEST PAYLOAD:');
     console.log(JSON.stringify(req.body, null, 2));
@@ -321,7 +354,7 @@ tripRouter.post('/create', optionalAuth, async (req, res) => {
     const vehicle = vehCheck.vehicle;
 
     // Cross-organization validation: ensure vehicle belongs to caller's organization
-    if (vehicle.organization_id && vehicle.organization_id !== orgId) {
+    if (orgId && vehicle.organization_id && vehicle.organization_id !== orgId) {
       return fail(res, 400, 'Vehicle does not belong to your organization');
     }
 
@@ -333,7 +366,7 @@ tripRouter.post('/create', optionalAuth, async (req, res) => {
     const driver = drvCheck.driver;
 
     // Cross-organization validation: ensure driver belongs to caller's organization
-    if (driver.organization_id && driver.organization_id !== orgId) {
+    if (orgId && driver.organization_id && driver.organization_id !== orgId) {
       return fail(res, 400, 'Driver does not belong to your organization');
     }
 
@@ -420,9 +453,9 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
     return fail(res, 400, 'Target status is required');
   }
 
-  const orgId = getTrustedOrgId(req);
+  const orgId = req.user ? getTrustedOrgId(req) : null;
   const trip = await findTrip(tripID);
-  if (!trip || (trip.organization_id && trip.organization_id !== orgId)) {
+  if (!trip || (orgId && trip.organization_id && trip.organization_id !== orgId)) {
     return fail(res, 404, 'Trip not found');
   }
 
@@ -439,26 +472,29 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
     return fail(res, 400, `Invalid status transition from ${currentStatus} to ${targetStatus}`);
   }
 
-  // 3. RBAC validation if user context is available
-  if (req.user) {
-    const role = req.user.role;
-    const userId = req.user.userId;
+  // 3. RBAC validation
+  if (!req.user) {
+    return fail(res, 401, 'Authentication required');
+  }
+  const role = normalizeRole(req.user.role);
+  const userId = req.user.userId || req.user.id;
 
-    if (role === 'ROLE_DRIVER') {
-      const tripDriverID = trip.driverID || trip.driverid;
-      if (tripDriverID !== userId) {
-        return fail(res, 403, 'Forbidden: You can only update trips assigned to you');
-      }
-      const driverAllowedActions = ['GOING_TO_PICKUP', 'ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROP', 'DELIVERED', 'COMPLETED'];
-      if (!driverAllowedActions.includes(targetStatus)) {
-        return fail(res, 403, `Forbidden: Driver cannot transition trip to ${targetStatus}`);
-      }
-    } else if (['ROLE_MANAGER', 'ROLE_DISPATCHER'].includes(role)) {
-      const managerAllowedActions = ['ACCEPTED', 'ASSIGNED', 'REJECTED', 'CANCELLED', 'DISPATCHED'];
-      if (!managerAllowedActions.includes(targetStatus)) {
-        return fail(res, 403, `Forbidden: Manager cannot transition trip directly to ${targetStatus}`);
-      }
+  if (role === CanonicalRole.DRIVER) {
+    const tripDriverID = trip.driverID || trip.driverid;
+    if (tripDriverID !== userId) {
+      return fail(res, 403, 'Forbidden: You can only update trips assigned to you');
     }
+    const driverAllowedActions = ['GOING_TO_PICKUP', 'ARRIVED_AT_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_DROP', 'DELIVERED', 'COMPLETED'];
+    if (!driverAllowedActions.includes(targetStatus)) {
+      return fail(res, 403, `Forbidden: Driver cannot transition trip to ${targetStatus}`);
+    }
+  } else if ([CanonicalRole.MANAGER, CanonicalRole.DISPATCHER].includes(role)) {
+    const managerAllowedActions = ['ACCEPTED', 'ASSIGNED', 'REJECTED', 'CANCELLED', 'DISPATCHED'];
+    if (!managerAllowedActions.includes(targetStatus)) {
+      return fail(res, 403, `Forbidden: Manager or Dispatcher cannot transition trip directly to ${targetStatus}`);
+    }
+  } else {
+    return fail(res, 403, 'Forbidden: insufficient role permissions to update trip status');
   }
 
   const vehicleID = trip.vehicleID || trip.vehicleid;
@@ -491,8 +527,8 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
     }
 
     // Rule 6: Dispatch sets driver and vehicle to ON_TRIP
-    if (vehicleID) await db.update('vehicles', {vehicleID}, {status: 'ON_TRIP'});
-    if (driverID) await db.update('users', {id: driverID}, {status: 'ON_TRIP'});
+    if (vehicleID) await db.update('vehicles', { vehicleID }, { status: 'ON_TRIP' });
+    if (driverID) await db.update('users', { id: driverID }, { status: 'ON_TRIP' });
 
     // Driver notification
     if (driverID) {
@@ -538,7 +574,7 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
           });
 
           if (hasActiveMaint) {
-            await db.update('vehicles', {vehicleID}, {status: 'IN_SHOP'});
+            await db.update('vehicles', { vehicleID }, { status: 'IN_SHOP' });
           } else {
             // Check if vehicle is still assigned to another active trip
             const allTrips = await db.list('trips');
@@ -551,13 +587,13 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
             });
 
             if (otherActive) {
-              await db.update('vehicles', {vehicleID}, {status: 'ON_TRIP'});
+              await db.update('vehicles', { vehicleID }, { status: 'ON_TRIP' });
             } else {
-              const patchVehicle: Record<string, any> = {status: 'AVAILABLE'};
+              const patchVehicle: Record<string, any> = { status: 'AVAILABLE' };
               if (finalOdometer && (targetStatus === 'DELIVERED' || targetStatus === 'COMPLETED')) {
                 patchVehicle.odometer = finalOdometer;
               }
-              await db.update('vehicles', {vehicleID}, patchVehicle);
+              await db.update('vehicles', { vehicleID }, patchVehicle);
             }
           }
         }
@@ -583,13 +619,13 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
           });
 
           if (otherActive) {
-            await db.update('users', {id: driverID}, {status: 'ON_TRIP'});
+            await db.update('users', { id: driverID }, { status: 'ON_TRIP' });
           } else {
-            const patchDriver: Record<string, any> = {status: 'AVAILABLE'};
+            const patchDriver: Record<string, any> = { status: 'AVAILABLE' };
             if (targetStatus === 'DELIVERED' || targetStatus === 'COMPLETED') {
               patchDriver.trips = Number(drv.trips ?? 0) + 1;
             }
-            await db.update('users', {id: driverID}, patchDriver);
+            await db.update('users', { id: driverID }, patchDriver);
           }
         }
       }
@@ -626,24 +662,24 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
   }
 
   // 5. Update Trip Record
-  const patch: Record<string, any> = {status: targetStatus};
+  const patch: Record<string, any> = { status: targetStatus };
   if (req.body?.finalOdometer !== undefined) patch.finalOdometer = req.body.finalOdometer;
   if (req.body?.fuelConsumed !== undefined) patch.fuelConsumed = req.body.fuelConsumed;
 
-  const updatedTrip = await db.update('trips', {tripID}, patch);
-  return res.json(updatedTrip || {...trip, ...patch});
+  const updatedTrip = await db.update('trips', { tripID }, patch);
+  return res.json(updatedTrip || { ...trip, ...patch });
 }
 
 // Single status update endpoint
-tripRouter.put('/:tripID/status', optionalAuth, (req, res) => handleStatusUpdate(req, res));
+tripRouter.put('/:tripID/status', requireOrgMembership(), (req, res) => handleStatusUpdate(req, res));
 
 // Legacy endpoints maintained for backward compatibility
-tripRouter.put('/dispatch/:tripID', optionalAuth, (req, res) => handleStatusUpdate(req, res, 'ACCEPTED'));
-tripRouter.put('/complete/:tripID', optionalAuth, (req, res) => handleStatusUpdate(req, res, 'DELIVERED'));
-tripRouter.put('/cancel/:tripID', optionalAuth, (req, res) => handleStatusUpdate(req, res, 'CANCELLED'));
+tripRouter.put('/dispatch/:tripID', requireOrgPermission(Permission.TRIPS_DISPATCH), (req, res) => handleStatusUpdate(req, res, 'ACCEPTED'));
+tripRouter.put('/complete/:tripID', requireOrgMembership(), (req, res) => handleStatusUpdate(req, res, 'DELIVERED'));
+tripRouter.put('/cancel/:tripID', requireOrgPermission(Permission.TRIPS_CANCEL), (req, res) => handleStatusUpdate(req, res, 'CANCELLED'));
 
 // Smart Delay Prediction & Explanation (Advisory, Read-Only)
-tripRouter.get('/:tripID/delay-insights', optionalAuth, async (req, res) => {
+tripRouter.get('/:tripID/delay-insights', requireOrgMembership(), async (req, res) => {
   try {
     const { tripID } = req.params;
     const orgId = getTrustedOrgId(req);
@@ -660,5 +696,70 @@ tripRouter.get('/:tripID/delay-insights', optionalAuth, async (req, res) => {
     console.error(`[Trip API] GET /:tripID/delay-insights error for trip ${req.params?.tripID}:`, err?.message || err);
     const status = err?.message?.includes('not found') ? 404 : 500;
     return fail(res, status, err?.message || 'Failed to calculate delay insights');
+  }
+});
+
+// Destination Weather for Trip (Advisory, Read-Only)
+tripRouter.get('/:tripID/destination-weather', requireOrgMembership(), async (req, res) => {
+  try {
+    const { tripID } = req.params;
+    const cleanId = String(tripID || '').trim().replace(/^#/, '');
+    const orgId = getTrustedOrgId(req);
+    const currentRole = normalizeRole(req.user?.role);
+    const currentUserId = req.user?.id || req.user?.userId;
+
+    const trip = await findTrip(cleanId);
+    if (!trip || (trip.organization_id && orgId && trip.organization_id !== orgId)) {
+      return fail(res, 404, 'Trip not found');
+    }
+
+    // RBAC: Drivers can only access destination weather for their own assigned trips
+    if (currentRole === CanonicalRole.DRIVER) {
+      const tDriver = String(trip.driverID || trip.driverid || '').toLowerCase();
+      if (tDriver && tDriver !== String(currentUserId).toLowerCase()) {
+        return fail(res, 403, 'You are only authorized to view destination weather for your assigned trips.');
+      }
+    }
+
+    // 1. Resolve destination coordinates from trip record
+    let destLat = Number(trip.destinationLatitude ?? trip.destinationlatitude);
+    let destLng = Number(trip.destinationLongitude ?? trip.destinationlongitude);
+
+    // Optional override/enrichment if valid coordinates were supplied in query
+    if (req.query.lat && req.query.lon) {
+      const qCheck = validateCoordinates(req.query.lat, req.query.lon);
+      if (qCheck.valid) {
+        destLat = qCheck.lat;
+        destLng = qCheck.lon;
+      }
+    }
+
+    // Fallback: resolve from destination city name if coordinates are missing
+    if (isNaN(destLat) || isNaN(destLng)) {
+      const c = resolveCityCoords(trip.destination);
+      if (c) {
+        destLat = c.lat;
+        destLng = c.lng;
+      }
+    }
+
+    if (isNaN(destLat) || isNaN(destLng)) {
+      return fail(res, 400, 'Destination coordinates unavailable for this trip. Unable to load destination weather.');
+    }
+
+    const weather = await getDestinationWeather({
+      latitude: destLat,
+      longitude: destLng,
+      destinationName: trip.destination || 'Destination',
+    });
+
+    return res.json({
+      success: true,
+      data: weather,
+    });
+  } catch (err: any) {
+    console.error(`[Trip API] GET /:tripID/destination-weather error for trip ${req.params?.tripID}:`, err?.message || err);
+    const status = err?.status || (err?.message?.includes('not found') ? 404 : 500);
+    return fail(res, status, err?.message || 'Failed to retrieve destination weather');
   }
 });

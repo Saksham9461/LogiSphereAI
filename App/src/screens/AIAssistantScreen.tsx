@@ -29,6 +29,7 @@ import {
 import { colors } from '../theme/colors';
 import { rf } from '../theme/responsive';
 import useAuthStore from '../store/AuthStore';
+import { usePermissions, CanonicalRole } from '../utils/rbac';
 import {
   FleetAiResponse,
   AiAction,
@@ -63,6 +64,48 @@ const MANAGER_MORE_CHIPS = [
   '📋 Ask about a trip',
 ];
 
+const DISPATCHER_PRIMARY_CHIPS = [
+  '🚚 Show active vehicles',
+  "🛣️ Today's trip summary",
+  '📍 Track a vehicle',
+  '🛣️ Route intelligence',
+];
+
+const DISPATCHER_MORE_CHIPS = [
+  '📋 Ask about a trip',
+  '🚨 Fleet alerts',
+  '⏱️ Driver status',
+  '🗺️ Delayed trips',
+];
+
+const SAFETY_OFFICER_PRIMARY_CHIPS = [
+  '🚨 Fleet alerts',
+  '⏱️ Driver attendance',
+  '🔧 Upcoming maintenance',
+  '📊 Safety score audit',
+];
+
+const SAFETY_OFFICER_MORE_CHIPS = [
+  '📍 Track a vehicle',
+  '⚠️ Unresolved SOS alerts',
+  '📋 Trip incident reports',
+  '🚚 Vehicle inspection status',
+];
+
+const FINANCE_PRIMARY_CHIPS = [
+  '⛽ Fuel & expenses',
+  '📊 Fleet monthly revenue',
+  '🔧 Maintenance forecast',
+  '🚚 Costliest vehicles',
+];
+
+const FINANCE_MORE_CHIPS = [
+  '⛽ Fuel anomaly report',
+  '📋 Trip expense audits',
+  '🌱 Carbon intelligence',
+  '📊 Financial KPI summary',
+];
+
 // Driver quick action catalogue (strictly driver-authorized)
 const DRIVER_PRIMARY_CHIPS = [
   '🚚 My current trip',
@@ -79,9 +122,7 @@ const DRIVER_MORE_CHIPS = [
 export default function AIAssistantScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const user = useAuthStore((state) => state.user);
-  const userRole = String(user?.role || 'ROLE_DRIVER').toUpperCase();
-  const isDriver = userRole === 'ROLE_DRIVER' || userRole === 'DRIVER';
-  const isManager = ['ROLE_MANAGER', 'FLEET_MANAGER', 'ROLE_DISPATCHER', 'DISPATCHER', 'ADMIN'].includes(userRole);
+  const { canonicalRole, isDriver, isManager, isDispatcher, isSafetyOfficer, isFinance } = usePermissions();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -113,14 +154,37 @@ export default function AIAssistantScreen({ navigation }: any) {
 
   // Role metadata
   const roleBadge = useMemo(() => {
-    if (isManager) return { label: 'FLEET MANAGER', color: colors.amber, bg: 'rgba(245, 158, 11, 0.12)' };
-    if (isDriver) return { label: 'DRIVER', color: colors.blue, bg: 'rgba(59, 130, 246, 0.12)' };
-    return { label: 'DISPATCHER', color: colors.teal, bg: 'rgba(20, 184, 166, 0.12)' };
-  }, [isManager, isDriver]);
+    switch (canonicalRole) {
+      case CanonicalRole.MANAGER:
+        return { label: 'FLEET MANAGER', color: colors.amber, bg: 'rgba(245, 158, 11, 0.12)' };
+      case CanonicalRole.DISPATCHER:
+        return { label: 'DISPATCHER', color: colors.teal, bg: 'rgba(20, 184, 166, 0.12)' };
+      case CanonicalRole.SAFETY_OFFICER:
+        return { label: 'SAFETY OFFICER', color: colors.rose, bg: 'rgba(244, 63, 94, 0.12)' };
+      case CanonicalRole.FINANCE:
+        return { label: 'FINANCE', color: colors.violet, bg: 'rgba(168, 85, 247, 0.12)' };
+      case CanonicalRole.DRIVER:
+      default:
+        return { label: 'DRIVER', color: colors.blue, bg: 'rgba(59, 130, 246, 0.12)' };
+    }
+  }, [canonicalRole]);
 
   // Active quick action sets
-  const primaryChips = isDriver ? DRIVER_PRIMARY_CHIPS : MANAGER_PRIMARY_CHIPS;
-  const moreChips = isDriver ? DRIVER_MORE_CHIPS : MANAGER_MORE_CHIPS;
+  const { primaryChips, moreChips } = useMemo(() => {
+    switch (canonicalRole) {
+      case CanonicalRole.DRIVER:
+        return { primaryChips: DRIVER_PRIMARY_CHIPS, moreChips: DRIVER_MORE_CHIPS };
+      case CanonicalRole.DISPATCHER:
+        return { primaryChips: DISPATCHER_PRIMARY_CHIPS, moreChips: DISPATCHER_MORE_CHIPS };
+      case CanonicalRole.SAFETY_OFFICER:
+        return { primaryChips: SAFETY_OFFICER_PRIMARY_CHIPS, moreChips: SAFETY_OFFICER_MORE_CHIPS };
+      case CanonicalRole.FINANCE:
+        return { primaryChips: FINANCE_PRIMARY_CHIPS, moreChips: FINANCE_MORE_CHIPS };
+      case CanonicalRole.MANAGER:
+      default:
+        return { primaryChips: MANAGER_PRIMARY_CHIPS, moreChips: MANAGER_MORE_CHIPS };
+    }
+  }, [canonicalRole]);
 
   const sendMessage = useCallback(
     async (textToSend: string) => {

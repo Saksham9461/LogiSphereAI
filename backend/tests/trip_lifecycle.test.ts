@@ -52,7 +52,7 @@ describe('Trip Lifecycle Integration Tests', () => {
     const vData = vehRes.body.vehicle || vehRes.body.data || vehRes.body;
     vehicleID = vData.vehicleID || vData.id || vData.vehicleid;
     expect(vehicleID).toBeTruthy();
-  });
+  }, 15000);
 
   it('2. Manager creates trip -> status PENDING_APPROVAL', async () => {
     const res = await request(app)

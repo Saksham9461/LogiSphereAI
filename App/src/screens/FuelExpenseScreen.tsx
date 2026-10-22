@@ -29,6 +29,7 @@ import { colors } from '../theme/colors';
 import useFuelExpenseStore from '../store/FuelExpenseStore';
 import useVehicleStore from '../store/VehicleStore';
 import useTripStore from '../store/TripStore';
+import { usePermissions, Permission } from '../utils/rbac';
 
 const inr = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
 const formatDate = (iso: string) => {
@@ -71,6 +72,10 @@ export default function FuelExpenseScreen() {
 
   const { vehicles, getVehicles } = useVehicleStore();
   const { trips, getTrips } = useTripStore();
+
+  const { can } = usePermissions();
+  const canCreateFuel = can(Permission.FUEL_CREATE);
+  const canCreateExpense = can(Permission.EXPENSES_CREATE);
 
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -192,11 +197,19 @@ export default function FuelExpenseScreen() {
   };
 
   const handleOpenFuelModal = () => {
+    if (!canCreateFuel) {
+      Alert.alert('Unauthorized', 'You do not have permission to log fuel.');
+      return;
+    }
     resetFuelForm();
     setShowFuelModal(true);
   };
 
   const handleOpenExpenseModal = () => {
+    if (!canCreateExpense) {
+      Alert.alert('Unauthorized', 'You do not have permission to record expenses.');
+      return;
+    }
     resetExpenseForm();
     setShowExpenseModal(true);
   };
@@ -326,16 +339,22 @@ export default function FuelExpenseScreen() {
         </View>
 
         {/* BUTTON ROW */}
-        <View style={styles.actionRow}>
-          <Pressable style={styles.actionBtn} onPress={handleOpenFuelModal}>
-            <Plus size={16} color="#1a1200" strokeWidth={2.5} />
-            <Text style={styles.actionBtnText}>Log Fuel</Text>
-          </Pressable>
-          <Pressable style={styles.actionBtn} onPress={handleOpenExpenseModal}>
-            <Plus size={16} color="#1a1200" strokeWidth={2.5} />
-            <Text style={styles.actionBtnText}>Add Expense</Text>
-          </Pressable>
-        </View>
+        {(canCreateFuel || canCreateExpense) && (
+          <View style={styles.actionRow}>
+            {canCreateFuel && (
+              <Pressable style={styles.actionBtn} onPress={handleOpenFuelModal}>
+                <Plus size={16} color="#1a1200" strokeWidth={2.5} />
+                <Text style={styles.actionBtnText}>Log Fuel</Text>
+              </Pressable>
+            )}
+            {canCreateExpense && (
+              <Pressable style={styles.actionBtn} onPress={handleOpenExpenseModal}>
+                <Plus size={16} color="#1a1200" strokeWidth={2.5} />
+                <Text style={styles.actionBtnText}>Add Expense</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
 
         {/* FUEL LOGS LIST */}
         <View style={styles.listContainer}>

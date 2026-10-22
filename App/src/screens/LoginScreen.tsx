@@ -8,6 +8,7 @@ import {
   ScrollView,
   useWindowDimensions,
   Pressable,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AppTextInput from '../components/AppTextInput';
@@ -68,6 +69,11 @@ export default function LoginScreen({ navigation }: any) {
         >
           <View style={styles.formContainer}>
             <View style={styles.hero}>
+              <Image
+                source={require('../assets/logo.png')}
+                style={styles.logo}
+                resizeMode="contain"
+              />
               <Text style={styles.title}>LogiSphere AI</Text>
             </View>
 
@@ -161,6 +167,10 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 40,
     alignItems: 'center',
+  },
+  logo: {
+    width: 80,
+    height: 80,
   },
   title: {
     color: colors.textPrimary,

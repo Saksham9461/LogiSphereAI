@@ -38,6 +38,8 @@ import {
   formatToLocalDateString,
 } from '../store/AttendanceStore';
 import useAuthStore from '../store/AuthStore';
+import { usePermissions, Permission } from '../utils/rbac';
+import AccessDeniedView from '../components/AccessDeniedView';
 
 // --- STATUS & DATE CONFIGURATION ---
 const STATUS_TABS = [
@@ -76,6 +78,13 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
 };
 
 export default function AttendanceReportScreen({ navigation }: any) {
+  const { can } = usePermissions();
+  const hasAccess = can(Permission.ATTENDANCE_VIEW) || can(Permission.ATTENDANCE_VIEW_ORG) || can(Permission.ATTENDANCE_VIEW_OWN);
+
+  if (!hasAccess) {
+    return <AccessDeniedView moduleName="Attendance History" requiredRole="Operational Staff" />;
+  }
+
   const user = useAuthStore((state) => state.user);
   const {
     reportItems,
@@ -381,22 +390,23 @@ export default function AttendanceReportScreen({ navigation }: any) {
             </Text>
           </View>
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: rf(8) }}>
-            {/* EXPORT PDF BUTTON */}
-            <Pressable
-              style={[styles.addButton, reportExporting && styles.addButtonDisabled]}
-              onPress={handleExportPdf}
-              disabled={reportExporting}>
-              {reportExporting ? (
-                <ActivityIndicator color="#1a1200" size="small" />
-              ) : (
-                <>
-                  <FileDown size={16} color="#1a1200" strokeWidth={2.5} />
-                  <Text style={styles.addButtonText}>Export PDF</Text>
-                </>
-              )}
-            </Pressable>
-          </View>
+          {can(Permission.ATTENDANCE_EXPORT) && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: rf(8) }}>
+              <Pressable
+                style={[styles.addButton, reportExporting && styles.addButtonDisabled]}
+                onPress={handleExportPdf}
+                disabled={reportExporting}>
+                {reportExporting ? (
+                  <ActivityIndicator color="#1a1200" size="small" />
+                ) : (
+                  <>
+                    <FileDown size={16} color="#1a1200" strokeWidth={2.5} />
+                    <Text style={styles.addButtonText}>Export PDF</Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
+          )}
         </View>
 
         {/* KPI METRIC TILES */}

@@ -438,13 +438,40 @@ Incoming AI Request (Assistant, Route, Delay, Maintenance, Fuel, Carbon)
 - **Splash Screen**: During initial hydration, `authStatus === 'initializing'` renders `SplashScreen.tsx` with a branded spinner and dark theme background, completely preventing intermediate blank white screen flashes.
 - **Forced Password Change**: If `user.mustChangePassword` is true, navigation redirects directly to `ChangePasswordScreen` (gestures disabled) before granting access to dashboard operations.
 
-### C. Role-Based Dashboard Routing & Permissions
-The backend and frontend enforce 5 distinct operational roles:
-1. `ROLE_MANAGER` ("Fleet Manager"): Full system access across all vehicles, drivers, trips, attendance reports, chat roster, maintenance, expenses, and AI intelligence.
-2. `ROLE_DISPATCHER` ("Dispatcher"): Trip dispatching, live tracking, vehicle management, and driver communications.
-3. `ROLE_SAFETY_OFFICER` ("Safety Officer"): Driver safety scores, maintenance inspection logs, and incident tracking.
-4. `ROLE_FINANCE` ("Financial Analyst"): Fuel logs, expense bookkeeping, and analytics reports.
-5. `ROLE_DRIVER` ("Driver"): Restricted to personal assigned trips, personal attendance clock-in/out, personal vehicle details, 1-on-1 manager chat, and personal GPS location broadcasting. Drivers are strictly prohibited from viewing fleet-wide attendance, fuel anomaly analytics, or other drivers' records.
+### C. Role-Based Access Control (RBAC) Architecture
+The system enforces a **strict, symmetrical, production-grade RBAC architecture** across both the Node.js Express backend and the React Native frontend:
+
+#### 1. Canonical Roles
+- `ROLE_MANAGER` (Fleet Manager): Complete operational administrative authority over fleet vehicles, drivers, trips, attendance, maintenance, fuel/expenses, emissions, AI assistant queries, and organizational settings.
+- `ROLE_DISPATCHER` (Dispatcher): Operations hub focused on trip creation, assignment, dispatching, and live tracking. Possesses operational read-only visibility into vehicles, drivers, and maintenance status. Prohibited from editing vehicle registries, modifying driver accounts, logging fuel/expenses, or altering organizational configurations.
+- `ROLE_SAFETY_OFFICER` (Safety Officer): Safety and compliance auditing focused on driver safety records, license validity, attendance audits & compliance PDF exports, vehicle safety inspection logs, and incident handling. Prohibited from dispatching trips, altering trip routes, logging fuel/expenses, or vehicle registration mutations.
+- `ROLE_FINANCE` (Financial Analyst): Cost, fuel, and expense accounting authority. Full management over fuel entries, trip expenses, and maintenance cost analysis. Read-only access to operational trips and vehicles for cost allocation. Strictly prohibited from operational tracking, dispatching, driver modifications, or vehicle state mutations.
+- `ROLE_DRIVER` (Driver): Operational shift worker. Full retainment of personal driver dashboard, personal shift attendance clock-in/out (with active-trip geofence exception), assigned vehicle inspection, assigned trip progression updates (`GOING_TO_PICKUP` through `DELIVERED`), 1-on-1 manager chat, emergency SOS trigger, and real-time GPS telemetry ingest. Strictly prohibited from accessing other drivers' records, fleet-wide attendance, or organization-level financial data.
+- `PLATFORM_ADMIN`: Global multi-tenant orchestrator operating across all organizations for company registration approvals, compliance audits, and platform moderation.
+
+#### 2. Backend Enforcement (`backend/src/middleware/auth.ts` & `backend/src/config/permissions.ts`)
+- **Single Source of Truth**: `Permission` enum and `ROLE_PERMISSIONS` dictionary in `backend/src/config/permissions.ts`.
+- **Middleware Guards**:
+  - `requireOrgPermission(...permissions: Permission[])`: Enforces that caller is authenticated, belongs to an active organization, and possesses at least one of the specified canonical permissions.
+  - `requireOrgMembership()`: Enforces that caller has valid membership in an approved organization.
+  - `requirePlatformAdmin()`: Restricts platform-wide moderation to verified platform admins.
+  - `optionalAuth`: Gracefully populates `req.user` if token is provided, allowing unauthenticated public endpoints (like `/api/org/register` and legacy tests) to function while applying strict RBAC whenever a token is present.
+- **Anti-Spoofing & Tenant Isolation**: Verified JWT claims take absolute precedence over client-supplied headers (`x-org-id`, `x-role`) or query/body parameters, completely preventing tenant or role spoofing.
+- **Resource Ownership Scoping**: In addition to role permissions, endpoints enforce object-level ownership (e.g. Drivers can only view and update their own profiles, submit GPS telemetry for their assigned trips, and view their assigned vehicles).
+
+#### 3. Frontend Enforcement (`App/src/constants/permissions.ts` & `App/src/utils/rbac.ts`)
+- Symmetrical `Permission` and `CanonicalRole` definitions matching backend mappings.
+- Custom hook `usePermissions()` provides:
+  - `can(permission: Permission): boolean`
+  - `canAny(permissions: Permission[]): boolean`
+  - Booleans: `isDriver`, `isManager`, `isDispatcher`, `isSafetyOfficer`, `isFinance`, `isPlatformAdmin`.
+- **UI Element Guarding**:
+  - `VehicleRegistryScreen.tsx`: Add button guarded by `VEHICLES_CREATE`; edit/delete buttons guarded by `VEHICLES_UPDATE`/`VEHICLES_DEACTIVATE`.
+  - `DriversScreen.tsx`: Add driver button guarded by `DRIVERS_CREATE`; edit/delete actions guarded by `DRIVERS_UPDATE`/`DRIVERS_DEACTIVATE`.
+  - `FuelExpenseScreen.tsx`: Log Fuel button guarded by `FUEL_CREATE`; Add Expense button guarded by `EXPENSES_CREATE`.
+  - `MaintenanceScreen.tsx`: Log Service button guarded by `MAINTENANCE_CREATE`/`MAINTENANCE_INSPECT`; Complete Service action guarded by `MAINTENANCE_UPDATE`.
+  - `TripDispatcherScreen.tsx`: Add Trip button guarded by `TRIPS_CREATE` (available to Managers & Dispatchers).
+- **Driver Workflow Preservation**: Bottom navigation bar (`CustomTabBar.tsx`) and all Driver-essential workflows (Dashboard, My Trips, Attendance with geofence exception, Chat, Notifications, SOS) remain permanently accessible and unbroken for drivers.
 
 ---
 

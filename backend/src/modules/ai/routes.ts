@@ -61,7 +61,7 @@ function isTodayDate(dateStr?: string | null): boolean {
     if (!isNaN(parsed.getTime())) {
       return parsed.toISOString().slice(0, 10) === todayIso;
     }
-  } catch {}
+  } catch { }
   return false;
 }
 
@@ -545,16 +545,16 @@ aiRouter.post('/query', authenticate, async (req: Request, res: Response) => {
           ],
           actions: hasCoords
             ? [
-                {
-                  label: 'Track on Map',
-                  actionType: 'track_vehicle',
-                  payload: {
-                    vehicleID: vId,
-                    tripID: targetTrip ? String(targetTrip.tripID || targetTrip.tripid) : undefined,
-                    vehicleName: vName,
-                  },
+              {
+                label: 'Track on Map',
+                actionType: 'track_vehicle',
+                payload: {
+                  vehicleID: vId,
+                  tripID: targetTrip ? String(targetTrip.tripID || targetTrip.tripid) : undefined,
+                  vehicleName: vName,
                 },
-              ]
+              },
+            ]
             : [],
           context: {
             lastSubjectType: 'vehicle',
@@ -627,23 +627,23 @@ aiRouter.post('/query', authenticate, async (req: Request, res: Response) => {
         hasMore: activeVehicles.length > 3,
         actions: firstActive
           ? [
-              {
-                label: 'Track on Map',
-                actionType: 'track_vehicle',
-                payload: {
-                  vehicleID: String(firstActive.vehicleID || firstActive.vehicleid || firstActive.id),
-                  tripID: firstActiveTrip ? String(firstActiveTrip.tripID || firstActiveTrip.tripid) : undefined,
-                  vehicleName: firstActive.name || firstActive.registrationNumber,
-                },
+            {
+              label: 'Track on Map',
+              actionType: 'track_vehicle',
+              payload: {
+                vehicleID: String(firstActive.vehicleID || firstActive.vehicleid || firstActive.id),
+                tripID: firstActiveTrip ? String(firstActiveTrip.tripID || firstActiveTrip.tripid) : undefined,
+                vehicleName: firstActive.name || firstActive.registrationNumber,
               },
-            ]
+            },
+          ]
           : [],
         context: firstActive
           ? {
-              lastSubjectType: 'vehicle',
-              lastSubjectId: String(firstActive.vehicleID || firstActive.vehicleid || firstActive.id),
-              lastSubjectName: firstActive.name || firstActive.registrationNumber,
-            }
+            lastSubjectType: 'vehicle',
+            lastSubjectId: String(firstActive.vehicleID || firstActive.vehicleid || firstActive.id),
+            lastSubjectName: firstActive.name || firstActive.registrationNumber,
+          }
           : undefined,
         suggestions: MANAGER_SUGGESTIONS,
       };
@@ -1281,8 +1281,8 @@ aiRouter.post('/route-recommendation', authenticate, async (req: Request, res: R
                 idx === 0
                   ? 'Route 1 (Primary)'
                   : idx === 1
-                  ? 'Route 2 (Alternative A)'
-                  : 'Route 3 (Alternative B)';
+                    ? 'Route 2 (Alternative A)'
+                    : 'Route 3 (Alternative B)';
 
               return {
                 id: `route_${idx + 1}`,
@@ -1367,16 +1367,16 @@ You are an expert logistics fleet routing assistant for LogiSphere AI.
 Compare the following candidate routes for trip "${tripID}" (Cargo Weight: ${trip.cargoWeight || 500} kg):
 
 ${JSON.stringify(
-  routes.map(r => ({
-    routeId: r.id,
-    label: r.label,
-    distanceKm: (r.distanceMeters / 1000).toFixed(1),
-    durationMin: Math.round(r.durationSeconds / 60),
-    trafficDelayMin: Math.round(r.trafficDelaySeconds / 60),
-  })),
-  null,
-  2
-)}
+        routes.map(r => ({
+          routeId: r.id,
+          label: r.label,
+          distanceKm: (r.distanceMeters / 1000).toFixed(1),
+          durationMin: Math.round(r.durationSeconds / 60),
+          trafficDelayMin: Math.round(r.trafficDelaySeconds / 60),
+        })),
+        null,
+        2
+      )}
 
 Select the single best route ID prioritizing:
 1. Lowest total estimated duration

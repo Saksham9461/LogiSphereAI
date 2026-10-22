@@ -30,6 +30,8 @@ const schema = z.object({
   GEMINI_MAX_RETRIES: z.coerce.number().default(2),
   GEMINI_CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().default(3),
   GEMINI_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().default(30000),
+  OPENWEATHER_API_KEY: z.string().optional().default(''),
+  OPENWEATHER_TIMEOUT_MS: z.coerce.number().default(5000),
 });
 
 export const env = schema.parse(process.env);

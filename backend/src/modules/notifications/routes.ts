@@ -1,7 +1,7 @@
-import {Router} from 'express';
-import {db} from '../../config/database';
-import {optionalAuth, getTrustedOrgId} from '../../middleware/auth';
-import {fail} from '../../utils/http';
+import { Router } from 'express';
+import { db } from '../../config/database';
+import { optionalAuth, getTrustedOrgId } from '../../middleware/auth';
+import { fail } from '../../utils/http';
 
 export const notificationRouter = Router();
 
@@ -66,8 +66,8 @@ notificationRouter.get('/', optionalAuth, async (req, res) => {
 notificationRouter.put('/:id/read', async (req, res) => {
   try {
     const id = req.params.id;
-    const updated = await db.update('notifications', {id}, {read: true});
-    return res.json(updated || {id, read: true});
+    const updated = await db.update('notifications', { id }, { read: true });
+    return res.json(updated || { id, read: true });
   } catch (error: any) {
     return fail(res, 500, error.message || 'Failed to update notification');
   }

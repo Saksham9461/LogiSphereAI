@@ -33,6 +33,7 @@ import { colors } from '../theme/colors';
 import useDriverStore from '../store/DriverStore';
 import useTripStore from '../store/TripStore';
 import useAuthStore from '../store/AuthStore';
+import { usePermissions, Permission } from '../utils/rbac';
 
 // --- CONSTANTS ---
 const STATUS_STYLES: Record<string, any> = {
@@ -187,16 +188,11 @@ export default function DriversScreen() {
   const { trips, getTrips } = useTripStore();
   const user = useAuthStore((state) => state.user);
 
-  const userRole = String(user?.role || '').toUpperCase().trim();
-  const canManageDrivers = [
-    'ROLE_MANAGER',
-    'FLEET_MANAGER',
-    'MANAGER',
-    'ROLE_ADMIN',
-    'ADMIN',
-    'ROLE_DISPATCHER',
-    'DISPATCHER',
-  ].includes(userRole);
+  const { can } = usePermissions();
+  const canCreateDriver = can(Permission.DRIVERS_CREATE);
+  const canUpdateDriver = can(Permission.DRIVERS_UPDATE);
+  const canDeleteDriver = can(Permission.DRIVERS_DEACTIVATE);
+  const canManageDrivers = canCreateDriver || canUpdateDriver || canDeleteDriver;
 
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -400,7 +396,7 @@ export default function DriversScreen() {
         {/* HEADER */}
         <View style={styles.headerRow}>
           <Text style={styles.pageTitle}>Drivers</Text>
-          {canManageDrivers && (
+          {canCreateDriver && (
             <Pressable style={styles.addButton} onPress={openAddModal}>
               <Plus size={16} color="#1a1200" strokeWidth={2.5} />
               <Text style={styles.addButtonText}>Add</Text>

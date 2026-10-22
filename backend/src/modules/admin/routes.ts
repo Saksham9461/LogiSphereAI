@@ -186,12 +186,12 @@ adminRouter.get('/orgs', async (req, res) => {
           memberCount: memberships.length,
           manager: managerUser
             ? {
-                id: managerUser.id,
-                name: managerUser.name,
-                email: managerUser.email,
-                phoneNo: managerUser.phoneNo,
-                membershipStatus: managerMember?.status,
-              }
+              id: managerUser.id,
+              name: managerUser.name,
+              email: managerUser.email,
+              phoneNo: managerUser.phoneNo,
+              membershipStatus: managerMember?.status,
+            }
             : null,
         };
       })
@@ -237,11 +237,11 @@ adminRouter.get('/orgs/pending', async (_req, res) => {
           registrationTimestamp: org.registration_timestamp || org.created_at,
           manager: managerUser
             ? {
-                id: managerUser.id,
-                name: managerUser.name,
-                email: managerUser.email,
-                phoneNo: managerUser.phoneNo,
-              }
+              id: managerUser.id,
+              name: managerUser.name,
+              email: managerUser.email,
+              phoneNo: managerUser.phoneNo,
+            }
             : null,
         };
       })
@@ -296,15 +296,15 @@ adminRouter.get('/orgs/:id', async (req, res) => {
 
     const managerData = managerUser
       ? {
-          id: managerUser.id || managerUser.userId,
-          name: managerUser.name || 'Unknown',
-          email: managerUser.email || org.contact_email || '',
-          phoneNo: managerUser.phoneNo || managerUser.phoneno || org.contact_phone || null,
-          role: managerMember?.role || managerUser.role || 'ROLE_MANAGER',
-          status: managerUser.status || 'ACTIVE',
-          membershipStatus: managerMember?.status || (org.status === 'approved' ? 'active' : 'pending'),
-          createdAt: managerMember?.created_at || managerUser.createdAt || null,
-        }
+        id: managerUser.id || managerUser.userId,
+        name: managerUser.name || 'Unknown',
+        email: managerUser.email || org.contact_email || '',
+        phoneNo: managerUser.phoneNo || managerUser.phoneno || org.contact_phone || null,
+        role: managerMember?.role || managerUser.role || 'ROLE_MANAGER',
+        status: managerUser.status || 'ACTIVE',
+        membershipStatus: managerMember?.status || (org.status === 'approved' ? 'active' : 'pending'),
+        createdAt: managerMember?.created_at || managerUser.createdAt || null,
+      }
       : null;
 
     return ok(

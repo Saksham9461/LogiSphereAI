@@ -1,7 +1,16 @@
-import {Router} from 'express';
-import {db} from '../../config/database';
-import {fail} from '../../utils/http';
-import {optionalAuth, getTrustedOrgId} from '../../middleware/auth';
+import { Router } from 'express';
+import { db } from '../../config/database';
+import { fail } from '../../utils/http';
+import {
+  requireOrgMembership,
+  requireOrgPermission,
+  optionalAuth,
+  getTrustedOrgId,
+  Permission,
+  CanonicalRole,
+  hasPermission,
+  normalizeRole,
+} from '../../middleware/auth';
 
 export const maintenanceRouter = Router();
 
@@ -35,8 +44,29 @@ const decorate = async (r: any) => {
 };
 
 maintenanceRouter.get('/', optionalAuth, async (req, res) => {
-  const orgId = getTrustedOrgId(req);
-  const records = await db.list('maintenance_records', orgId ? { organization_id: orgId } : undefined);
+  const currentRole = req.user ? normalizeRole(req.user.role) : null;
+  const currentUserId = req.user?.id || req.user?.userId;
+  const orgId = req.user ? getTrustedOrgId(req) : null;
+
+  let records = await db.list('maintenance_records', orgId ? { organization_id: orgId } : undefined);
+
+  if (currentRole === CanonicalRole.DRIVER) {
+    const allTrips = await db.list('trips', orgId ? { organization_id: orgId } : undefined);
+    const driverVehIds = new Set<string>();
+    for (const t of allTrips || []) {
+      const tDriver = String(t.driverID || t.driverid || t.driver?.id || '').toLowerCase();
+      if (tDriver === String(currentUserId).toLowerCase()) {
+        const vId = t.vehicleID || t.vehicleid || t.vehicle?.id;
+        if (vId) driverVehIds.add(String(vId).toLowerCase());
+      }
+    }
+    records = (records || []).filter((r: any) => {
+      const rVehId = String(r.vehicleID || r.vehicleid || '').toLowerCase();
+      return driverVehIds.has(rVehId);
+    });
+  } else if (currentRole && !hasPermission(currentRole, Permission.MAINTENANCE_VIEW) && !hasPermission(currentRole, Permission.MAINTENANCE_VIEW_STATUS) && !req.user?.isPlatformAdmin) {
+    return fail(res, 403, 'Forbidden: insufficient role permissions to view maintenance records');
+  }
 
   // Synchronize: vehicles with active maintenance must be marked IN_SHOP
   for (const r of records) {
@@ -55,9 +85,14 @@ maintenanceRouter.get('/', optionalAuth, async (req, res) => {
   res.json(decorated.filter(Boolean));
 });
 
-// POST Create maintenance record (Rule 8)
 maintenanceRouter.post('/create', optionalAuth, async (req, res) => {
-  const orgId = getTrustedOrgId(req);
+  if (req.user) {
+    const callerRole = normalizeRole(req.user.role);
+    if (!hasPermission(callerRole, Permission.MAINTENANCE_CREATE) && !hasPermission(callerRole, Permission.MAINTENANCE_INSPECT) && !req.user.isPlatformAdmin) {
+      return fail(res, 403, 'Forbidden: insufficient role permissions to create maintenance records');
+    }
+  }
+  const orgId = req.user ? getTrustedOrgId(req) : null;
   const vId = req.body.vehicleID || req.body.vehicleid;
   if (!vId) {
     return fail(res, 400, 'Vehicle ID is required');
@@ -70,7 +105,7 @@ maintenanceRouter.post('/create', optionalAuth, async (req, res) => {
       String(v.vehicleID || v.vehicleid || v.id || '').toLowerCase() === String(vId).toLowerCase()
     );
   }
-  if (!veh || (veh.organization_id && veh.organization_id !== orgId)) {
+  if (!veh || (orgId && veh.organization_id && veh.organization_id !== orgId)) {
     return fail(res, 404, `Vehicle ${vId} not found`);
   }
 
@@ -80,7 +115,7 @@ maintenanceRouter.post('/create', optionalAuth, async (req, res) => {
   }
 
   // Prevent maintenance creation from overriding active-trip constraints (Rule 8)
-  const allTrips = await db.list('trips', { organization_id: orgId });
+  const allTrips = await db.list('trips', orgId ? { organization_id: orgId } : undefined);
   const activeTrip = (allTrips || []).find((t: any) => {
     const tVId = String(t.vehicleID || t.vehicleid || '').toLowerCase();
     const tStatus = String(t.status || '').toUpperCase();
@@ -116,6 +151,12 @@ maintenanceRouter.post('/create', optionalAuth, async (req, res) => {
 
 // Complete maintenance handler (PUT & POST /api/maintenance/:id/complete) (Rule 9)
 async function handleCompleteMaintenance(req: any, res: any) {
+  if (req.user) {
+    const callerRole = normalizeRole(req.user.role);
+    if (!hasPermission(callerRole, Permission.MAINTENANCE_UPDATE) && !req.user.isPlatformAdmin) {
+      return fail(res, 403, 'Forbidden: insufficient role permissions to update maintenance');
+    }
+  }
   const { id } = req.params;
   const record = await db.find('maintenance_records', { id });
   if (!record) {
@@ -196,6 +237,6 @@ async function handleCompleteMaintenance(req: any, res: any) {
   return res.json({ success: true, message: 'Maintenance marked as completed', data: decorated });
 }
 
-maintenanceRouter.put('/:id/complete', handleCompleteMaintenance);
-maintenanceRouter.post('/:id/complete', handleCompleteMaintenance);
+maintenanceRouter.put('/:id/complete', optionalAuth, handleCompleteMaintenance);
+maintenanceRouter.post('/:id/complete', optionalAuth, handleCompleteMaintenance);
 

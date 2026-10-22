@@ -32,6 +32,7 @@ import {
   Clock,
   Route,
   AlertCircle,
+  CloudSun,
 } from 'lucide-react-native';
 import { rf } from '../theme/responsive';
 import { colors } from '../theme/colors';
@@ -42,8 +43,10 @@ import useDriverStore from '../store/DriverStore';
 import useMaintenanceStore from '../store/MaintenanceStore';
 import useAuthStore from '../store/AuthStore';
 import useNotificationStore from '../store/NotificationStore';
+import { usePermissions, Permission } from '../utils/rbac';
 import FleetMap from '../components/FleetMap';
 import TripDelayInsightsModal from '../components/TripDelayInsightsModal';
+import DestinationWeatherModal from '../components/DestinationWeatherModal';
 import client from '../api/axiosClient';
 import { RouteRecommendation } from '../api/apiPath';
 import { openGoogleMapsNavigation } from '../utils/navigationUtils';
@@ -104,7 +107,8 @@ function formatDisplayTripId(id: string): string {
 
 export default function TripDispatcherScreen() {
   const user = useAuthStore(state => state.user);
-  const isDriver = user?.role === 'ROLE_DRIVER';
+  const { can, isDriver } = usePermissions();
+  const canCreateTrip = can(Permission.TRIPS_CREATE);
 
   const {
     trips,
@@ -205,6 +209,7 @@ export default function TripDispatcherScreen() {
 
   const [mapModalTrip, setMapModalTrip] = useState<any | null>(null);
   const [delayModalTripId, setDelayModalTripId] = useState<string | null>(null);
+  const [weatherModalTrip, setWeatherModalTrip] = useState<any | null>(null);
 
   // AI Route Intelligence Modal State
   const [routeModal, setRouteModal] = useState<{
@@ -763,8 +768,8 @@ export default function TripDispatcherScreen() {
               )}
             </Pressable>
 
-            {/* CREATE TRIP (MANAGER ONLY) */}
-            {!isDriver && (
+            {/* CREATE TRIP (MANAGER & DISPATCHER) */}
+            {canCreateTrip && (
               <Pressable style={styles.addButton} onPress={() => setShowAddModal(true)}>
                 <Plus size={16} color="#1a1200" strokeWidth={2.5} />
                 <Text style={styles.addButtonText}>Add Trip</Text>
@@ -866,14 +871,14 @@ export default function TripDispatcherScreen() {
 
                   {/* LIFECYCLE CONTROLS FOOTER */}
                   <View style={styles.tripCardFooter}>
-                    {/* ROW 1: UTILITY BUTTONS (MAP, AI ROUTE & AI DELAY) */}
+                    {/* ROW 1: UTILITY BUTTONS (WEATHER, AI ROUTE & AI DELAY) */}
                     <View style={styles.utilityButtonsRow}>
                       <Pressable
-                        style={styles.mapBtn}
-                        onPress={() => setMapModalTrip(t)}
+                        style={styles.weatherBtn}
+                        onPress={() => setWeatherModalTrip(t)}
                       >
-                        <Map size={15} color={colors.blue} />
-                        <Text style={styles.mapBtnText}>Map</Text>
+                        <CloudSun size={15} color={colors.blue} />
+                        <Text style={styles.weatherBtnText}>Weather</Text>
                       </Pressable>
 
                       {canShowAIRoute && (
@@ -1273,6 +1278,13 @@ export default function TripDispatcherScreen() {
         onClose={() => setDelayModalTripId(null)}
       />
 
+      {/* DESTINATION WEATHER MODAL */}
+      <DestinationWeatherModal
+        visible={Boolean(weatherModalTrip)}
+        trip={weatherModalTrip}
+        onClose={() => setWeatherModalTrip(null)}
+      />
+
       {/* ACTION MODAL (Cancel Trip) */}
       <Modal visible={!!actionModal} transparent={true} animationType="fade" onRequestClose={() => setActionModal(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.filterModalOverlay}>
@@ -1664,6 +1676,24 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   mapBtnText: { color: colors.blue, fontSize: rf(13), fontWeight: '700' },
+
+  weatherBtn: {
+    flex: 1,
+    minWidth: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: rf(6),
+    paddingHorizontal: rf(12),
+    paddingVertical: rf(9),
+    borderRadius: rf(10),
+    backgroundColor: 'rgba(56,189,248,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(56,189,248,0.35)',
+  },
+  weatherBtnText: { color: colors.blue, fontSize: rf(13), fontWeight: '700' },
 
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: rf(6), paddingHorizontal: rf(12), paddingVertical: rf(8), borderRadius: rf(10), borderWidth: 1 },
   actionBtnTextWhite: { color: '#fff', fontSize: rf(13), fontWeight: '700' },

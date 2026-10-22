@@ -12,24 +12,23 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useAlertStore } from '../store/AlertStore';
 import { colors } from '../theme/colors';
-import useAuthStore from '../store/AuthStore';
+import { usePermissions, Permission } from '../utils/rbac';
 import { rf } from '../theme/responsive';
 
 export default function EmergencyAlertBanner() {
   const activeAlert = useAlertStore((state) => state.activeBannerAlert);
   const dismiss = useAlertStore((state) => state.dismissBannerAlert);
   const setSelectedAlert = useAlertStore((state) => state.setSelectedAlert);
-  const user = useAuthStore((state) => state.user);
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { can } = usePermissions();
 
-  const userRole = String(user?.role || '').toUpperCase();
-  const isManager = ['ROLE_MANAGER', 'FLEET_MANAGER', 'ROLE_ADMIN', 'ADMIN', 'ROLE_DISPATCHER', 'DISPATCHER', 'MANAGER'].includes(userRole);
+  const canReceiveAlerts = can(Permission.ALERTS_VIEW) || can(Permission.ALERTS_ACKNOWLEDGE);
 
   const translateY = useRef(new Animated.Value(-120)).current;
 
   useEffect(() => {
-    if (activeAlert && isManager) {
+    if (activeAlert && canReceiveAlerts) {
       Animated.spring(translateY, {
         toValue: 0,
         useNativeDriver: true,
@@ -43,9 +42,9 @@ export default function EmergencyAlertBanner() {
         useNativeDriver: true,
       }).start();
     }
-  }, [activeAlert, isManager, translateY]);
+  }, [activeAlert, canReceiveAlerts, translateY]);
 
-  if (!activeAlert || !isManager) return null;
+  if (!activeAlert || !canReceiveAlerts) return null;
 
   const handleOpenAlert = () => {
     setSelectedAlert(activeAlert);

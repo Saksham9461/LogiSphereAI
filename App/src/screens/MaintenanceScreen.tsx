@@ -35,6 +35,7 @@ import { colors } from '../theme/colors';
 import useMaintenanceStore from '../store/MaintenanceStore';
 import useVehicleStore from '../store/VehicleStore';
 import client from '../api/axiosClient';
+import { usePermissions, Permission } from '../utils/rbac';
 import { GetMaintenanceForecast } from '../api/apiPath';
 
 export interface MaintenanceForecastData {
@@ -110,6 +111,10 @@ export default function MaintenanceScreen() {
   } = useMaintenanceStore();
 
   const { vehicles, getVehicles } = useVehicleStore();
+
+  const { can } = usePermissions();
+  const canLogService = can(Permission.MAINTENANCE_CREATE) || can(Permission.MAINTENANCE_INSPECT);
+  const canCompleteService = can(Permission.MAINTENANCE_UPDATE);
 
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -210,6 +215,10 @@ export default function MaintenanceScreen() {
   };
 
   const handleOpenAddModal = () => {
+    if (!canLogService) {
+      Alert.alert('Unauthorized', 'You do not have permission to log maintenance services.');
+      return;
+    }
     resetForm();
     setShowAddModal(true);
   };
@@ -306,10 +315,12 @@ export default function MaintenanceScreen() {
         {/* HEADER */}
         <View style={styles.headerRow}>
           <Text style={styles.pageTitle}>Maintenance</Text>
-          <Pressable style={styles.addButton} onPress={handleOpenAddModal}>
-            <Plus size={16} color="#1a1200" strokeWidth={2.5} />
-            <Text style={styles.addButtonText}>Log Service</Text>
-          </Pressable>
+          {canLogService && (
+            <Pressable style={styles.addButton} onPress={handleOpenAddModal}>
+              <Plus size={16} color="#1a1200" strokeWidth={2.5} />
+              <Text style={styles.addButtonText}>Log Service</Text>
+            </Pressable>
+          )}
         </View>
 
         {/* SEGMENTED TAB SWITCHER */}
@@ -476,18 +487,18 @@ export default function MaintenanceScreen() {
                       const badgeColor = isHigh
                         ? colors.rose
                         : isMed
-                        ? colors.amber
-                        : colors.green;
+                          ? colors.amber
+                          : colors.green;
                       const badgeBg = isHigh
                         ? 'rgba(239,68,68,0.14)'
                         : isMed
-                        ? 'rgba(245,158,11,0.14)'
-                        : 'rgba(34,197,94,0.14)';
+                          ? 'rgba(245,158,11,0.14)'
+                          : 'rgba(34,197,94,0.14)';
                       const badgeBorder = isHigh
                         ? 'rgba(239,68,68,0.35)'
                         : isMed
-                        ? 'rgba(245,158,11,0.35)'
-                        : 'rgba(34,197,94,0.35)';
+                          ? 'rgba(245,158,11,0.35)'
+                          : 'rgba(34,197,94,0.35)';
 
                       const vName = v.vehicleName || v.name || 'Fleet Vehicle';
                       const cost90 = Number(v.recent90DaysCost ?? v.recentCost90Days ?? 0);
@@ -675,7 +686,7 @@ export default function MaintenanceScreen() {
                         </View>
                       </View>
 
-                      {isInShop && (
+                      {isInShop && canCompleteService && (
                         <Pressable
                           style={({ pressed }) => [
                             styles.completeButton,
