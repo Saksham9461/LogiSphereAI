@@ -37,6 +37,7 @@ import useDashboardStore from '../store/DashboardStore';
 import useTripStore from '../store/TripStore';
 import useVehicleStore from '../store/VehicleStore';
 import useDriverStore from '../store/DriverStore';
+import { useAlertStore } from '../store/AlertStore';
 import { usePermissions, Permission } from '../utils/rbac';
 
 const STATUS_META: Record<string, { color: string; icon: any }> = {
@@ -182,6 +183,11 @@ export default function DashboardScreen({ navigation }: any) {
       getVehicles();
       if (fetchDrivers) fetchDrivers();
       fetchAttendanceStatus();
+      useAlertStore.getState().fetchActiveCount();
+      const alertInterval = setInterval(() => {
+        useAlertStore.getState().fetchActiveCount();
+      }, 5000);
+      return () => clearInterval(alertInterval);
     }, [fetchDashboardSummary, getTrips, getVehicles, fetchDrivers])
   );
 

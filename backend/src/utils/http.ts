@@ -11,6 +11,7 @@ export const publicUser = (user: any) => {
     (user?.id && mustChangePasswordUsers.has(user.id)) ||
     (user?.email && mustChangePasswordUsers.has(user.email)) ||
     user?.mustChangePassword ||
+    user?.mustchangepassword ||
     user?.must_change_password
   );
 
@@ -20,12 +21,16 @@ export const publicUser = (user: any) => {
     driverID: user.role === 'ROLE_DRIVER' || user.role === 'DRIVER' ? user.id : undefined,
     name: user.name,
     email: user.email,
-    phoneNo: user.phoneNo,
+    phoneNo: user.phoneNo ?? user.phoneno,
+    phoneno: user.phoneNo ?? user.phoneno,
     role: user.role,
-    licenseNo: user.licenseNo,
-    licenseExpiryDate: user.licenseExpiryDate,
+    licenseNo: user.licenseNo ?? user.licenseno,
+    licenseno: user.licenseNo ?? user.licenseno,
+    licenseExpiryDate: user.licenseExpiryDate ?? user.licenseexpirydate,
+    licenseexpirydate: user.licenseExpiryDate ?? user.licenseexpirydate,
     trips: user.trips ?? 0,
-    safetyScore: user.safetyScore ?? 95,
+    safetyScore: user.safetyScore ?? user.safetyscore ?? 95,
+    safetyscore: user.safetyScore ?? user.safetyscore ?? 95,
     status: user.status ?? (user.role?.includes('DRIVER') ? 'AVAILABLE' : 'ACTIVE'),
     organizationId: user.organizationId || user.organization_id,
     organization_id: user.organization_id || user.organizationId,

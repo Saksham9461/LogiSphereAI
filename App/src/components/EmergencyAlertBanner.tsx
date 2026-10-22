@@ -14,6 +14,7 @@ import { useAlertStore } from '../store/AlertStore';
 import { colors } from '../theme/colors';
 import { usePermissions, Permission } from '../utils/rbac';
 import { rf } from '../theme/responsive';
+import { navigationRef } from '../navigation/navigationRef';
 
 export default function EmergencyAlertBanner() {
   const activeAlert = useAlertStore((state) => state.activeBannerAlert);
@@ -50,8 +51,14 @@ export default function EmergencyAlertBanner() {
     setSelectedAlert(activeAlert);
     dismiss();
     try {
-      navigation.navigate('Alerts');
-    } catch (_) {}
+      navigationRef.navigate('Alerts');
+    } catch (_) {
+      try {
+        navigation.navigate('Alerts');
+      } catch (e) {
+        console.warn('[EmergencyAlertBanner] Navigation to Alerts failed:', e);
+      }
+    }
   };
 
   const alertTime = new Date(activeAlert.createdAt).toLocaleTimeString([], {

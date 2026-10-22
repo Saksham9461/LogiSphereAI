@@ -82,6 +82,7 @@ export function normalizeAlertRecord(row: any) {
     driverId: row.driver_id || row.driverId,
     driverName: row.driver_name || row.driverName || 'Driver',
     businessId: row.business_id || row.businessId || 'default_org',
+    organization_id: row.organization_id || row.organizationId || null,
     tripId: row.trip_id || row.tripId || null,
     vehicleId: row.vehicle_id || row.vehicleId || null,
     latitude: lat,
@@ -599,8 +600,8 @@ alertRouter.get('/:id', optionalAuth, async (req: Request, res: Response) => {
     // Organization-scoped alert verification
     if (canViewOrgAlerts) {
       const dbUser = await db.find('users', { id: user.userId });
-      const userOrg = dbUser?.businessId || dbUser?.business_id || user.businessId || 'default_org';
-      const alertOrg = alert.businessId || 'default_org';
+      const userOrg = user.businessId || user.business_id || dbUser?.businessId || dbUser?.business_id || (user as any).organization_id || 'default_org';
+      const alertOrg = alert.businessId || alert.organization_id || 'default_org';
       if (userOrg !== alertOrg) {
         return fail(res, 403, 'Forbidden: You cannot access alerts belonging to another organization');
       }
@@ -662,8 +663,8 @@ async function handleAcknowledgeAlert(req: Request, res: Response) {
 
     const existingAlert = normalizeAlertRecord(existingRaw);
     const dbUser = await db.find('users', { id: user.userId });
-    const userOrg = dbUser?.businessId || dbUser?.business_id || user.businessId || 'default_org';
-    const alertOrg = existingAlert?.businessId || 'default_org';
+    const userOrg = user.businessId || user.business_id || dbUser?.businessId || dbUser?.business_id || (user as any).organization_id || 'default_org';
+    const alertOrg = existingAlert?.businessId || existingAlert?.organization_id || 'default_org';
     if (userOrg !== alertOrg) {
       return fail(res, 403, 'Forbidden: You cannot acknowledge alerts belonging to another organization');
     }
@@ -726,8 +727,8 @@ async function handleResolveAlert(req: Request, res: Response) {
 
     const existingAlert = normalizeAlertRecord(existingRaw);
     const dbUser = await db.find('users', { id: user.userId });
-    const userOrg = dbUser?.businessId || dbUser?.business_id || user.businessId || 'default_org';
-    const alertOrg = existingAlert?.businessId || 'default_org';
+    const userOrg = user.businessId || user.business_id || dbUser?.businessId || dbUser?.business_id || (user as any).organization_id || 'default_org';
+    const alertOrg = existingAlert?.businessId || existingAlert?.organization_id || 'default_org';
     if (userOrg !== alertOrg) {
       return fail(res, 403, 'Forbidden: You cannot resolve alerts belonging to another organization');
     }

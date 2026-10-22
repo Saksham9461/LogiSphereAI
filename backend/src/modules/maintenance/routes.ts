@@ -25,11 +25,11 @@ const ACTIVE_TRIP_STATUSES = [
   'ARRIVED_AT_DROP',
 ];
 
-const decorate = async (r: any) => {
+const decorate = (r: any, vehMap?: Map<string, any>) => {
   if (!r) return null;
   const vId = r.vehicleID || r.vehicleid;
   const sType = r.serviceType || r.servicetype || r.service;
-  const vehicleObj = vId ? (await db.find('vehicles', { vehicleID: vId }) || await db.find('vehicles', { vehicleid: vId })) : null;
+  const vehicleObj = vId && vehMap ? vehMap.get(String(vId).toLowerCase()) : null;
 
   return {
     ...r,
@@ -48,7 +48,19 @@ maintenanceRouter.get('/', optionalAuth, async (req, res) => {
   const currentUserId = req.user?.id || req.user?.userId;
   const orgId = req.user ? getTrustedOrgId(req) : null;
 
-  let records = await db.list('maintenance_records', orgId ? { organization_id: orgId } : undefined);
+  const [rawRecords, allVehicles] = await Promise.all([
+    db.list('maintenance_records', orgId ? { organization_id: orgId } : undefined),
+    db.list('vehicles', orgId ? { organization_id: orgId } : undefined),
+  ]);
+
+  const vehMap = new Map<string, any>();
+  for (const v of allVehicles || []) {
+    if (v.vehicleID) vehMap.set(String(v.vehicleID).toLowerCase(), v);
+    if (v.vehicleid) vehMap.set(String(v.vehicleid).toLowerCase(), v);
+    if (v.id) vehMap.set(String(v.id).toLowerCase(), v);
+  }
+
+  let records = rawRecords || [];
 
   if (currentRole === CanonicalRole.DRIVER) {
     const allTrips = await db.list('trips', orgId ? { organization_id: orgId } : undefined);
@@ -60,7 +72,7 @@ maintenanceRouter.get('/', optionalAuth, async (req, res) => {
         if (vId) driverVehIds.add(String(vId).toLowerCase());
       }
     }
-    records = (records || []).filter((r: any) => {
+    records = records.filter((r: any) => {
       const rVehId = String(r.vehicleID || r.vehicleid || '').toLowerCase();
       return driverVehIds.has(rVehId);
     });
@@ -73,15 +85,16 @@ maintenanceRouter.get('/', optionalAuth, async (req, res) => {
     const isAct = r.status === 'ACTIVE' || r.status === 'Active' || r.status === 'In Shop';
     const vId = r.vehicleID || r.vehicleid;
     if (isAct && vId) {
-      const veh = await db.find('vehicles', { vehicleID: vId }) || await db.find('vehicles', { vehicleid: vId });
+      const veh = vehMap.get(String(vId).toLowerCase());
       if (veh && veh.status === 'AVAILABLE') {
         const vKey = veh.vehicleID ? { vehicleID: veh.vehicleID } : { vehicleid: veh.vehicleid || veh.id };
         await db.update('vehicles', vKey, { status: 'IN_SHOP' });
+        veh.status = 'IN_SHOP';
       }
     }
   }
 
-  const decorated = await Promise.all(records.map(decorate));
+  const decorated = records.map((r: any) => decorate(r, vehMap));
   res.json(decorated.filter(Boolean));
 });
 

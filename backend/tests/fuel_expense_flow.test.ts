@@ -1,5 +1,5 @@
 import request from 'supertest';
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, beforeAll} from 'vitest';
 import {app} from '../src/app';
 
 describe('Fuel & Expense API Integration Flow', () => {
@@ -7,6 +7,17 @@ describe('Fuel & Expense API Integration Flow', () => {
   let createdExpenseId = '';
   let vehicleID = 'veh-van-05';
   let tripID = 'trp-1001';
+
+  beforeAll(async () => {
+    const vRes = await request(app).get('/api/vehicle');
+    if (vRes.body && vRes.body.length > 0) {
+      vehicleID = vRes.body[0].vehicleID || vRes.body[0].id;
+    }
+    const tRes = await request(app).get('/api/trip');
+    if (tRes.body && tRes.body.length > 0) {
+      tripID = tRes.body[0].tripID || tRes.body[0].id;
+    }
+  });
 
   it('1. GET /api/fuel returns fuel logs array', async () => {
     const res = await request(app).get('/api/fuel');

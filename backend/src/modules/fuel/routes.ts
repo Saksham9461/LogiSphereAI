@@ -14,11 +14,11 @@ import { fail } from '../../utils/http';
 
 export const fuelRouter = Router();
 
-const decorate = async (r: any) => {
+const decorate = (r: any, vehMap?: Map<string, any>) => {
   if (!r) return null;
   const vId = r.vehicleID || r.vehicleid;
   const fId = r.fuelLogId || r.fuellogid || r.id;
-  const vehicleObj = vId ? (await db.find('vehicles', { vehicleID: vId }) || await db.find('vehicles', { vehicleid: vId })) : null;
+  const vehicleObj = vId && vehMap ? vehMap.get(String(vId).toLowerCase()) : null;
 
   return {
     ...r,
@@ -33,6 +33,19 @@ const decorate = async (r: any) => {
 };
 
 fuelRouter.get('/', optionalAuth, async (req, res) => {
+  const orgId = req.user ? getTrustedOrgId(req) : null;
+  const [allVehicles, rawRecords] = await Promise.all([
+    db.list('vehicles', orgId ? { organization_id: orgId } : undefined),
+    db.list('fuel_logs', orgId ? { organization_id: orgId } : undefined),
+  ]);
+
+  const vehMap = new Map<string, any>();
+  for (const v of allVehicles || []) {
+    if (v.vehicleID) vehMap.set(String(v.vehicleID).toLowerCase(), v);
+    if (v.vehicleid) vehMap.set(String(v.vehicleid).toLowerCase(), v);
+    if (v.id) vehMap.set(String(v.id).toLowerCase(), v);
+  }
+
   if (req.user) {
     const currentRole = normalizeRole(req.user?.role);
     const currentUserId = req.user?.id || req.user?.userId;
@@ -41,8 +54,7 @@ fuelRouter.get('/', optionalAuth, async (req, res) => {
       return fail(res, 403, 'Forbidden: Insufficient permissions to view fuel financial logs');
     }
 
-    const orgId = getTrustedOrgId(req);
-    let records = await db.list('fuel_logs', orgId ? { organization_id: orgId } : undefined);
+    let records = rawRecords || [];
 
     if (currentRole === CanonicalRole.DRIVER) {
       const allTrips = await db.list('trips', orgId ? { organization_id: orgId } : undefined);
@@ -54,18 +66,17 @@ fuelRouter.get('/', optionalAuth, async (req, res) => {
           if (vId) driverVehIds.add(String(vId).toLowerCase());
         }
       }
-      records = (records || []).filter((r: any) => {
+      records = records.filter((r: any) => {
         const vId = String(r.vehicleID || r.vehicleid || '').toLowerCase();
         return driverVehIds.has(vId);
       });
     }
 
-    const decorated = await Promise.all(records.map(decorate));
+    const decorated = records.map((r: any) => decorate(r, vehMap));
     return res.json(decorated.filter(Boolean));
   }
 
-  const records = await db.list('fuel_logs');
-  const decorated = await Promise.all(records.map(decorate));
+  const decorated = (rawRecords || []).map((r: any) => decorate(r, vehMap));
   res.json(decorated.filter(Boolean));
 });
 

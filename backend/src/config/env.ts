@@ -1,15 +1,19 @@
+import path from 'path';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-dotenv.config();
+// Load .env from backend directory reliably regardless of process.cwd()
+const backendEnvPath = path.resolve(__dirname, '../../.env');
+dotenv.config({ path: backendEnvPath });
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().default(5000),
+  PORT: z.coerce.number().default(5001),
   SUPABASE_URL: z.string().optional().default('').transform(url => url.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '')),
   SUPABASE_ANON_KEY: z.string().optional().default(''),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(''),
   SUPABASE_TIMEOUT_MS: z.coerce.number().default(10000),
+  REQUIRE_SUPABASE: z.coerce.boolean().default(false),
   JWT_SECRET: z.string().min(8).default('development-secret'),
   JWT_EXPIRES_IN: z.string().default('7d'),
   PLATFORM_ADMIN_USERNAME: z.string().optional().default(''),
@@ -36,3 +40,9 @@ const schema = z.object({
 
 export const env = schema.parse(process.env);
 export const hasSupabase = Boolean(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
+
+if (!hasSupabase && (env.NODE_ENV === 'production' || env.REQUIRE_SUPABASE)) {
+  throw new Error(
+    'Fatal: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in production mode or when REQUIRE_SUPABASE=true.'
+  );
+}

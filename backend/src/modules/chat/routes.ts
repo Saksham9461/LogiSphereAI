@@ -174,52 +174,57 @@ chatRouter.get('/conversations', async (req, res) => {
  * Get or create 1-on-1 conversation between current user and target participant.
  */
 chatRouter.post('/conversations', async (req, res) => {
-  const currentUserId = req.user!.userId;
-  const { participantId } = req.body;
+  try {
+    const currentUserId = req.user!.userId;
+    const { participantId } = req.body;
 
-  if (!participantId || typeof participantId !== 'string') {
-    return fail(res, 400, 'participantId is required');
+    if (!participantId || typeof participantId !== 'string') {
+      return fail(res, 400, 'participantId is required');
+    }
+
+    if (participantId === currentUserId) {
+      return fail(res, 400, 'Cannot create a conversation with yourself');
+    }
+
+    let rawTargetUser = await db.find('users', { id: participantId });
+    if (!rawTargetUser) {
+      rawTargetUser = await db.find('users', { userid: participantId });
+    }
+    if (!rawTargetUser) {
+      return fail(res, 404, 'Participant user not found');
+    }
+    const orgId = getTrustedOrgId(req);
+    const targetOrg = rawTargetUser.organization_id || rawTargetUser.businessId || rawTargetUser.business_id;
+    if (targetOrg && targetOrg !== orgId) {
+      return fail(res, 404, 'Participant user not found');
+    }
+    const targetUser = publicUser(rawTargetUser);
+
+    const isDriverRole = (r: string) => r === 'DRIVER' || r === 'ROLE_DRIVER';
+
+    // RBAC check
+    if (isDriverRole(req.user!.role || '') && isDriverRole(targetUser.role || '')) {
+      return fail(res, 403, 'Drivers are not authorized to initiate direct chat with other drivers');
+    }
+
+    const convId = await findOrCreateConversation(currentUserId, participantId, orgId);
+    const conv = await db.find('conversations', { id: convId });
+
+    return ok(res, {
+      id: convId,
+      createdAt: conv?.created_at || conv?.createdAt || new Date().toISOString(),
+      participant: {
+        id: targetUser.id,
+        name: targetUser.name,
+        email: targetUser.email,
+        role: targetUser.role,
+        isOnline: isUserOnline(targetUser.id),
+      },
+    });
+  } catch (err: any) {
+    console.error('[Chat Error] /conversations failed:', err);
+    return fail(res, 500, err.message || 'Failed to initialize conversation');
   }
-
-  if (participantId === currentUserId) {
-    return fail(res, 400, 'Cannot create a conversation with yourself');
-  }
-
-  let rawTargetUser = await db.find('users', { id: participantId });
-  if (!rawTargetUser) {
-    rawTargetUser = await db.find('users', { userid: participantId });
-  }
-  if (!rawTargetUser) {
-    return fail(res, 404, 'Participant user not found');
-  }
-  const orgId = getTrustedOrgId(req);
-  const targetOrg = rawTargetUser.organization_id || rawTargetUser.businessId || rawTargetUser.business_id;
-  if (targetOrg && targetOrg !== orgId) {
-    return fail(res, 404, 'Participant user not found');
-  }
-  const targetUser = publicUser(rawTargetUser);
-
-  const isDriverRole = (r: string) => r === 'DRIVER' || r === 'ROLE_DRIVER';
-
-  // RBAC check
-  if (isDriverRole(req.user!.role || '') && isDriverRole(targetUser.role || '')) {
-    return fail(res, 403, 'Drivers are not authorized to initiate direct chat with other drivers');
-  }
-
-  const convId = await findOrCreateConversation(currentUserId, participantId);
-  const conv = await db.find('conversations', { id: convId });
-
-  return ok(res, {
-    id: convId,
-    createdAt: conv?.created_at || conv?.createdAt || new Date().toISOString(),
-    participant: {
-      id: targetUser.id,
-      name: targetUser.name,
-      email: targetUser.email,
-      role: targetUser.role,
-      isOnline: isUserOnline(targetUser.id),
-    },
-  });
 });
 
 /**

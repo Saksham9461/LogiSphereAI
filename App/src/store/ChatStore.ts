@@ -58,6 +58,12 @@ interface ChatState {
   conversations: ConversationSummary[];
   activeConversationId: string | null;
   activeParticipant: ChatUser | null;
+  activeInAppMessage: {
+    conversationId: string;
+    senderName: string;
+    text: string;
+    participant: ChatUser;
+  } | null;
   messages: Record<string, ChatMessage[]>;
   rosterUsers: ChatUser[];
   onlineUserIds: Set<string>;
@@ -67,6 +73,7 @@ interface ChatState {
   error: string | null;
 
   // Actions
+  dismissInAppMessage: () => void;
   initSocket: () => Promise<void>;
   disconnectSocket: () => void;
   fetchRosterUsers: () => Promise<void>;
@@ -93,6 +100,7 @@ const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   activeConversationId: null,
   activeParticipant: null,
+  activeInAppMessage: null,
   messages: {},
   rosterUsers: [],
   onlineUserIds: new Set<string>(),
@@ -100,6 +108,10 @@ const useChatStore = create<ChatState>((set, get) => ({
   loading: false,
   loadingMessages: false,
   error: null,
+
+  dismissInAppMessage: () => {
+    set({ activeInAppMessage: null });
+  },
 
   initSocket: async () => {
     const existingSocket = activeSocketInstance || get().socket;
@@ -713,12 +725,32 @@ function handleIncomingSocketMessage(payload: any, set: any, get: any) {
           setTimeout(() => get().fetchConversations(), 500);
         }
 
+        const shouldShowBanner = !isMe && !isCurrentOpen;
+        const targetConv = convIndex >= 0 ? state.conversations[convIndex] : null;
+        const bannerParticipant =
+          targetConv?.participant ||
+          rosterUsers.find((u: ChatUser) => u.id === data.senderId) || {
+            id: data.senderId,
+            name: data.senderName || 'New Message',
+            email: '',
+            role: 'ROLE_USER',
+            isOnline: true,
+          };
+
         return {
           messages: {
             ...state.messages,
             [convId]: updatedMessages,
           },
           conversations: updatedConvs,
+          activeInAppMessage: shouldShowBanner
+            ? {
+                conversationId: convId,
+                senderName: bannerParticipant.name || 'User',
+                text: data.message || '',
+                participant: bannerParticipant,
+              }
+            : state.activeInAppMessage,
         };
       });
 

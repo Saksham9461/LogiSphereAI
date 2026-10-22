@@ -8,6 +8,7 @@ import useChatStore from '../store/ChatStore';
 import { colors } from '../theme/colors';
 import SOSButton from '../components/SOSButton';
 import EmergencyAlertBanner from '../components/EmergencyAlertBanner';
+import InAppChatNotificationBanner from '../components/InAppChatNotificationBanner';
 import { usePermissions, Permission } from '../utils/rbac';
 
 export default function MainDrawerNavigator({ navigation }: any) {
@@ -20,6 +21,7 @@ export default function MainDrawerNavigator({ navigation }: any) {
   return (
     <View style={styles.container}>
       <EmergencyAlertBanner />
+      <InAppChatNotificationBanner />
 
       {/* Top Header - Shown on all screens, hidden only inside specific chat threads */}
       {!activeConversationId && (

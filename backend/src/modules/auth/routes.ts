@@ -8,64 +8,97 @@ import {fail, mustChangePasswordUsers, publicUser} from '../../utils/http';
 export const authRouter = Router();
 
 authRouter.post('/login', async (req, res) => {
-  const {email, password, role} = req.body ?? {};
-  if (!email || !password) return fail(res, 400, 'Email and password are required');
+  try {
+    const {email, password, role} = req.body ?? {};
+    if (!email || !password) return fail(res, 400, 'Email and password are required');
 
+    const cleanEmail = String(email).trim().toLowerCase();
 
-
-  const user = await db.find('users', {email});
-  if (!user || !bcrypt.compareSync(password ?? '', user.passwordHash)) return fail(res, 401, 'Invalid credentials');
-  if (role && user.role !== role && user.role !== role.replace('FLEET_MANAGER', 'ROLE_MANAGER')) return fail(res, 403, 'Role does not match this account');
-
-  // Multi-organization lookup
-  let orgId = user.organization_id || user.organizationId;
-  let orgName: string | undefined = undefined;
-
-  // Query all memberships for this user to identify their primary organization
-  const memberships = await db.list('organization_memberships', { user_id: user.id });
-  const customActive = memberships.find((m: any) => m.status === 'active' && m.organization_id !== '00000000-0000-0000-0000-000000000001');
-  const anyCustom = memberships.find((m: any) => m.organization_id !== '00000000-0000-0000-0000-000000000001');
-
-  if (customActive) {
-    orgId = customActive.organization_id;
-  } else if (anyCustom) {
-    orgId = anyCustom.organization_id;
-  } else if (!orgId || orgId === '00000000-0000-0000-0000-000000000001') {
-    const active = memberships.find((m: any) => m.status === 'active') || memberships[0];
-    if (active) {
-      orgId = active.organization_id;
+    // Try finding by lowercase email first, then exact email
+    let user = await db.find('users', {email: cleanEmail});
+    if (!user && cleanEmail !== email) {
+      user = await db.find('users', {email});
     }
-  }
-
-  if (orgId) {
-    const org = await db.find('organizations', { id: orgId });
-    if (org) {
-      orgName = org.name;
+    if (!user) {
+      const allUsers = await db.list('users');
+      user = allUsers.find((u: any) => String(u.email || '').trim().toLowerCase() === cleanEmail) || null;
     }
+
+    if (!user) {
+      console.warn(`[Auth Login] Login failed: No user found for email "${email}"`);
+      return fail(res, 401, 'Invalid credentials');
+    }
+
+    const pwdHash = user.passwordHash || user.passwordhash;
+    if (!pwdHash) {
+      console.warn(`[Auth Login] Login failed: User "${email}" has no passwordHash in database`);
+      return fail(res, 401, 'Invalid credentials');
+    }
+
+    const passwordMatches = bcrypt.compareSync(password ?? '', pwdHash);
+    if (!passwordMatches) {
+      console.warn(`[Auth Login] Login failed: Password mismatch for user "${email}"`);
+      return fail(res, 401, 'Invalid credentials');
+    }
+
+    if (role && user.role !== role && user.role !== role.replace('FLEET_MANAGER', 'ROLE_MANAGER')) {
+      console.warn(`[Auth Login] Login failed: Role mismatch. Account role="${user.role}", requested role="${role}"`);
+      return fail(res, 403, 'Role does not match this account');
+    }
+
+    // Multi-organization lookup
+    let orgId = user.organization_id || user.organizationId;
+    let orgName: string | undefined = undefined;
+
+    // Query all memberships for this user to identify their primary organization
+    const memberships = await db.list('organization_memberships', { user_id: user.id });
+    const customActive = memberships.find((m: any) => m.status === 'active' && m.organization_id !== '00000000-0000-0000-0000-000000000001');
+    const anyCustom = memberships.find((m: any) => m.organization_id !== '00000000-0000-0000-0000-000000000001');
+
+    if (customActive) {
+      orgId = customActive.organization_id;
+    } else if (anyCustom) {
+      orgId = anyCustom.organization_id;
+    } else if (!orgId || orgId === '00000000-0000-0000-0000-000000000001') {
+      const active = memberships.find((m: any) => m.status === 'active') || memberships[0];
+      if (active) {
+        orgId = active.organization_id;
+      }
+    }
+
+    if (orgId) {
+      const org = await db.find('organizations', { id: orgId });
+      if (org) {
+        orgName = org.name;
+      }
+    }
+
+    const enrichedUser = {
+      ...user,
+      organization_id: orgId,
+      organizationId: orgId,
+      organizationName: orgName,
+    };
+
+    const token = signToken(enrichedUser);
+    const formattedUser = {
+      ...publicUser(enrichedUser),
+      organization_id: orgId,
+      organizationId: orgId,
+      organizationName: orgName || 'LogiSphere Fleet',
+    };
+
+    return res.json({
+      success: true,
+      message: 'Login successful',
+      serviceResult: {...formattedUser, token},
+      user: formattedUser,
+      token,
+    });
+  } catch (err: any) {
+    console.error('[Auth Error] /login failed:', err);
+    return fail(res, 500, err.message || 'Internal server error during login');
   }
-
-  const enrichedUser = {
-    ...user,
-    organization_id: orgId,
-    organizationId: orgId,
-    organizationName: orgName,
-  };
-
-  const token = signToken(enrichedUser);
-  const formattedUser = {
-    ...publicUser(enrichedUser),
-    organization_id: orgId,
-    organizationId: orgId,
-    organizationName: orgName || 'LogiSphere Fleet',
-  };
-
-  return res.json({
-    success: true,
-    message: 'Login successful',
-    serviceResult: {...formattedUser, token},
-    user: formattedUser,
-    token,
-  });
 });
 
 authRouter.post('/change-password', optionalAuth, async (req, res) => {
@@ -90,7 +123,8 @@ authRouter.post('/change-password', optionalAuth, async (req, res) => {
 
     if (!user) return fail(res, 404, 'User not found');
 
-    if (!bcrypt.compareSync(currentPassword, user.passwordHash)) {
+    const currentHash = user.passwordHash || user.passwordhash;
+    if (!currentHash || !bcrypt.compareSync(currentPassword, currentHash)) {
       return fail(res, 400, 'Current password is incorrect');
     }
 
@@ -112,7 +146,7 @@ authRouter.post('/change-password', optionalAuth, async (req, res) => {
     }
 
     const newHash = bcrypt.hashSync(newPassword, 10);
-    const updated = await db.update('users', {id: user.id}, {passwordHash: newHash});
+    const updated = await db.update('users', {id: user.id}, {passwordHash: newHash, passwordhash: newHash});
 
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user.id);
     if (supabase && user.email && isUuid) {

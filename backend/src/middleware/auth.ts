@@ -42,10 +42,10 @@ declare global {
 
 export const signToken = (user: any) => {
   const orgId =
-    user.organization_id ||
-    user.organizationId ||
     user.businessId ||
     user.business_id ||
+    user.organization_id ||
+    user.organizationId ||
     DEFAULT_ORG_ID;
 
   const userId = user.id || user.userId || user.userID;

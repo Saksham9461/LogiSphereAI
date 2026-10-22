@@ -25,6 +25,8 @@ function fromDbVehicle(row: any) {
   return {
     vehicleID,
     id: vehicleID,
+    organization_id: row.organization_id ?? row.organizationId ?? null,
+    organizationId: row.organization_id ?? row.organizationId ?? null,
     registrationNumber: row.registrationNumber ?? row.reg ?? '',
     name: row.name ?? '',
     type: row.type ?? '',
@@ -78,7 +80,7 @@ vehicleRouter.get('/', optionalAuth, async (req, res) => {
           if (vId) driverVehIds.add(String(vId).toLowerCase());
         }
       }
-      vehicles = vehicles.filter(v => 
+      vehicles = vehicles.filter((v: any) => 
         driverVehIds.has(String(v.vehicleID || '').toLowerCase()) ||
         driverVehIds.has(String(v.id || '').toLowerCase())
       );

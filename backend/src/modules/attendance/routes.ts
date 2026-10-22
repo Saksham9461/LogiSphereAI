@@ -970,7 +970,7 @@ async function buildGroupedAttendanceReport(
   // 3. Load attendance records
   const allRecords = (await db.list('attendance_records', orgFilter))
     .map(normalizeRecord)
-    .filter((r): r is NonNullable<ReturnType<typeof normalizeRecord>> => Boolean(r));
+    .filter((r: any): r is NonNullable<ReturnType<typeof normalizeRecord>> => Boolean(r));
 
   // 4. Role-based filtering according to Authoritative Matrix
   let authorizedRecords = allRecords;

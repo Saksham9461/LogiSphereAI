@@ -263,9 +263,9 @@ export const useAlertStore = create<AlertState>((set, get) => ({
     }
 
     // Strict manager isolation: managers can ONLY receive alerts from their own organization
-    const managerOrg = currentUser.businessId || currentUser.business_id || 'default_org';
-    const alertOrg = incoming.businessId || 'default_org';
-    if (!isDriver && managerOrg !== alertOrg) {
+    const managerOrg = currentUser.organization_id || currentUser.organizationId || currentUser.businessId || currentUser.business_id;
+    const alertOrg = incoming.organization_id || (incoming as any).organizationId || incoming.businessId;
+    if (!isDriver && managerOrg && alertOrg && String(managerOrg).toLowerCase() !== String(alertOrg).toLowerCase()) {
       return;
     }
 

@@ -127,9 +127,9 @@ export function broadcastEmergencyAlertCreated(alert: any) {
       if (ws.readyState === WebSocket.OPEN) {
         const role = String(ws.user?.role || '').toUpperCase();
         const isManager = ['ROLE_MANAGER', 'FLEET_MANAGER', 'ROLE_ADMIN', 'ADMIN', 'ROLE_DISPATCHER', 'DISPATCHER', 'MANAGER'].includes(role);
-        const isDriverOwner = ws.user?.userId === alertDriverId;
+        const isDriverOwner = String(ws.user?.userId || '').toLowerCase() === String(alertDriverId || '').toLowerCase();
         const managerOrg = ws.user?.organizationId || ws.user?.organization_id || ws.user?.businessId || ws.user?.business_id || 'default_org';
-        const orgMatch = managerOrg === alertOrg;
+        const orgMatch = !alertOrg || !managerOrg || String(managerOrg).toLowerCase() === String(alertOrg).toLowerCase();
 
         if ((isManager && orgMatch) || isDriverOwner) {
           ws.send(payload);
@@ -145,7 +145,7 @@ export function broadcastEmergencyAlertUpdated(alert: any) {
     data: alert,
   });
   console.log(`[WebSocket Broadcast] Emergency alert updated (${alert.id}), broadcasting status update.`);
-  const alertOrg = alert.businessId || alert.business_id || 'default_org';
+  const alertOrg = alert.organization_id || alert.organizationId || alert.businessId || alert.business_id || 'default_org';
   const alertDriverId = alert.driverId || alert.driver_id;
 
   userSocketsMap.forEach((sockets) => {
@@ -153,9 +153,9 @@ export function broadcastEmergencyAlertUpdated(alert: any) {
       if (ws.readyState === WebSocket.OPEN) {
         const role = String(ws.user?.role || '').toUpperCase();
         const isManager = ['ROLE_MANAGER', 'FLEET_MANAGER', 'ROLE_ADMIN', 'ADMIN', 'ROLE_DISPATCHER', 'DISPATCHER', 'MANAGER'].includes(role);
-        const isDriverOwner = ws.user?.userId === alertDriverId;
-        const managerOrg = ws.user?.businessId || ws.user?.business_id || 'default_org';
-        const orgMatch = managerOrg === alertOrg;
+        const isDriverOwner = String(ws.user?.userId || '').toLowerCase() === String(alertDriverId || '').toLowerCase();
+        const managerOrg = ws.user?.organizationId || ws.user?.organization_id || ws.user?.businessId || ws.user?.business_id || 'default_org';
+        const orgMatch = !alertOrg || !managerOrg || String(managerOrg).toLowerCase() === String(alertOrg).toLowerCase();
 
         if ((isManager && orgMatch) || isDriverOwner) {
           ws.send(payload);
@@ -347,7 +347,8 @@ async function handleSocketMessage(ws: AuthenticatedSocket, payload: ChatMessage
 
       // If receiverId is provided, locate or create conversation
       if (!conversationId && receiverId) {
-        conversationId = await findOrCreateConversation(senderId, receiverId);
+        const wsOrg = ws.user?.organizationId || ws.user?.organization_id || ws.user?.businessId || ws.user?.business_id;
+        conversationId = await findOrCreateConversation(senderId, receiverId, wsOrg);
       }
 
       if (!conversationId) {
@@ -387,9 +388,12 @@ async function handleSocketMessage(ws: AuthenticatedSocket, payload: ChatMessage
       const isReceiverOnline = isUserOnline(receiverId);
       const deliveredAt = isReceiverOnline ? serverCreatedAt : null;
 
-      // Save message to Supabase / DB
+      // Save message to Supabase / DB with organization_id
+      const msgOrgId = conversation.organization_id || conversation.organizationId || ws.user?.organizationId || ws.user?.organization_id || '805c901d-5038-462c-9f87-4857d7afed10';
       const messageRecord = await db.insert('messages', {
         id: messageId,
+        organization_id: msgOrgId,
+        organizationId: msgOrgId,
         conversationId,
         conversation_id: conversationId,
         senderId,
@@ -408,12 +412,15 @@ async function handleSocketMessage(ws: AuthenticatedSocket, payload: ChatMessage
       });
 
       // Update conversation updated_at
-      await db.update('conversations', { id: conversationId }, { updated_at: serverCreatedAt, updatedAt: serverCreatedAt });
+      await db.update('conversations', { id: conversationId }, { updated_at: serverCreatedAt });
+
+      const senderName = (ws.user as any)?.name || ws.user?.email || 'User';
 
       const formattedMsg = {
         id: messageRecord.id || messageId,
         conversationId,
         senderId,
+        senderName,
         receiverId,
         message: message.trim(),
         messageType: payload.messageType || 'TEXT',
@@ -592,7 +599,7 @@ export async function broadcastRealtimeRead(
   }
 }
 
-export async function findOrCreateConversation(userIdA: string, userIdB: string): Promise<string> {
+export async function findOrCreateConversation(userIdA: string, userIdB: string, explicitOrgId?: string): Promise<string> {
   const allParticipants = await db.list('conversation_participants');
 
   // Group by conversation_id
@@ -612,11 +619,30 @@ export async function findOrCreateConversation(userIdA: string, userIdB: string)
     }
   }
 
+  // Resolve tenant organization_id for the conversation
+  let orgId = explicitOrgId;
+  const isUuid = (v: any) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+  if (!orgId || !isUuid(orgId)) {
+    const userA = await db.find('users', { id: userIdA });
+    const userB = await db.find('users', { id: userIdB });
+    const candidate = userA?.organization_id || userA?.organizationId || userB?.organization_id || userB?.organizationId;
+    if (isUuid(candidate)) {
+      orgId = candidate;
+    } else {
+      // Look up membership
+      const memA = await db.find('organization_memberships', { user_id: userIdA });
+      const memB = await db.find('organization_memberships', { user_id: userIdB });
+      orgId = memA?.organization_id || memB?.organization_id || '805c901d-5038-462c-9f87-4857d7afed10';
+    }
+  }
+
   // Create new conversation
   const newConvId = `conv-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
   const nowIso = new Date().toISOString();
   await db.insert('conversations', {
     id: newConvId,
+    organization_id: orgId,
+    organizationId: orgId,
     created_at: nowIso,
     createdAt: nowIso,
     updated_at: nowIso,

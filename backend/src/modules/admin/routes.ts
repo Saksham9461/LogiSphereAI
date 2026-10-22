@@ -60,7 +60,8 @@ adminRouter.post('/login', async (req, res) => {
   // 2. Fallback: check existing platform_admins in database (for test suites and existing db accounts)
   if (!authenticatedAdmin) {
     const dbUser = await db.find('users', { email: identifier });
-    if (dbUser && bcrypt.compareSync(rawPassword, dbUser.passwordHash)) {
+    const adminHash = dbUser?.passwordHash || dbUser?.passwordhash;
+    if (dbUser && adminHash && bcrypt.compareSync(rawPassword, adminHash)) {
       const adminRecord = await db.find('platform_admins', { user_id: dbUser.id, is_active: true });
       if (adminRecord && adminRecord.is_active) {
         authenticatedAdmin = {

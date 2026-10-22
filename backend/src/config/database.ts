@@ -46,28 +46,7 @@ const memory: Record<Table, any[]> = {
   sustainability_targets: [],
 };
 
-const knownMissingColumns = new Set<string>([
-  'attendance_records.organization_id',
-  'users.organization_id',
-  'vehicles.organization_id',
-  'trips.organization_id',
-  'maintenance_records.organization_id',
-  'fuel_logs.organization_id',
-  'expense_records.organization_id',
-  'chat_messages.organization_id',
-  'tracking_locations.organization_id',
-  'conversations.organization_id',
-  'conversation_participants.organization_id',
-  'messages.organization_id',
-  'emergency_alerts.organization_id',
-  'organizations.organization_id',
-  'platform_admins.organization_id',
-  'attendance_records.is_geofence_exception',
-  'attendance_records.exception_reason',
-  'attendance_records.trip_id',
-  'attendance_records.exception_distance',
-  'attendance_records.exception_action',
-]);
+const knownMissingColumns = new Set<string>();
 
 const withTimeout = <T>(promise: PromiseLike<T>, ms = env.SUPABASE_TIMEOUT_MS ?? 10000): Promise<T> => {
   let timer: NodeJS.Timeout | null = null;
@@ -121,117 +100,398 @@ function getRowKey(table: Table, row: any): string {
   return String(row.id || '');
 }
 
+export function normalizeDbRow(table: Table, row: any): any {
+  if (!row || typeof row !== 'object') return row;
+  if (table === 'users') {
+    const passwordHash = row.passwordHash || row.passwordhash;
+    const phoneNo = row.phoneNo || row.phoneno;
+    const licenseNo = row.licenseNo || row.licenseno;
+    const licenseExpiryDate = row.licenseExpiryDate || row.licenseexpirydate;
+    const safetyScore = row.safetyScore ?? row.safetyscore;
+    const mustChangePassword = Boolean(row.mustChangePassword ?? row.mustchangepassword ?? row.must_change_password ?? false);
+    const orgId = row.organization_id || row.organizationId;
+    const createdAt = row.createdAt || row.createdat || row.created_at;
+    const updatedAt = row.updatedAt || row.updatedat || row.updated_at;
+
+    return {
+      ...row,
+      passwordHash,
+      passwordhash: passwordHash,
+      phoneNo,
+      phoneno: phoneNo,
+      licenseNo,
+      licenseno: licenseNo,
+      licenseExpiryDate,
+      licenseexpirydate: licenseExpiryDate,
+      safetyScore,
+      safetyscore: safetyScore,
+      mustChangePassword,
+      mustchangepassword: mustChangePassword,
+      must_change_password: mustChangePassword,
+      organizationId: orgId,
+      organization_id: orgId,
+      createdAt,
+      createdat: createdAt,
+      created_at: createdAt,
+      updatedAt,
+      updatedat: updatedAt,
+      updated_at: updatedAt,
+    };
+  }
+
+  if (table === 'vehicles') {
+    const vehicleID = row.vehicleID || row.vehicleid || row.id;
+    const regNo = row.registrationNumber || row.registrationnumber || row.reg || '';
+    const maxCap = row.maxLoadCapacity ?? row.maxloadcapacity ?? row.capacity;
+    const acqCost = row.acquisitionCost ?? row.acquisitioncost ?? row.cost;
+    const orgId = row.organization_id || row.organizationId;
+    const createdAt = row.createdAt || row.createdat || row.created_at;
+    const updatedAt = row.updatedAt || row.updatedat || row.updated_at;
+
+    return {
+      ...row,
+      id: vehicleID,
+      vehicleID,
+      vehicleid: vehicleID,
+      registrationNumber: regNo,
+      registrationnumber: regNo,
+      maxLoadCapacity: maxCap !== undefined ? Number(maxCap) : undefined,
+      maxloadcapacity: maxCap !== undefined ? Number(maxCap) : undefined,
+      capacity: maxCap !== undefined ? Number(maxCap) : undefined,
+      acquisitionCost: acqCost !== undefined ? Number(acqCost) : undefined,
+      acquisitioncost: acqCost !== undefined ? Number(acqCost) : undefined,
+      cost: acqCost !== undefined ? Number(acqCost) : undefined,
+      odometer: Number(row.odometer ?? 0),
+      organization_id: orgId,
+      organizationId: orgId,
+      createdAt,
+      createdat: createdAt,
+      updatedAt,
+      updatedat: updatedAt,
+    };
+  }
+
+  if (table === 'trips') {
+    const tripID = row.tripID || row.tripid || row.id;
+    const vehicleID = row.vehicleID || row.vehicleid;
+    const driverID = row.driverID || row.driverid;
+    const cargoWeight = row.cargoWeight ?? row.cargoweight;
+    const plannedDistance = row.plannedDistance ?? row.planneddistance;
+    const startingOdometer = row.startingOdometer ?? row.startingodometer;
+    const finalOdometer = row.finalOdometer ?? row.finalodometer;
+    const fuelConsumed = row.fuelConsumed ?? row.fuelconsumed;
+    const orgId = row.organization_id || row.organizationId;
+    const createdAt = row.createdAt || row.createdat || row.created_at;
+    const updatedAt = row.updatedAt || row.updatedat || row.updated_at;
+
+    return {
+      ...row,
+      id: tripID,
+      tripID,
+      tripid: tripID,
+      vehicleID,
+      vehicleid: vehicleID,
+      driverID,
+      driverid: driverID,
+      cargoWeight: cargoWeight !== undefined ? Number(cargoWeight) : undefined,
+      cargoweight: cargoWeight !== undefined ? Number(cargoWeight) : undefined,
+      plannedDistance: plannedDistance !== undefined ? Number(plannedDistance) : undefined,
+      planneddistance: plannedDistance !== undefined ? Number(plannedDistance) : undefined,
+      startingOdometer: startingOdometer !== undefined ? Number(startingOdometer) : undefined,
+      startingodometer: startingOdometer !== undefined ? Number(startingOdometer) : undefined,
+      finalOdometer: finalOdometer !== undefined ? Number(finalOdometer) : undefined,
+      finalodometer: finalOdometer !== undefined ? Number(finalOdometer) : undefined,
+      fuelConsumed: fuelConsumed !== undefined ? Number(fuelConsumed) : undefined,
+      fuelconsumed: fuelConsumed !== undefined ? Number(fuelConsumed) : undefined,
+      organization_id: orgId,
+      organizationId: orgId,
+      createdAt,
+      createdat: createdAt,
+      updatedAt,
+      updatedat: updatedAt,
+    };
+  }
+
+  if (table === 'attendance_records') {
+    const userID = row.userID || row.userid || row.userId;
+    const clockInTime = row.clockInTime || row.clockintime;
+    const clockOutTime = row.clockOutTime || row.clockouttime;
+    const locationName = row.locationName || row.locationname;
+    const distanceFromOffice = row.distanceFromOffice ?? row.distancefromoffice;
+    const isGeofenceException = row.is_geofence_exception ?? row.isGeofenceException;
+    const exceptionReason = row.exception_reason || row.exceptionReason;
+    const tripId = row.trip_id || row.tripId;
+    const exceptionDistance = row.exception_distance ?? row.exceptionDistance;
+    const exceptionAction = row.exception_action || row.exceptionAction;
+    const autoClockOut = row.auto_clock_out ?? row.autoClockOut;
+    const clockOutType = row.clock_out_type || row.clockOutType;
+    const orgId = row.organization_id || row.organizationId;
+    const createdAt = row.createdAt || row.createdat || row.created_at;
+    const updatedAt = row.updatedAt || row.updatedat || row.updated_at;
+
+    return {
+      ...row,
+      userID,
+      userid: userID,
+      userId: userID,
+      clockInTime,
+      clockintime: clockInTime,
+      clockOutTime,
+      clockouttime: clockOutTime,
+      locationName,
+      locationname: locationName,
+      distanceFromOffice: distanceFromOffice !== undefined ? Number(distanceFromOffice) : undefined,
+      distancefromoffice: distanceFromOffice !== undefined ? Number(distanceFromOffice) : undefined,
+      is_geofence_exception: isGeofenceException,
+      isGeofenceException,
+      exception_reason: exceptionReason,
+      exceptionReason,
+      trip_id: tripId,
+      tripId,
+      exception_distance: exceptionDistance !== undefined ? Number(exceptionDistance) : undefined,
+      exceptionDistance: exceptionDistance !== undefined ? Number(exceptionDistance) : undefined,
+      exception_action: exceptionAction,
+      exceptionAction,
+      auto_clock_out: autoClockOut,
+      autoClockOut,
+      clock_out_type: clockOutType,
+      clockOutType,
+      organization_id: orgId,
+      organizationId: orgId,
+      createdAt,
+      createdat: createdAt,
+      updatedAt,
+      updatedat: updatedAt,
+    };
+  }
+
+  if (table === 'emergency_alerts') {
+    const driverId = row.driver_id || row.driverId;
+    const driverName = row.driver_name || row.driverName;
+    const businessId = row.business_id || row.businessId;
+    const tripId = row.trip_id || row.tripId;
+    const vehicleId = row.vehicle_id || row.vehicleId;
+    const locationAccuracyMeters = row.location_accuracy_meters ?? row.locationAccuracyMeters;
+    const locationCapturedAt = row.location_captured_at || row.locationCapturedAt;
+    const locationStatus = row.location_status || row.locationStatus;
+    const acknowledgedBy = row.acknowledged_by || row.acknowledgedBy;
+    const acknowledgedAt = row.acknowledged_at || row.acknowledgedAt;
+    const resolvedBy = row.resolved_by || row.resolvedBy;
+    const resolvedAt = row.resolved_at || row.resolvedAt;
+    const resolutionNote = row.resolution_note || row.resolutionNote;
+    const clientRequestId = row.client_request_id || row.clientRequestId;
+    const orgId = row.organization_id || row.organizationId;
+    const createdAt = row.created_at || row.createdAt || row.createdat;
+    const updatedAt = row.updated_at || row.updatedAt || row.updatedat;
+
+    return {
+      ...row,
+      driver_id: driverId,
+      driverId,
+      driver_name: driverName,
+      driverName,
+      business_id: businessId,
+      businessId,
+      trip_id: tripId,
+      tripId,
+      vehicle_id: vehicleId,
+      vehicleId,
+      location_accuracy_meters: locationAccuracyMeters,
+      locationAccuracyMeters,
+      location_captured_at: locationCapturedAt,
+      locationCapturedAt,
+      location_status: locationStatus,
+      locationStatus,
+      acknowledged_by: acknowledgedBy,
+      acknowledgedBy,
+      acknowledged_at: acknowledgedAt,
+      acknowledgedAt,
+      resolved_by: resolvedBy,
+      resolvedBy,
+      resolved_at: resolvedAt,
+      resolvedAt,
+      resolution_note: resolutionNote,
+      resolutionNote,
+      client_request_id: clientRequestId,
+      clientRequestId,
+      organization_id: orgId,
+      organizationId: orgId,
+      created_at: createdAt,
+      createdAt,
+      updated_at: updatedAt,
+      updatedAt,
+    };
+  }
+
+  return row;
+}
+
 export const db = {
   async list(table: Table, filter?: Record<string, any>) {
-    const defaultOrgId = '00000000-0000-0000-0000-000000000001';
     const entries = Object.entries(filter ?? {});
     const norm = (s: string) => s.replace(/_/g, '').toLowerCase();
     const filterRow = (row: any) =>
       entries.every(([k, v]) => {
         const targetNormKey = norm(k);
         const matchPropKey = Object.keys(row).find(rk => norm(rk) === targetNormKey);
-        if (!matchPropKey) {
-          if (targetNormKey === 'organizationid' && v === defaultOrgId) return true;
-          return false;
-        }
+        if (!matchPropKey) return false;
         const val = row[matchPropKey];
-        if (targetNormKey === 'organizationid' && v === defaultOrgId) {
-          return !val || val === defaultOrgId || String(val) === String(v);
-        }
         return val === v || String(val) === String(v);
       });
-    const getMemoryRows = () => (memory[table] || []).filter(filterRow);
 
     if (supabase) {
       try {
-        let q = supabase.from(table).select('*');
-        let hasOrgFilter = false;
-        const orgMissing = knownMissingColumns.has(`${table}.organization_id`);
-        for (const [k, v] of Object.entries(filter ?? {})) {
-          if (k === 'organization_id' || k === 'organizationId') {
-            if (!orgMissing) {
-              if (v === defaultOrgId) {
-                hasOrgFilter = true;
-                q = q.or(`organization_id.eq.${defaultOrgId},organization_id.is.null`);
+        const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
+        // Special multi-tenant handling for users: check both users.organization_id AND organization_memberships
+        if (table === 'users') {
+          const orgIdVal = filter?.organization_id || filter?.organizationId;
+          if (orgIdVal && isUuid(orgIdVal)) {
+            let memberUserIds: string[] = [];
+            try {
+              const { data: mems }: any = await withTimeout(
+                supabase.from('organization_memberships').select('user_id').eq('organization_id', orgIdVal).eq('status', 'active')
+              );
+              if (mems) memberUserIds = mems.map((m: any) => m.user_id).filter(Boolean);
+            } catch (mErr) {
+              console.warn('[db.list] Failed to query organization memberships:', mErr);
+            }
+
+            if (memberUserIds.length === 0 && knownMissingColumns.has('users.organization_id')) {
+              return [];
+            }
+
+            let userQ = supabase.from('users').select('*');
+            if (memberUserIds.length > 0) {
+              if (knownMissingColumns.has('users.organization_id')) {
+                userQ = userQ.in('id', memberUserIds);
               } else {
-                q = q.eq(k, v);
+                userQ = userQ.or(`organization_id.eq.${orgIdVal},id.in.(${memberUserIds.map((u: string) => `"${u}"`).join(',')})`);
+              }
+            } else {
+              userQ = userQ.eq('organization_id', orgIdVal);
+            }
+
+            for (const [k, v] of entries) {
+              if (k !== 'organization_id' && k !== 'organizationId') {
+                userQ = userQ.eq(k, v);
               }
             }
-          } else {
-            q = q.eq(k, v);
-          }
-        }
-        let { data, error } = await withTimeout(q);
-        if (error && (error.code === 'PGRST204' || error.message?.includes('organization_id') || error.code === '42703')) {
-          knownMissingColumns.add(`${table}.organization_id`);
-          let retryQ = supabase.from(table).select('*');
-          for (const [k, v] of Object.entries(filter ?? {})) {
-            if (k !== 'organization_id' && k !== 'organizationId') {
-              retryQ = retryQ.eq(k, v);
-            }
-          }
-          const retryRes = await withTimeout(retryQ);
-          data = retryRes.data;
-          error = retryRes.error;
-        }
 
-        let supaData = !error && data ? data : [];
-        if (supaData.length === 0 && entries.length > 0) {
-          const nonOrgEntries = entries.filter(([k]) => k !== 'organization_id' && k !== 'organizationId');
-          if (nonOrgEntries.length > 0) {
-            let qLower = supabase.from(table).select('*');
-            for (const [k, v] of Object.entries(filter ?? {})) {
-              if (k === 'organization_id' || k === 'organizationId') {
-                if (!knownMissingColumns.has(`${table}.organization_id`)) {
-                  if (v === defaultOrgId) {
-                    qLower = qLower.or(`organization_id.eq.${defaultOrgId},organization_id.is.null`);
-                  } else {
-                    qLower = qLower.eq('organization_id', v);
-                  }
+            let { data: userData, error: userError }: any = (await withTimeout(userQ)) || {};
+            if (userError && (userError.code === 'PGRST204' || userError.message?.includes('organization_id') || userError.code === '42703')) {
+              knownMissingColumns.add('users.organization_id');
+              if (memberUserIds.length === 0) {
+                return [];
+              }
+              let retryUserQ = supabase.from('users').select('*').in('id', memberUserIds);
+              for (const [k, v] of entries) {
+                if (k !== 'organization_id' && k !== 'organizationId') {
+                  retryUserQ = retryUserQ.eq(k, v);
                 }
-              } else {
-                qLower = qLower.eq(k.toLowerCase(), v);
+              }
+              const retryRes: any = await withTimeout(retryUserQ);
+              userData = retryRes?.data;
+              userError = retryRes?.error;
+            }
+
+            if (!userError && userData) {
+              return userData.map((u: any) => normalizeDbRow('users', { ...u, organization_id: orgIdVal }));
+            }
+          }
+        }
+
+        const resolveSupabaseColumn = (tbl: Table, key: string): string => {
+          if (key === 'organization_id' || key === 'organizationId') return 'organization_id';
+          if (key === 'clientRequestId' || key === 'client_request_id') return 'client_request_id';
+          if (key === 'driverId' || key === 'driverID' || key === 'driverid') return 'driverid';
+          if (key === 'vehicleId' || key === 'vehicleID' || key === 'vehicleid') return 'vehicleid';
+          if (key === 'tripId' || key === 'tripID' || key === 'tripid') return 'tripid';
+          if (key === 'fuelLogId' || key === 'fuellogid') return 'fuellogid';
+          if (key === 'expenseId' || key === 'expenseid') return 'expenseid';
+          if (key === 'serviceType' || key === 'servicetype') return 'servicetype';
+          if (key === 'registrationNumber' || key === 'registrationnumber') return 'registrationnumber';
+          if (key === 'passwordHash' || key === 'passwordhash') return 'passwordhash';
+          if (key === 'phoneNo' || key === 'phoneno') return 'phoneno';
+          if (key === 'licenseNo' || key === 'licenseno') return 'licenseno';
+          if (key === 'licenseExpiryDate' || key === 'licenseexpirydate') return 'licenseexpirydate';
+          if (key === 'safetyScore' || key === 'safetyscore') return 'safetyscore';
+          if (key === 'mustChangePassword' || key === 'mustchangepassword' || key === 'must_change_password') return 'mustchangepassword';
+          if (tbl === 'vehicles' && key === 'id') return 'vehicleid';
+          if (tbl === 'trips' && key === 'id') return 'tripid';
+          return key;
+        };
+
+        const applyFilters = (queryBuilder: any) => {
+          let builder = queryBuilder;
+          for (const [k, v] of entries) {
+            const col = resolveSupabaseColumn(table, k);
+            if (knownMissingColumns.has(`${table}.${col}`) || knownMissingColumns.has(`${table}.${k}`)) {
+              continue;
+            }
+            if ((col === 'organization_id' || (col === 'id' && table === 'organizations')) && !isUuid(v)) {
+              continue;
+            }
+            builder = builder.eq(col, v);
+          }
+          return builder;
+        };
+
+        let q = applyFilters(supabase.from(table).select('*'));
+        let { data, error }: any = (await withTimeout(q)) || {};
+
+        while (error && (error.code === '42703' || error.code === 'PGRST204' || error.code === '22P02' || error.message?.includes('does not exist') || error.message?.includes('invalid input syntax for type uuid'))) {
+          const match = error.message.match(/column [^.]*\.?"?([a-zA-Z0-9_]+)"? does not exist/i) ||
+                        error.hint?.match(/column "([^"]+)"/i) ||
+                        error.message.match(/Could not find the '([^']+)' column/i);
+          const badCol = match ? match[1] : null;
+          if (badCol) {
+            console.warn(`[db.list] Column '${badCol}' does not exist on table '${table}'. Retrying without it.`);
+            knownMissingColumns.add(`${table}.${badCol}`);
+            for (const [k] of entries) {
+              if (k.toLowerCase() === badCol.toLowerCase() || resolveSupabaseColumn(table, k).toLowerCase() === badCol.toLowerCase()) {
+                knownMissingColumns.add(`${table}.${k}`);
               }
             }
-            const resLower = await withTimeout(qLower);
-            if (!resLower.error && resLower.data) supaData = resLower.data;
+          } else if (error.code === '22P02' || error.message?.includes('organization_id') || error.message?.includes('uuid')) {
+            knownMissingColumns.add(`${table}.organization_id`);
+          } else {
+            break;
           }
+
+          let retryQ = applyFilters(supabase.from(table).select('*'));
+          const retryRes: any = await withTimeout(retryQ);
+          data = retryRes?.data;
+          error = retryRes?.error;
         }
 
-        const isGlobalTable = table === 'organizations' || table === 'platform_admins';
-        const allMem = memory[table] || [];
-        const seen = new Set<string>();
-        const combined: any[] = [];
-
-        for (const row of supaData) {
-          const key = getRowKey(table, row);
-          const memMatch = allMem.find(m => getRowKey(table, m) === key);
-          const merged = memMatch ? { ...row, ...memMatch } : row;
-          const finalRow = !isGlobalTable && !merged.organization_id ? { ...merged, organization_id: defaultOrgId } : merged;
-          if (key) {
-            if (seen.has(key)) continue;
-            seen.add(key);
-          }
-          combined.push(finalRow);
+        if (error) {
+          console.error(`[db.list] Error querying Supabase for table ${table}:`, error);
+          throw new Error(`Database query failed for ${table}: ${error.message}`);
         }
 
-        for (const row of allMem) {
-          const key = getRowKey(table, row);
-          const finalRow = !isGlobalTable && !row.organization_id ? { ...row, organization_id: defaultOrgId } : row;
-          if (key) {
-            if (seen.has(key)) continue;
-            seen.add(key);
-          }
-          combined.push(finalRow);
+        let supaData: any[] = data || [];
+
+        // Apply in-memory matching if any columns were stripped from remote query
+        supaData = supaData.filter(filterRow);
+
+        // If organization_id is not yet in the DB schema for this table (pending migration),
+        // decorate returned rows with the queried organization_id so that valid operational records
+        // are not rejected by callers expecting the tenant tag.
+        const orgFilterVal = filter?.organization_id || filter?.organizationId;
+        if (orgFilterVal && knownMissingColumns.has(`${table}.organization_id`)) {
+          supaData = supaData.map(r => (!r.organization_id ? { ...r, organization_id: orgFilterVal } : r));
         }
 
-        if (combined.length > 0) return combined.filter(filterRow);
-      } catch (err) {
-        console.error(`[db.list] Error querying Supabase for table ${table}:`, err);
+        return supaData.map(r => normalizeDbRow(table, r));
+      } catch (err: any) {
+        console.error(`[db.list] Exception querying Supabase for table ${table}:`, err);
+        throw err;
       }
     }
-    const isGlobalTable = table === 'organizations' || table === 'platform_admins';
-    return (memory[table] || []).map(row => (!isGlobalTable && !row.organization_id ? { ...row, organization_id: defaultOrgId } : row)).filter(filterRow);
+
+    // In-memory mock mode (test/offline mode when hasSupabase is false)
+    return (memory[table] || []).filter(filterRow).map(r => normalizeDbRow(table, r));
   },
 
   async find(table: Table, filter: Record<string, any>) {
@@ -261,8 +521,9 @@ export const db = {
 
   async insert(table: Table, data: any) {
     const isGlobalTable = table === 'organizations' || table === 'platform_admins';
-    const defaultOrgId = '00000000-0000-0000-0000-000000000001';
-    const orgId = data.organization_id || data.organizationId || data.businessId || data.business_id || (isGlobalTable ? undefined : defaultOrgId);
+    const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+    const rawOrgId = data.organization_id || data.organizationId || data.businessId || data.business_id;
+    const orgId = isUuid(rawOrgId) ? rawOrgId : undefined;
 
     const row = {
       ...data,
@@ -309,6 +570,7 @@ export const db = {
             cost: Number(data.cost) || 0,
             date: data.date,
             status: data.status,
+            ...(orgId ? { organization_id: orgId } : {}),
           };
         } else if (table === 'fuel_logs') {
           insertPayload = {
@@ -317,6 +579,7 @@ export const db = {
             date: data.date,
             liters: Number(data.liters) || 0,
             cost: Number(data.cost) || 0,
+            ...(orgId ? { organization_id: orgId } : {}),
           };
         } else if (table === 'expense_records') {
           insertPayload = {
@@ -326,6 +589,7 @@ export const db = {
             toll: Number(data.toll) || 0,
             other: Number(data.other) || 0,
             maint: Number(data.maint) || 0,
+            ...(orgId ? { organization_id: orgId } : {}),
           };
         } else if (table === 'vehicles') {
           insertPayload = {
@@ -337,19 +601,30 @@ export const db = {
             odometer: Number(data.odometer ?? 0),
             acquisitioncost: Number(data.acquisitionCost ?? data.acquisitioncost ?? 0),
             status: data.status || 'AVAILABLE',
+            ...(orgId ? { organization_id: orgId } : {}),
           };
         } else if (table === 'users') {
+          const pwdHash = data.passwordHash || data.passwordhash || '$2a$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW';
+          const pNo = data.phoneNo || data.phoneno || null;
+          const licNo = data.licenseNo || data.licenseno || null;
+          const licExp = data.licenseExpiryDate || data.licenseexpirydate || null;
+          const sScore = Number(data.safetyScore ?? data.safetyscore ?? 95);
           insertPayload = {
             id: data.id,
             name: data.name,
             email: data.email,
-            phoneNo: data.phoneNo || data.phoneno,
-            passwordHash: data.passwordHash || data.passwordhash || '$2a$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW',
+            phoneNo: pNo,
+            phoneno: pNo,
+            passwordHash: pwdHash,
+            passwordhash: pwdHash,
             role: data.role,
-            licenseNo: data.licenseNo || data.licenseno || null,
-            licenseExpiryDate: data.licenseExpiryDate || data.licenseexpirydate || null,
+            licenseNo: licNo,
+            licenseno: licNo,
+            licenseExpiryDate: licExp,
+            licenseexpirydate: licExp,
             trips: Number(data.trips ?? 0),
-            safetyScore: Number(data.safetyScore ?? data.safetyscore ?? 95),
+            safetyScore: sScore,
+            safetyscore: sScore,
             status: data.status || 'ACTIVE',
             ...(orgId ? { organization_id: orgId } : {}),
           };
@@ -394,6 +669,7 @@ export const db = {
             cargoweight: Number(data.cargoWeight ?? data.cargoweight ?? 0),
             planneddistance: Number(data.plannedDistance ?? data.planneddistance ?? 0),
             startingodometer: Number(data.startingOdometer ?? data.startingodometer ?? 0),
+            ...(orgId ? { organization_id: orgId } : {}),
           };
           if (data.finalOdometer !== undefined || data.finalodometer !== undefined) {
             insertPayload.finalodometer = Number(data.finalOdometer ?? data.finalodometer);
@@ -401,9 +677,19 @@ export const db = {
           if (data.fuelConsumed !== undefined || data.fuelconsumed !== undefined) {
             insertPayload.fuelconsumed = Number(data.fuelConsumed ?? data.fuelconsumed);
           }
+        } else if (table === 'sustainability_targets') {
+          insertPayload = {
+            id: data.id || `${orgId || 'org'}:::${data.period}`,
+            organization_id: orgId,
+            period: data.period,
+            co2_reduction_percentage: Number(data.co2_reduction_percentage || 0),
+            fuel_efficiency_target_kmpl: Number(data.fuel_efficiency_target_kmpl || 0),
+            max_carbon_budget_kg: Number(data.max_carbon_budget_kg || 0),
+          };
         } else if (table === 'conversations') {
           insertPayload = {
             id: data.id || `conv-${Date.now()}`,
+            ...(orgId ? { organization_id: orgId } : {}),
             created_at: data.created_at || data.createdAt || now(),
             updated_at: data.updated_at || data.updatedAt || now(),
           };
@@ -416,6 +702,7 @@ export const db = {
         } else if (table === 'messages') {
           insertPayload = {
             id: data.id || `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+            ...(orgId ? { organization_id: orgId } : {}),
             conversation_id: data.conversation_id || data.conversationId,
             sender_id: data.sender_id || data.senderId,
             receiver_id: data.receiver_id || data.receiverId,
@@ -447,6 +734,7 @@ export const db = {
             resolution_note: data.resolution_note || data.resolutionNote || null,
             created_at: data.created_at || data.createdAt || now(),
             updated_at: data.updated_at || data.updatedAt || now(),
+            ...(orgId ? { organization_id: orgId } : {}),
           };
           if (data.client_request_id || data.clientRequestId) {
             insertPayload.client_request_id = data.client_request_id || data.clientRequestId;
@@ -465,6 +753,7 @@ export const db = {
             devicetimestamp: data.deviceTimestamp || data.devicetimestamp || now(),
             receivedat: now(),
             updatedat: now(),
+            ...(orgId ? { organization_id: orgId } : {}),
           };
         }
 
@@ -495,39 +784,28 @@ export const db = {
           }
         }
 
-        // If foreign key constraint failure occurs, do not silently retry without organization_id
-        if (error && (error.code === '23503' || error.message?.includes('foreign key constraint'))) {
-          console.error(`[DB Insert FK Error] Foreign key constraint violation on table '${table}':`, error.message);
-        }
-
         if (!error && created) {
           console.log(`[DB Insert SUCCESS] Saved to Supabase table "${table}":`, JSON.stringify(created, null, 2));
           console.log(`--------------------------------------------------\n`);
-          const merged = { ...created, ...row };
-          if (table === 'emergency_alerts' && (data.client_request_id || data.clientRequestId)) {
-            const idx = memory.emergency_alerts.findIndex(a => a.id === row.id);
-            if (idx >= 0) memory.emergency_alerts[idx] = merged;
-            else memory[table].unshift(merged);
-          } else {
-            memory[table].unshift(merged);
-          }
-          return merged;
+          return normalizeDbRow(table, { ...created, ...row });
         }
 
-        // If database rejected insert due to unique constraint / duplicate key violation, do NOT fallback to memory
-        const errMsg = error?.message || '';
+        // Database write failure in persistent Supabase mode
+        const errMsg = error?.message || 'Database insert failed';
         if (error?.code === '23505' || errMsg.includes('duplicate key') || errMsg.includes('unique constraint') || errMsg.includes('already exists')) {
           const duplicateError: any = new Error(errMsg || 'Duplicate key violation');
           duplicateError.code = '23505';
           throw duplicateError;
         }
 
-        console.warn(`[DB Insert Warning] Table "${table}" Supabase insert failed (${error?.message}). Falling back to memory store.`);
+        console.error(`[DB Insert Error] Table "${table}" Supabase insert failed:`, errMsg);
+        throw new Error(`Database insert failed for table ${table}: ${errMsg}`);
       } catch (err: any) {
-        if (err?.code === '23505' || err?.message?.includes('duplicate key') || err?.message?.includes('unique constraint')) {
+        if (err?.code === '23505' || err?.message?.includes('duplicate key') || err?.message?.includes('unique constraint') || err?.message?.includes('already exists')) {
           throw err;
         }
-        console.warn(`[DB Insert Exception] Table "${table}":`, err);
+        console.error(`[DB Insert Exception] Table "${table}":`, err);
+        throw err;
       }
     }
 
@@ -572,26 +850,43 @@ export const db = {
 
     console.log(`[DB Insert Memory] Fallback to in-memory for table "${table}":`, JSON.stringify(row, null, 2));
     memory[table].unshift(row);
-    return row;
+    return normalizeDbRow(table, row);
   },
 
   async update(table: Table, key: Record<string, any>, patch: any) {
     if (supabase) {
       try {
         const timeField =
-          table === 'users'
-            ? 'updatedAt'
-            : table === 'conversations' ||
-              table === 'messages' ||
-              table === 'conversation_participants' ||
-              table === 'organizations' ||
-              table === 'organization_memberships' ||
-              table === 'platform_admins' ||
-              table === 'emergency_alerts'
-              ? 'updated_at'
-              : 'updatedat';
+          table === 'conversations' ||
+          table === 'messages' ||
+          table === 'conversation_participants' ||
+          table === 'organizations' ||
+          table === 'organization_memberships' ||
+          table === 'platform_admins' ||
+          table === 'emergency_alerts'
+            ? 'updated_at'
+            : 'updatedat';
         let cleanPatch: Record<string, any> = { ...patch, [timeField]: now() };
-        if (table === 'attendance_records') {
+        if (table === 'users') {
+          cleanPatch = {};
+          if (patch.name !== undefined) cleanPatch.name = patch.name;
+          if (patch.email !== undefined) cleanPatch.email = patch.email;
+          if (patch.phoneNo !== undefined || patch.phoneno !== undefined) cleanPatch.phoneno = patch.phoneNo ?? patch.phoneno;
+          if (patch.passwordHash !== undefined || patch.passwordhash !== undefined) cleanPatch.passwordhash = patch.passwordHash ?? patch.passwordhash;
+          if (patch.role !== undefined) cleanPatch.role = patch.role;
+          if (patch.licenseNo !== undefined || patch.licenseno !== undefined) cleanPatch.licenseno = patch.licenseNo ?? patch.licenseno;
+          if (patch.licenseExpiryDate !== undefined || patch.licenseexpirydate !== undefined) cleanPatch.licenseexpirydate = patch.licenseExpiryDate ?? patch.licenseexpirydate;
+          if (patch.trips !== undefined) cleanPatch.trips = Number(patch.trips);
+          if (patch.safetyScore !== undefined || patch.safetyscore !== undefined) cleanPatch.safetyscore = Number(patch.safetyScore ?? patch.safetyscore);
+          if (patch.status !== undefined) cleanPatch.status = patch.status;
+          if (patch.mustChangePassword !== undefined || patch.mustchangepassword !== undefined || patch.must_change_password !== undefined) {
+            cleanPatch.mustchangepassword = Boolean(patch.mustChangePassword ?? patch.mustchangepassword ?? patch.must_change_password);
+          }
+          if (patch.organization_id !== undefined || patch.organizationId !== undefined) {
+            cleanPatch.organization_id = patch.organization_id ?? patch.organizationId;
+          }
+          cleanPatch[timeField] = now();
+        } else if (table === 'attendance_records') {
           cleanPatch = {};
           if (patch.clockOutTime !== undefined || patch.clockouttime !== undefined) {
             cleanPatch.clockouttime = patch.clockOutTime ?? patch.clockouttime;
@@ -628,6 +923,12 @@ export const db = {
           if (patch.vehicleID || patch.vehicleid) cleanPatch.vehicleid = patch.vehicleID || patch.vehicleid;
           if (patch.driverID || patch.driverid) cleanPatch.driverid = patch.driverID || patch.driverid;
           cleanPatch[timeField] = now();
+        } else if (table === 'conversations') {
+          cleanPatch = {};
+          if (patch.updated_at !== undefined || patch.updatedAt !== undefined) {
+            cleanPatch.updated_at = patch.updated_at ?? patch.updatedAt;
+          }
+          cleanPatch[timeField] = cleanPatch.updated_at || now();
         } else if (table === 'messages') {
           cleanPatch = {};
           if (patch.delivered_at !== undefined || patch.deliveredAt !== undefined) {
@@ -702,7 +1003,7 @@ export const db = {
         if (!error && data && data.length > 0) {
           console.log(`[DB Update SUCCESS] Table "${table}" updated:`, JSON.stringify(data[0], null, 2));
           console.log(`--------------------------------------------------\n`);
-          return memRow ? { ...memRow, ...data[0] } : data[0];
+          return normalizeDbRow(table, memRow ? { ...memRow, ...data[0] } : data[0]);
         }
 
         let qLower = supabase.from(table).update(cleanPatch).select('*');
@@ -733,9 +1034,9 @@ export const db = {
         if (!resLower.error && resLower.data && resLower.data.length > 0) {
           console.log(`[DB Update SUCCESS] Table "${table}" updated:`, JSON.stringify(resLower.data[0], null, 2));
           console.log(`--------------------------------------------------\n`);
-          return memRow ? { ...memRow, ...resLower.data[0] } : resLower.data[0];
+          return normalizeDbRow(table, memRow ? { ...memRow, ...resLower.data[0] } : resLower.data[0]);
         }
-        if (memRow) return memRow;
+        if (memRow) return normalizeDbRow(table, memRow);
         return null;
       } catch (err) {
         console.error(`[DB Update ERROR] Supabase update error for table ${table}:`, err);
@@ -745,7 +1046,7 @@ export const db = {
     const row = await this.find(table, key);
     if (!row) return null;
     Object.assign(row, patch, { updatedAt: now(), updatedat: now() });
-    return row;
+    return normalizeDbRow(table, row);
   },
 
   async upsert(table: Table, conflictKey: string, data: any) {

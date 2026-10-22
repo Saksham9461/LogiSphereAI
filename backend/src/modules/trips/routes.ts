@@ -18,10 +18,10 @@ import { getDestinationWeather, validateCoordinates } from '../weather/weatherSe
 export const tripRouter = Router();
 
 // GET all trips (Filtered by organization and driver if authenticated as ROLE_DRIVER)
-tripRouter.get('/', requireOrgMembership(), async (req, res) => {
+tripRouter.get('/', optionalAuth, async (req, res) => {
   try {
-    const orgId = getTrustedOrgId(req);
-    const currentRole = normalizeRole(req.user?.role);
+    const orgId = req.user ? getTrustedOrgId(req) : null;
+    const currentRole = req.user ? normalizeRole(req.user?.role) : null;
     const currentUserId = req.user?.id || req.user?.userId;
 
     const filter: Record<string, any> = {};

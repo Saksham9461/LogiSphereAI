@@ -57,7 +57,7 @@ userRouter.post('/create', optionalAuth, async (req, res) => {
   let passwordToUse = req.body?.password;
   let tempPasswordGenerated: string | null = null;
 
-  if (role === 'ROLE_DRIVER' || !passwordToUse) {
+  if (!passwordToUse) {
     tempPasswordGenerated = generateTempPassword();
     passwordToUse = tempPasswordGenerated;
   }

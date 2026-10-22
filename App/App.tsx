@@ -11,6 +11,8 @@ import {navigationTheme} from './src/theme/navigationTheme';
 import {linking} from './src/navigation/linking';
 import {colors} from './src/theme/colors';
 import {sosSyncWorker} from './src/services/sosSyncWorker';
+import {navigationRef} from './src/navigation/navigationRef';
+import InAppChatNotificationBanner from './src/components/InAppChatNotificationBanner';
 
 export default function App() {
   const globalLoading = useGlobalLoading();
@@ -28,12 +30,14 @@ export default function App() {
     <SafeAreaProvider style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
       <NavigationContainer
+        ref={navigationRef}
         theme={navigationTheme}
         linking={linking as any}
         fallback={<SplashScreen />}
       >
         <RootNavigator />
         <Loader show={globalLoading} text="Please wait" />
+        <InAppChatNotificationBanner />
       </NavigationContainer>
     </SafeAreaProvider>
   );
