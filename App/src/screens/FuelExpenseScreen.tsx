@@ -613,8 +613,8 @@ export default function FuelExpenseScreen() {
                     style={styles.dropdownInput}
                     onPress={() => setShowDropdown({ visible: true, type: 'TRIP', target: 'EXPENSE' })}
                   >
-                    <Text style={styles.dropdownInputText}>
-                      {eTripDisplay || availableTrips.find((t) => t.tripID === eTripID)?.display || 'Select Trip'}
+                    <Text style={styles.dropdownInputText} numberOfLines={1}>
+                      {eTripID || 'Select Trip'}
                     </Text>
                     <ChevronDown size={16} color={colors.textMuted} />
                   </Pressable>
