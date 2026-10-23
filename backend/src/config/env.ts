@@ -35,7 +35,7 @@ const schema = z.object({
   GEMINI_CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().default(3),
   GEMINI_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().default(30000),
   GROQ_API_KEY: z.string().optional().default(''),
-  GROQ_MODEL: z.string().default('llama-3.3-70b-versatile'),
+  GROQ_MODEL: z.string().default('qwen/qwen3.8-27b'),
   CEREBRAS_API_KEY: z.string().optional().default(''),
   CEREBRAS_MODEL: z.string().default('llama3.1-8b'),
   AI_PROVIDER_TIMEOUT_MS: z.coerce.number().default(4000),

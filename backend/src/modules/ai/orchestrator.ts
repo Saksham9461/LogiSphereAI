@@ -76,7 +76,9 @@ export async function executeResilientAi<T>(options: ResilientAiOptions<T>): Pro
 
         return generated;
       } catch (err: any) {
-        console.warn(`[executeResilientAi] Gemini call error for "${options.feature}":`, err?.message || err);
+        // Log with full provider chain context — not just 'Gemini'
+        const providerHint = err?.provider ? `[${String(err.provider).toUpperCase()}]` : '[ALL PROVIDERS]';
+        console.warn(`\x1b[31m✖ [executeResilientAi]\x1b[0m ${providerHint} All AI calls failed for "${options.feature}": ${err?.message || err}. Returning deterministic fallback.`);
         aiMetrics.recordFallback();
         return options.getFallback();
       }

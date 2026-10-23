@@ -10,6 +10,7 @@ import { aiCache } from './cache';
 import { aiCircuitBreaker } from './circuitBreaker';
 import { singleFlight } from './singleFlight';
 import { aiProviderManager } from './providerManager';
+import { resolveCityCoords } from '../trips/delayPredictionService';
 
 export const aiRouter = Router();
 
@@ -1230,19 +1231,59 @@ aiRouter.post('/route-recommendation', authenticate, async (req: Request, res: R
     }
 
     // Determine Origin coordinates
-    const originLat =
-      currentLatitude !== undefined && !isNaN(Number(currentLatitude))
-        ? Number(currentLatitude)
-        : Number(trip.sourceLatitude ?? trip.sourcelatitude ?? 23.2156);
+    // Priority: 1. currentLatitude/Longitude from request body (live GPS)
+    //           2. sourceLatitude/Longitude stored in trip DB row
+    //           3. Geocode source city name via resolveCityCoords
+    //           4. Hard fallback to Gandhinagar (office coords)
+    let originLat: number;
+    let originLng: number;
 
-    const originLng =
-      currentLongitude !== undefined && !isNaN(Number(currentLongitude))
-        ? Number(currentLongitude)
-        : Number(trip.sourceLongitude ?? trip.sourcelongitude ?? 72.6369);
+    if (currentLatitude !== undefined && !isNaN(Number(currentLatitude))) {
+      originLat = Number(currentLatitude);
+      originLng = Number(currentLongitude);
+    } else {
+      const dbSourceLat = trip.sourceLatitude ?? trip.sourcelatitude;
+      const dbSourceLng = trip.sourceLongitude ?? trip.sourcelongitude;
+      if (dbSourceLat !== undefined && dbSourceLat !== null && !isNaN(Number(dbSourceLat))) {
+        originLat = Number(dbSourceLat);
+        originLng = Number(dbSourceLng);
+      } else {
+        // Geocode from source text (e.g. "Gandhinagar, Gujarat")
+        const geocodedSource = resolveCityCoords(trip.source || '');
+        originLat = geocodedSource?.lat ?? 23.2156; // Gandhinagar default
+        originLng = geocodedSource?.lng ?? 72.6369;
+        if (geocodedSource) {
+          console.log(`[routeIntelligence] Geocoded source "${trip.source}" → (${originLat}, ${originLng})`);
+        } else {
+          console.warn(`[routeIntelligence] No coords for source "${trip.source}", using office default.`);
+        }
+      }
+    }
 
     // Determine Destination coordinates
-    const destLat = Number(trip.destinationLatitude ?? trip.destinationlatitude ?? 23.0225);
-    const destLng = Number(trip.destinationLongitude ?? trip.destinationlongitude ?? 72.5714);
+    // Priority: 1. destinationLatitude/Longitude from trip DB row
+    //           2. Geocode destination city name
+    //           3. Hard fallback to Ahmedabad
+    let destLat: number;
+    let destLng: number;
+
+    const dbDestLat = trip.destinationLatitude ?? trip.destinationlatitude;
+    const dbDestLng = trip.destinationLongitude ?? trip.destinationlongitude;
+    if (dbDestLat !== undefined && dbDestLat !== null && !isNaN(Number(dbDestLat))) {
+      destLat = Number(dbDestLat);
+      destLng = Number(dbDestLng);
+    } else {
+      const geocodedDest = resolveCityCoords(trip.destination || '');
+      destLat = geocodedDest?.lat ?? 23.0225; // Ahmedabad default
+      destLng = geocodedDest?.lng ?? 72.5714;
+      if (geocodedDest) {
+        console.log(`[routeIntelligence] Geocoded destination "${trip.destination}" → (${destLat}, ${destLng})`);
+      } else {
+        console.warn(`[routeIntelligence] No coords for destination "${trip.destination}", using Ahmedabad default.`);
+      }
+    }
+
+    console.log(`[routeIntelligence] Trip ${tripID} | Origin: (${originLat}, ${originLng}) | Dest: (${destLat}, ${destLng})`);
 
     let routes: NormalizedRoute[] = [];
     const routesApiKey = env.GOOGLE_ROUTES_API_KEY || env.GOOGLE_MAPS_API_KEY;

@@ -176,18 +176,96 @@ export default function TripDispatcherScreen() {
   const [vehicleId, setVehicleId] = useState('');
   const [driverId, setDriverId] = useState('');
   const [cargoWeight, setCargoWeight] = useState('700');
-  const [plannedDistance, setPlannedDistance] = useState('38');
+  const [plannedDistance, setPlannedDistance] = useState('0');
 
-  // Location Autocomplete State
-  const [pickupInput, setPickupInput] = useState('Gandhinagar Depot, Gandhinagar, Gujarat');
-  const [pickupLocation, setPickupLocation] = useState<LocationResult | null>(PRESET_LOCATIONS[0]);
+  // Location Autocomplete State - Initially empty so planned distance stays 0 until entered
+  const [pickupInput, setPickupInput] = useState('');
+  const [pickupLocation, setPickupLocation] = useState<LocationResult | null>(null);
   const [pickupSuggestions, setPickupSuggestions] = useState<LocationResult[]>([]);
   const [pickupSearching, setPickupSearching] = useState(false);
 
-  const [dropInput, setDropInput] = useState('Ahmedabad Hub, Ahmedabad, Gujarat');
-  const [dropLocation, setDropLocation] = useState<LocationResult | null>(PRESET_LOCATIONS[1]);
+  const [dropInput, setDropInput] = useState('');
+  const [dropLocation, setDropLocation] = useState<LocationResult | null>(null);
   const [dropSuggestions, setDropSuggestions] = useState<LocationResult[]>([]);
   const [dropSearching, setDropSearching] = useState(false);
+
+  // ─── Haversine distance auto-calc ────────────────────────────────────────────
+  const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+
+  const KNOWN_CITIES: Record<string, { lat: number; lng: number }> = {
+    gandhinagar: { lat: 23.2156, lng: 72.6369 },
+    ahmedabad: { lat: 23.0225, lng: 72.5714 },
+    surat: { lat: 21.1702, lng: 72.8311 },
+    mumbai: { lat: 19.033, lng: 73.0297 },
+    pune: { lat: 18.5204, lng: 73.8567 },
+    jaipur: { lat: 26.9124, lng: 75.7873 },
+    jodhpur: { lat: 26.2389, lng: 73.0243 },
+    delhi: { lat: 28.6139, lng: 77.209 },
+    vadodara: { lat: 22.3072, lng: 73.1812 },
+    rajkot: { lat: 22.3039, lng: 70.8022 },
+    bengaluru: { lat: 12.9716, lng: 77.5946 },
+    bangalore: { lat: 12.9716, lng: 77.5946 },
+    chennai: { lat: 13.0827, lng: 80.2707 },
+    hyderabad: { lat: 17.385, lng: 78.4867 },
+    kolkata: { lat: 22.5726, lng: 88.3639 },
+  };
+
+  const resolveCoords = (
+    loc: LocationResult | null,
+    text: string
+  ): { lat: number; lng: number } | null => {
+    if (loc && loc.latitude != null && loc.longitude != null) {
+      return { lat: loc.latitude, lng: loc.longitude };
+    }
+    const clean = text.trim().toLowerCase();
+    if (!clean) return null;
+    for (const [name, coords] of Object.entries(KNOWN_CITIES)) {
+      if (clean.includes(name)) return coords;
+    }
+    const matchPreset = PRESET_LOCATIONS.find(
+      (p) =>
+        p.address.toLowerCase().includes(clean) ||
+        clean.includes(p.mainText?.toLowerCase() || '') ||
+        clean.includes(p.secondaryText?.toLowerCase() || '')
+    );
+    if (matchPreset) {
+      return { lat: matchPreset.latitude, lng: matchPreset.longitude };
+    }
+    return null;
+  };
+
+  // Auto-calculate average planned distance whenever user types in or selects source and destination
+  useEffect(() => {
+    // If either input is empty, planned distance remains 0
+    if (!pickupInput.trim() || !dropInput.trim()) {
+      setPlannedDistance('0');
+      return;
+    }
+
+    const start = resolveCoords(pickupLocation, pickupInput);
+    const end = resolveCoords(dropLocation, dropInput);
+
+    if (start && end) {
+      const straightLineKm = haversineKm(start.lat, start.lng, end.lat, end.lng);
+      // Realistic road network factor (~1.3× straight line)
+      const roadKm = Math.round(straightLineKm * 1.3);
+      setPlannedDistance(String(roadKm > 0 ? roadKm : 1));
+    } else {
+      setPlannedDistance('0');
+    }
+  }, [pickupLocation, dropLocation, pickupInput, dropInput]);
+  // ─────────────────────────────────────────────────────────────────────────────
 
   // Dropdowns
   const [showVehicleDropdown, setShowVehicleDropdown] = useState(false);
@@ -531,42 +609,79 @@ export default function TripDispatcherScreen() {
   }, [trips, isDriver, user, activeTab, search, normalizedVehicles, normalizedDrivers]);
 
   const resetForm = () => {
-    setPickupInput(PRESET_LOCATIONS[0].address);
-    setPickupLocation(PRESET_LOCATIONS[0]);
+    setPickupInput('');
+    setPickupLocation(null);
     setPickupSuggestions([]);
 
-    setDropInput(PRESET_LOCATIONS[1].address);
-    setDropLocation(PRESET_LOCATIONS[1]);
+    setDropInput('');
+    setDropLocation(null);
     setDropSuggestions([]);
 
     setVehicleId(availableVehicles[0] ? availableVehicles[0].vehicleID : '');
     setDriverId(availableDrivers[0] ? availableDrivers[0].driverID : '');
     setCargoWeight('700');
-    setPlannedDistance('38');
+    setPlannedDistance('0');
+  };
+
+  const handleOpenAddModal = () => {
+    resetForm();
+    setShowAddModal(true);
+  };
+
+  const handleCloseAddModal = () => {
+    setShowAddModal(false);
+    resetForm();
   };
 
   const handleCreateTrip = async () => {
-    if (!pickupLocation) {
-      Alert.alert('Location Required', 'Please select a pickup location from the search suggestions.');
+    // Resolve location objects if user typed a recognized city/hub without picking from dropdown
+    let effectivePickup = pickupLocation;
+    if (!effectivePickup && pickupInput.trim()) {
+      const resolved = resolveCoords(null, pickupInput);
+      if (resolved) {
+        effectivePickup = {
+          address: pickupInput.trim(),
+          latitude: resolved.lat,
+          longitude: resolved.lng,
+          placeId: `custom-src-${Date.now()}`,
+        };
+      }
+    }
+
+    let effectiveDrop = dropLocation;
+    if (!effectiveDrop && dropInput.trim()) {
+      const resolved = resolveCoords(null, dropInput);
+      if (resolved) {
+        effectiveDrop = {
+          address: dropInput.trim(),
+          latitude: resolved.lat,
+          longitude: resolved.lng,
+          placeId: `custom-dest-${Date.now()}`,
+        };
+      }
+    }
+
+    if (!effectivePickup) {
+      Alert.alert('Location Required', 'Please enter and select a pickup location from the suggestions.');
       return;
     }
-    if (!dropLocation) {
-      Alert.alert('Location Required', 'Please select a drop location from the search suggestions.');
+    if (!effectiveDrop) {
+      Alert.alert('Location Required', 'Please enter and select a drop location from the suggestions.');
       return;
     }
     if (!canDispatch) return;
     setSubmitting(true);
 
     const payload = {
-      source: pickupLocation.address,
-      sourceLatitude: pickupLocation.latitude,
-      sourceLongitude: pickupLocation.longitude,
-      sourcePlaceId: pickupLocation.placeId,
+      source: effectivePickup.address,
+      sourceLatitude: effectivePickup.latitude,
+      sourceLongitude: effectivePickup.longitude,
+      sourcePlaceId: effectivePickup.placeId,
 
-      destination: dropLocation.address,
-      destinationLatitude: dropLocation.latitude,
-      destinationLongitude: dropLocation.longitude,
-      destinationPlaceId: dropLocation.placeId,
+      destination: effectiveDrop.address,
+      destinationLatitude: effectiveDrop.latitude,
+      destinationLongitude: effectiveDrop.longitude,
+      destinationPlaceId: effectiveDrop.placeId,
 
       vehicleID: selectedVehicle.vehicleID,
       driverID: selectedDriver.driverID,
@@ -770,7 +885,7 @@ export default function TripDispatcherScreen() {
 
             {/* CREATE TRIP (MANAGER & DISPATCHER) */}
             {canCreateTrip && (
-              <Pressable style={styles.addButton} onPress={() => setShowAddModal(true)}>
+              <Pressable style={styles.addButton} onPress={handleOpenAddModal}>
                 <Plus size={16} color="#1a1200" strokeWidth={2.5} />
                 <Text style={styles.addButtonText}>Add Trip</Text>
               </Pressable>
@@ -1310,16 +1425,16 @@ export default function TripDispatcherScreen() {
       </Modal>
 
       {/* ADD TRIP MODAL WITH LOCATION AUTOCOMPLETE */}
-      <Modal visible={showAddModal} transparent={true} animationType="slide" onRequestClose={() => setShowAddModal(false)}>
+      <Modal visible={showAddModal} transparent={true} animationType="slide" onRequestClose={handleCloseAddModal}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.bottomSheetOverlay}>
-          <Pressable style={{ flex: 1 }} onPress={() => setShowAddModal(false)} />
+          <Pressable style={{ flex: 1 }} onPress={handleCloseAddModal} />
           <View style={styles.bottomSheet}>
             <View style={styles.bottomSheetHeader}>
               <View>
                 <Text style={styles.bottomSheetTitle}>Create Trip</Text>
                 <Text style={styles.bottomSheetSubtitle}>Search pickup/drop locations for GPS navigation</Text>
               </View>
-              <Pressable onPress={() => setShowAddModal(false)}>
+              <Pressable onPress={handleCloseAddModal}>
                 <X size={24} color={colors.textMuted} />
               </Pressable>
             </View>
@@ -1475,8 +1590,20 @@ export default function TripDispatcherScreen() {
                   <TextInput style={[styles.formInput, overCapacity && { borderColor: colors.rose, borderWidth: 1 }]} value={cargoWeight} onChangeText={setCargoWeight} placeholder="0" placeholderTextColor={colors.textMuted} keyboardType="numeric" />
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Planned Distance (km)</Text>
-                  <TextInput style={styles.formInput} value={plannedDistance} onChangeText={setPlannedDistance} placeholder="0" placeholderTextColor={colors.textMuted} keyboardType="numeric" />
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={styles.formLabel}>Planned Distance (km)</Text>
+                    {Number(plannedDistance) > 0 && (
+                      <Text style={{ fontSize: rf(10), color: colors.green, fontWeight: '500' }}>⚡ Avg Calc</Text>
+                    )}
+                  </View>
+                  <TextInput
+                    style={styles.formInput}
+                    value={plannedDistance}
+                    onChangeText={setPlannedDistance}
+                    placeholder="0"
+                    placeholderTextColor={colors.textMuted}
+                    keyboardType="numeric"
+                  />
                 </View>
               </View>
 
@@ -1500,7 +1627,7 @@ export default function TripDispatcherScreen() {
             </ScrollView>
 
             <View style={styles.bottomSheetFooter}>
-              <Pressable style={styles.cancelBtn} onPress={() => setShowAddModal(false)}>
+              <Pressable style={styles.cancelBtn} onPress={handleCloseAddModal}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
               </Pressable>
               <Pressable style={[styles.saveBtn, !canDispatch && { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]} onPress={handleCreateTrip} disabled={!canDispatch}>

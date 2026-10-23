@@ -184,6 +184,17 @@ export function normalizeDbRow(table: Table, row: any): any {
     const createdAt = row.createdAt || row.createdat || row.created_at;
     const updatedAt = row.updatedAt || row.updatedat || row.updated_at;
 
+    // Coordinate normalization: resolve both camelCase and lowercase aliases
+    const rawSourceLat = row.sourceLatitude ?? row.sourcelatitude ?? row.sourcelat;
+    const rawSourceLng = row.sourceLongitude ?? row.sourcelongitude ?? row.sourcelng;
+    const rawDestLat = row.destinationLatitude ?? row.destinationlatitude ?? row.destlat;
+    const rawDestLng = row.destinationLongitude ?? row.destinationlongitude ?? row.destlng;
+
+    const sourceLatitude = rawSourceLat !== undefined && rawSourceLat !== null ? Number(rawSourceLat) : undefined;
+    const sourceLongitude = rawSourceLng !== undefined && rawSourceLng !== null ? Number(rawSourceLng) : undefined;
+    const destinationLatitude = rawDestLat !== undefined && rawDestLat !== null ? Number(rawDestLat) : undefined;
+    const destinationLongitude = rawDestLng !== undefined && rawDestLng !== null ? Number(rawDestLng) : undefined;
+
     return {
       ...row,
       id: tripID,
@@ -203,6 +214,15 @@ export function normalizeDbRow(table: Table, row: any): any {
       finalodometer: finalOdometer !== undefined ? Number(finalOdometer) : undefined,
       fuelConsumed: fuelConsumed !== undefined ? Number(fuelConsumed) : undefined,
       fuelconsumed: fuelConsumed !== undefined ? Number(fuelConsumed) : undefined,
+      // Coordinate aliases (both casing variants)
+      sourceLatitude,
+      sourcelatitude: sourceLatitude,
+      sourceLongitude,
+      sourcelongitude: sourceLongitude,
+      destinationLatitude,
+      destinationlatitude: destinationLatitude,
+      destinationLongitude,
+      destinationlongitude: destinationLongitude,
       organization_id: orgId,
       organizationId: orgId,
       createdAt,

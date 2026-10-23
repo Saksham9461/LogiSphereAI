@@ -24,6 +24,21 @@ export class AIProviderManager {
     this.registerProvider(new GeminiProviderAdapter());
     this.registerProvider(new GroqProviderAdapter());
     this.registerProvider(new CerebrasProviderAdapter());
+
+    // Startup diagnostic: print which providers are configured
+    const configured = this.providerSequence.filter((name) => {
+      const adapter = this.providers.get(name);
+      return adapter && adapter.isConfigured();
+    });
+    const unconfigured = this.providerSequence.filter((name) => {
+      const adapter = this.providers.get(name);
+      return !adapter || !adapter.isConfigured();
+    });
+
+    console.log(
+      `\x1b[36m[AIProviderManager]\x1b[0m Initialized. Configured providers: \x1b[32m${configured.map(p => p.toUpperCase()).join(' → ') || 'NONE'}\x1b[0m` +
+      (unconfigured.length > 0 ? ` | \x1b[33mNo API key set for: ${unconfigured.map(p => p.toUpperCase()).join(', ')}\x1b[0m` : '')
+    );
   }
 
   registerProvider(adapter: IAiProviderAdapter): void {
