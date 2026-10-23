@@ -88,3 +88,10 @@ expenseRouter.post('/create', optionalAuth, async (req, res) => {
   const decorated = await decorate(created);
   res.status(201).json(decorated);
 });
+
+// GET /api/expenses/report/export-pdf - Alias to export fuel and expenses PDF
+expenseRouter.get('/report/export-pdf', (req, res) => {
+  const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(307, `/api/fuel/report/export-pdf${query}`);
+});
+

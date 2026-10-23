@@ -554,13 +554,25 @@ export const db = {
           ...(orgId ? { organization_id: orgId } : {}),
         };
         if (table === 'notifications') {
+          let notifOrgId = orgId;
+          if (!notifOrgId && (data.userId || data.userid)) {
+            const recipientUser = memory.users.find(
+              (u: any) => String(u.id || u.userID || u.userid || '').toLowerCase() === String(data.userId || data.userid).toLowerCase()
+            );
+            if (recipientUser && isUuid(recipientUser.organization_id || recipientUser.businessId || recipientUser.organizationId)) {
+              notifOrgId = recipientUser.organization_id || recipientUser.businessId || recipientUser.organizationId;
+            }
+          }
+          if (!notifOrgId && memory.organizations.length > 0) {
+            notifOrgId = memory.organizations[0].id;
+          }
           insertPayload = {
             id: data.id || `notif-${Date.now()}`,
             userid: data.userId || data.userid || null,
             title: data.title || 'Notification',
             body: data.body || data.message || '',
             read: Boolean(data.read),
-            ...(orgId ? { organization_id: orgId } : {}),
+            ...(notifOrgId ? { organization_id: notifOrgId } : {}),
           };
         } else if (table === 'maintenance_records') {
           insertPayload = {
@@ -592,9 +604,10 @@ export const db = {
             ...(orgId ? { organization_id: orgId } : {}),
           };
         } else if (table === 'vehicles') {
+          const regVal = data.registrationnumber || data.registrationNumber || data.reg;
           insertPayload = {
             vehicleid: data.vehicleID || data.vehicleid,
-            registrationNumber: data.registrationNumber || data.registrationnumber,
+            registrationnumber: regVal,
             name: data.name,
             type: String(data.type).toUpperCase(),
             maxloadcapacity: Number(data.maxLoadCapacity ?? data.maxloadcapacity ?? data.capacity ?? 0),
@@ -954,6 +967,25 @@ export const db = {
           }
           if (patch.resolution_note !== undefined || patch.resolutionNote !== undefined) {
             cleanPatch.resolution_note = patch.resolution_note ?? patch.resolutionNote;
+          }
+          cleanPatch[timeField] = now();
+        } else if (table === 'vehicles') {
+          cleanPatch = {};
+          if (patch.registrationnumber !== undefined || patch.registrationNumber !== undefined || patch.reg !== undefined) {
+            cleanPatch.registrationnumber = patch.registrationnumber ?? patch.registrationNumber ?? patch.reg;
+          }
+          if (patch.name !== undefined) cleanPatch.name = patch.name;
+          if (patch.type !== undefined) cleanPatch.type = String(patch.type).toUpperCase();
+          if (patch.maxloadcapacity !== undefined || patch.maxLoadCapacity !== undefined || patch.capacity !== undefined) {
+            cleanPatch.maxloadcapacity = Number(patch.maxloadcapacity ?? patch.maxLoadCapacity ?? patch.capacity);
+          }
+          if (patch.odometer !== undefined) cleanPatch.odometer = Number(patch.odometer);
+          if (patch.acquisitioncost !== undefined || patch.acquisitionCost !== undefined || patch.cost !== undefined) {
+            cleanPatch.acquisitioncost = Number(patch.acquisitioncost ?? patch.acquisitionCost ?? patch.cost);
+          }
+          if (patch.status !== undefined) cleanPatch.status = patch.status;
+          if (patch.organization_id !== undefined || patch.organizationId !== undefined) {
+            cleanPatch.organization_id = patch.organization_id ?? patch.organizationId;
           }
           cleanPatch[timeField] = now();
         }

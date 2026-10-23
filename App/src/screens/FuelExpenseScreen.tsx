@@ -22,6 +22,7 @@ import {
   Banknote,
   AlertTriangle,
   RefreshCw,
+  FileDown,
 } from 'lucide-react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { rf } from '../theme/responsive';
@@ -66,8 +67,10 @@ export default function FuelExpenseScreen() {
     createExpense,
     loadingFuel,
     loadingExpenses,
+    fuelExporting,
     fuelError,
     expenseError,
+    exportPdf,
   } = useFuelExpenseStore();
 
   const { vehicles, getVehicles } = useVehicleStore();
@@ -76,6 +79,7 @@ export default function FuelExpenseScreen() {
   const { can } = usePermissions();
   const canCreateFuel = can(Permission.FUEL_CREATE);
   const canCreateExpense = can(Permission.EXPENSES_CREATE);
+  const canExport = can(Permission.FUEL_EXPORT) || can(Permission.EXPENSES_EXPORT);
 
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -307,6 +311,17 @@ export default function FuelExpenseScreen() {
     }
   };
 
+  const handleExportPdf = async () => {
+    const result = await exportPdf(search);
+    if (result.success) {
+      Alert.alert(
+        'Report Download',
+        result.message || 'Your PDF report is downloading to your device.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
   return (
     <View style={styles.screen}>
       <ScrollView
@@ -323,7 +338,26 @@ export default function FuelExpenseScreen() {
       >
         {/* HEADER */}
         <View style={styles.headerRow}>
-          <Text style={styles.pageTitle}>Fuel & Expenses</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.pageTitle}>Fuel & Expenses</Text>
+            <Text style={styles.pageSubtitle}>Audit fleet refueling & operating costs</Text>
+          </View>
+          {canExport && (
+            <Pressable
+              style={[styles.exportBtn, fuelExporting && styles.exportBtnDisabled]}
+              onPress={handleExportPdf}
+              disabled={fuelExporting}
+            >
+              {fuelExporting ? (
+                <ActivityIndicator color="#1a1200" size="small" />
+              ) : (
+                <>
+                  <FileDown size={16} color="#1a1200" strokeWidth={2.5} />
+                  <Text style={styles.exportBtnText}>Export PDF</Text>
+                </>
+              )}
+            </Pressable>
+          )}
         </View>
 
         {/* SEARCH */}
@@ -730,6 +764,24 @@ const styles = StyleSheet.create({
   container: { paddingHorizontal: rf(16), paddingTop: rf(24), paddingBottom: rf(100), flexGrow: 1 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: rf(20) },
   pageTitle: { color: colors.textPrimary, fontSize: rf(28), fontWeight: '800', letterSpacing: -1 },
+  pageSubtitle: { color: colors.textSecondary, fontSize: rf(13), marginTop: rf(2) },
+  exportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.amber,
+    paddingHorizontal: rf(14),
+    paddingVertical: rf(8),
+    borderRadius: rf(8),
+    gap: rf(6),
+  },
+  exportBtnDisabled: {
+    opacity: 0.6,
+  },
+  exportBtnText: {
+    color: '#1a1200',
+    fontSize: rf(14),
+    fontWeight: '700',
+  },
 
   searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: rf(12), paddingHorizontal: rf(16), height: rf(52), marginBottom: rf(16), gap: rf(10) },
   searchInput: { flex: 1, color: colors.textPrimary, fontSize: rf(15), height: '100%' },

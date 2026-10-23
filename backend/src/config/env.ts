@@ -30,7 +30,7 @@ const schema = z.object({
   GOOGLE_ROUTES_API_KEY: z.string().optional().default(''),
   GEMINI_API_KEY: z.string().optional().default(''),
   GEMINI_MODEL: z.string().default('gemini-3.8-flash'),
-  GEMINI_TIMEOUT_MS: z.coerce.number().default(5000),
+  GEMINI_TIMEOUT_MS: z.coerce.number().default(15000),
   GEMINI_MAX_RETRIES: z.coerce.number().default(2),
   GEMINI_CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().default(3),
   GEMINI_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().default(30000),

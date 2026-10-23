@@ -15,13 +15,10 @@ This document provides a complete, authoritative, and verified architectural ref
 - **Attendance & Geofencing**: Configurable organization geofence radius (50m–5000m, default 200m; Migration 010), automated end-of-day clock-out reconciliation daemon (11:59 PM in configured business timezone), daily worked-duration calculation, and executive-grade PDF report exports.
 - **Active Trip Geofence Attendance Exception**: Reason-capture exception allowing drivers outside their organization geofence to clock in or clock out if and only if they have an active operational trip assigned to them (Migration 012). Non-drivers and drivers without active trips remain strictly geofenced.
 - **AI Carbon Intelligence & Sustainability**: Complete emissions tracking engine adhering to EPA, DEFRA, and GHG protocols across Diesel, Petrol, CNG, and Electric fleets. Features real vs. estimated fuel calculations, periodic carbon target budgets (`sustainability_targets`; Migration 011), fleet efficiency rankings, eco-route comparisons, and Gemini AI Carbon Advisor insights with 100% deterministic fallback.
-- **Real-Time Messaging**: 1-on-1 driver-to-manager communications powered by native WebSockets (`/ws/chat`), delivery & read receipts, unread count badges, and an automated 24-hour message retention cleanup daemon.
-- **Live GPS Fleet Tracking**: Background & foreground GPS telemetry ingested from active drivers (~45–60s target), atomic single-row upsert in `tracking_locations`, WebSocket broadcasts (`/ws/tracking`), freshness classification (`LIVE`, `UPDATING`, `STALE`, `NO_SIGNAL`), and MapLibre vector maps.
-- **AI Fleet Intelligence Assistant**: Conversational Fleet Intelligence Assistant (`/api/ai/query` & `/api/ai/assistant`) with strict RBAC segregation between Managers and Drivers, deterministic KPI calculation, bounded cards, deep-link actions to tracking maps, and resilient LLM enrichment.
-- **Predictive Delay Intelligence & ETA Insights**: Deterministic delay prediction engine (`/api/trip/:tripId/delay-insights`) analyzing elapsed time, planned duration, GPS location, and stop duration with optional AI operational explanations.
-- **Predictive Maintenance Forecasting**: 90-day maintenance cost projections (`/api/analytics/maintenance-forecast`), vehicle risk classification (`HIGH`, `MEDIUM`, `LOW`), historical monthly trends, and budget advisories.
-- **Smart Fuel Anomaly & Efficiency Intelligence**: Deterministic multi-vector fuel anomaly detection (`/api/analytics/fuel-anomalies`) flagging consumption drops (>30% below vehicle baseline), tank overflows (>15% over nominal capacity), pricing spikes (>30% over regional baseline), and rapid consecutive refuels, enriched with resilient Gemini AI explanations.
-- **Maintenance & Expense Tracking**: Preventive servicing, repair logs, refueling entries, toll/operational expense bookkeeping, and cost efficiency analytics.
+- **Trip Destination Weather Intelligence & Advisory**: Meteorological integration (`/api/weather/destination`) delivering real-time ambient temperature, humidity, visibility, wind, condition categories, severe weather alerts, and deterministic operational dispatch advisories. Backed by process-local request coalescing, negative caching, and a 10-minute fresh / 24-hour stale cache fallback, along with mobile persistent client-side caching.
+- **In-App Real-Time Messaging & Notifications**: 1-on-1 driver-to-manager communications powered by native WebSockets (`/ws/chat`), delivery & read receipts, unread count badges, an automated 24-hour message retention cleanup daemon, and an animated cross-screen `InAppChatNotificationBanner` with instant one-tap deep navigation to chat conversations.
+- **Balanced Physical Device Geolocation & Attendance**: Resilient geolocation provider requesting fine and coarse location permissions, using balanced accuracy with safety fallbacks to prevent GPS timeouts on physical hardware, integrated with configurable geofencing and active trip exceptions.
+- **Full Schema Reconciliation & Persistent Data Resilience**: Complete multi-tenant relational persistence (Migration 013) ensuring `organization_id` foreign keys, performance indexes, and authoritative backfilling across all operational tables for zero data loss across process restarts.
 - **Safety & Emergency SOS**: Panic SOS trigger in mobile navigation bar and dedicated `/api/sos` & `/api/alerts` router for instant emergency notification, GPS broadcast, and audit logging.
 - **Multi-Organization SaaS Architecture**: Multi-tenant database foundation (`organizations`, `organization_memberships`, `platform_admins`), public web registration (`#/register`), minimal admin approval portal (`#/admin`), and server-side tenant isolation.
 
@@ -32,12 +29,12 @@ This document provides a complete, authoritative, and verified architectural ref
 ### Mobile Frontend (`/App`)
 - **Framework**: React Native 0.86.0 (React 19.2.3) bootstrapped via `@react-native-community/cli`.
 - **Language**: TypeScript 5.8.3 (`npx tsc --noEmit` clean with 0 errors).
-- **Navigation**: React Navigation v7 (`@react-navigation/native` `^7.3.14`, `@react-navigation/native-stack` `^7.18.6`, `@react-navigation/drawer` `^7.13.5`, `@react-navigation/bottom-tabs` `^7.18.14`).
+- **Navigation**: React Navigation v7 (`@react-navigation/native` `^7.3.14`, `@react-navigation/native-stack` `^7.18.6`, `@react-navigation/drawer` `^7.13.5`, `@react-navigation/bottom-tabs` `^7.18.14`), featuring persistent root `navigationRef` for programmatic navigation.
 - **Screens**: 19 screen views (including `CarbonIntelligenceScreen.tsx`, `TripDispatcherScreen.tsx`, `LiveTrackingScreen.tsx`).
 - **State Management**: Zustand v5.0.14 across 14 dedicated domain stores (`AuthStore`, `TrackingStore`, `ChatStore`, `AttendanceStore`, `TripStore`, `VehicleStore`, `DriverStore`, `MaintenanceStore`, `FuelExpenseStore`, `CarbonStore`, `AnalyticsStore`, `DashboardStore`, `NotificationStore`, `AlertStore`).
-- **Local Storage**: `@react-native-async-storage/async-storage` v3.1.1 (session tokens, Remember Me preference, user metadata).
+- **Local Storage**: `@react-native-async-storage/async-storage` v3.1.1 (session tokens, Remember Me preference, user metadata, destination weather cache).
 - **Styling & UI**: Custom Vanilla React Native StyleSheet, `lucide-react-native` v1.27.0, `react-native-svg` v15.15.5, `react-native-reanimated` v4.5.3, `react-native-safe-area-context` v5.8.0, and `react-native-screens` v4.26.2.
-- **Maps & Geolocation**: `@maplibre/maplibre-react-native` v11.3.6, `@react-native-community/geolocation` v3.4.0, and MapTiler vector tiles.
+- **Maps & Geolocation**: `@maplibre/maplibre-react-native` v11.3.6, `@react-native-community/geolocation` v3.4.0 (balanced physical device accuracy + cached fallback), and MapTiler vector tiles.
 - **HTTP & Real-Time**: Axios v1.18.1 (with Bearer token request/response interceptors) and native React Native `WebSocket`.
 - **Speech Recognition**: `@react-native-voice/voice` v3.2.4 wrapped in `NativeSpeechService` with Android `RECORD_AUDIO` permission handling and manual correction fallbacks.
 - **Image Capture & OCR**: `react-native-image-picker` v8.2.1 (mock endpoint testbed; Regula reader abandoned; production OCR pending).
@@ -45,7 +42,7 @@ This document provides a complete, authoritative, and verified architectural ref
 ### Backend (`/backend`)
 - **Runtime & Framework**: Node.js (>=20.x / 22.x), Express 4.21.0.
 - **Language & Execution**: TypeScript 5.6.2 executed in dev via `tsx watch src/server.ts` or compiled via `tsc -p tsconfig.build.json`.
-- **Core Domain Modules**: Vehicles, Drivers, Trips, Tracking, Attendance & Geofencing, Carbon Intelligence & Sustainability, Analytics, Fuel, Expenses, Maintenance, Chat & WebSockets, Emergency SOS, Organizations & Multi-Tenancy, Platform Admin.
+- **Core Domain Modules**: Vehicles, Drivers, Trips, Tracking, Attendance & Geofencing, Destination Weather, Carbon Intelligence & Sustainability, Analytics, Fuel, Expenses, Maintenance, Chat & WebSockets, Emergency SOS, Organizations & Multi-Tenancy, Platform Admin.
 - **Real-Time & WebSockets**: Native `ws` v8.18.0 WebSocketServer attached to the Node HTTP server handling `/ws/chat`, `/ws/tracking`, and `/ws/alerts`.
 - **Database Layer**: Dual-mode database layer in `backend/src/config/database.ts`:
   - **Supabase Integration**: `@supabase/supabase-js` v2.45.4 REST API client when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are provided. Supports realtime publication replication.
@@ -54,11 +51,12 @@ This document provides a complete, authoritative, and verified architectural ref
 - **Reporting & PDF Generation**: `pdfkit` v0.15.0 for binary executive A4 attendance report generation.
 - **AI & External APIs**:
   - Google Gemini API (`models/gemini-3.8-flash`) via direct REST endpoint (`https://generativelanguage.googleapis.com/v1beta/models/...`). Single key configuration in `GEMINI_API_KEY`/`AI_API_KEY` with circuit breaker and quota classification; multiple-key rotation is planned/pending.
+  - OpenWeatherMap API (`https://api.openweathermap.org/data/2.5/weather`) for destination weather intelligence with mock injection for automated tests.
   - Google Routes API (`computeRoutes`).
   - Google Places API (New) for location autocomplete.
   - MapTiler geocoding.
 - **File Uploads & Validation**: `multer` v2.4.0 (multipart document handling for OCR), `zod` v3.23.8 (environment validation).
-- **Testing**: `vitest` v2.1.9 and `supertest` v7.0.0 (26 automated integration test suites).
+- **Testing**: `vitest` v2.1.9 and `supertest` v7.0.0 (29 automated backend integration test suites + Jest mobile test suites).
 
 ### Web Portal (`/web`)
 - **Framework & Runtime**: React 19 bootstrapped with Vite 8 (`logisphere-ai-web`).
@@ -87,9 +85,11 @@ Minor/
 │   │   ├── assets/               # Application logo and static image assets
 │   │   ├── components/           # Shared & feature UI components
 │   │   │   ├── AttendanceHistory.tsx
-│   │   │   ├── ClockInWidget.tsx
+│   │   │   ├── ClockInWidget.tsx # Resilient physical location & geofence exception modal
+│   │   │   ├── DestinationWeatherModal.tsx # Glassmorphic destination weather & operational advisory modal
 │   │   │   ├── EmergencyAlertBanner.tsx
 │   │   │   ├── FleetMap.tsx      # Vector map with vehicle callsign markers & route rendering
+│   │   │   ├── InAppChatNotificationBanner.tsx # Animated foreground chat message notification banner
 │   │   │   ├── LiveMap.tsx
 │   │   │   ├── MapPreview.tsx
 │   │   │   ├── RoleSelector.tsx
@@ -97,14 +97,15 @@ Minor/
 │   │   │   ├── TripDelayInsightsModal.tsx # Interactive AI delay explanation modal
 │   │   │   └── ...
 │   │   ├── config/               # Frontend environment settings (MapTiler API key, Supabase keys)
-│   │   ├── constants/            # Role mappings and navigation constants
+│   │   ├── constants/            # Role mappings, canonical roles and navigation constants
 │   │   ├── data/                 # Seed vehicles and mock data fallbacks
-│   │   ├── hooks/                # Custom React hooks (e.g. useGlobalLoading)
+│   │   ├── hooks/                # Custom React hooks (e.g. useGlobalLoading, usePermissions)
 │   │   ├── navigation/           # React Navigation setup
 │   │   │   ├── AuthNavigator.tsx # Unauthenticated stack (Login, Signup, ResetPassword)
-│   │   │   ├── CustomTabBar.tsx  # Animated tab bar with expanded 3x3 grid menu & unread badges
+│   │   │   ├── CustomTabBar.tsx  # Animated tab bar with expanded 3x3 grid menu, RBAC filtering & unread badges
 │   │   │   ├── MainDrawerNavigator.tsx
 │   │   │   ├── MainTabsNavigator.tsx
+│   │   │   ├── navigationRef.ts  # Root navigation container ref for cross-screen programmatic navigation
 │   │   │   ├── RootNavigator.tsx # Session hydration, Splash state, and Auth guard routing
 │   │   │   └── linking.ts        # Deep linking configuration (transitops://)
 │   │   ├── screens/              # 19 Screen views
@@ -125,13 +126,13 @@ Minor/
 │   │   │   ├── SettingsScreen.tsx
 │   │   │   ├── SignupScreen.tsx
 │   │   │   ├── SplashScreen.tsx
-│   │   │   ├── TripDispatcherScreen.tsx # Trip dispatch + Delay Insights integration
+│   │   │   ├── TripDispatcherScreen.tsx # Trip dispatch, Destination Weather & Delay Insights
 │   │   │   └── VehicleRegistryScreen.tsx
 │   │   ├── services/             # Client services
 │   │   │   ├── attendanceService.ts # Geofence exception support & active trip validation
 │   │   │   ├── fleetAiService.ts # Live AI assistant queries & context management
 │   │   │   ├── geofenceService.ts
-│   │   │   ├── locationService.ts
+│   │   │   ├── locationService.ts # Balanced accuracy physical device location provider
 │   │   │   ├── sosService.ts
 │   │   │   ├── speech/           # Native speech recognition service (NativeSpeechService)
 │   │   │   ├── storage/          # AsyncStorage token wrapper (tokenStorage.ts)
@@ -143,7 +144,7 @@ Minor/
 │   │   │   ├── AttendanceStore.ts # Geofence radius, active trip exceptions, and reporting
 │   │   │   ├── AuthStore.ts
 │   │   │   ├── CarbonStore.ts    # Carbon Intelligence, emissions KPIs, targets, and advisor
-│   │   │   ├── ChatStore.ts
+│   │   │   ├── ChatStore.ts      # Real-time chat, active in-app notification banner state
 │   │   │   ├── DashboardStore.ts
 │   │   │   ├── DriverStore.ts
 │   │   │   ├── FuelExpenseStore.ts
@@ -154,20 +155,25 @@ Minor/
 │   │   │   └── VehicleStore.ts
 │   │   ├── theme/                # Global color palette, typography & responsiveness
 │   │   ├── types/                # TypeScript interfaces (driverVoice.ts, etc.)
-│   │   └── utils/                # Distance utils, JWT decoder, voice normalizer
-│   ├── App.tsx                   # Main React Native application root
+│   │   └── utils/                # Distance utils, JWT decoder, voice normalizer, weatherCache.ts, rbac.ts
+│   ├── __tests__/                # Mobile test suites
+│   │   ├── destinationWeatherMobile.test.ts # Destination weather modal and client caching
+│   │   ├── locationAndAttendanceBalanced.test.ts # Balanced location acquisition & geofence verification
+│   │   └── ...
+│   ├── App.tsx                   # Main React Native application root with global InAppChatNotificationBanner
 │   ├── index.js                  # Entry point registering App component
 │   └── package.json
 │
 └── backend/                      # Express TypeScript Backend Service
     ├── src/
     │   ├── config/               # Database fallback abstraction, env schema & Supabase setup
-    │   │   ├── database.ts       # Unified 18-table DB abstraction with atomic upsert & memory fallback
-    │   │   ├── env.ts            # Zod environment schema & validation (default GEMINI_MODEL=gemini-3.8-flash)
+    │   │   ├── database.ts       # Unified 18-table DB abstraction with persistent relational schema reconciliation
+    │   │   ├── env.ts            # Zod environment schema & validation (default GEMINI_MODEL=gemini-3.8-flash, OPENWEATHER)
+    │   │   ├── permissions.ts    # Single source of truth for canonical roles and permissions
     │   │   └── supabase.ts       # Supabase client initialization
     │   ├── middleware/           # Express authentication & authorization middleware
-    │   │   └── auth.ts           # JWT verify and role authorization middleware
-    │   ├── modules/              # 17 Domain feature modules
+    │   │   └── auth.ts           # JWT verify and role authorization middleware (requireOrgPermission, requireOrgMembership)
+    │   ├── modules/              # 18 Domain feature modules
     │   │   ├── admin/            # Platform admin login, approval workflow & governance
     │   │   ├── ai/               # AI Fleet Assistant, intent routing, and resilient AI core
     │   │   │   ├── cache.ts          # Centralized in-memory TTL caching with feature TTLs
@@ -204,12 +210,19 @@ Minor/
     │   │   │   ├── delayPredictionService.ts # Deterministic delay prediction engine
     │   │   │   └── routes.ts         # Trip endpoints including /api/trip/:tripId/delay-insights
     │   │   ├── users/            # User/driver management and profile CRUD
-    │   │   └── vehicles/         # Vehicle registry management and status transitions
+    │   │   ├── vehicles/         # Vehicle registry management and status transitions
+    │   │   └── weather/          # Trip Destination Weather Intelligence & Dispatch Advisory
+    │   │       ├── routes.ts         # /api/weather/destination endpoint with trip RBAC validation
+    │   │       ├── weatherAdvisory.ts# Deterministic meteorological dispatch advisory engine
+    │   │       ├── weatherCache.ts   # Request coalescing, 10m fresh / 24h stale fallback cache
+    │   │       ├── weatherService.ts # OpenWeatherMap fetcher with mockable HTTP interface
+    │   │       └── weatherTypes.ts    # Normalized weather schemas and condition categories
     │   ├── utils/                # HTTP response helpers, distance calculations, ID generators
     │   ├── app.ts                # Express app initialization, middleware pipeline, and route mounting
     │   └── server.ts             # HTTP server entry point (bound to 0.0.0.0:5001), WebSockets, and cron jobs
     ├── supabase/
-    │   ├── migrations/           # 13 PostgreSQL schema migrations
+    │   ├── clean_dev_reset.sql   # Complete dev database reset and seed script
+    │   ├── migrations/           # 14 PostgreSQL schema migrations
     │   │   ├── 001_initial_schema.sql
     │   │   ├── 002_add_must_change_password.sql
     │   │   ├── 003_enable_realtime.sql
@@ -222,9 +235,10 @@ Minor/
     │   │   ├── 009_safe_data_migration_and_rls.sql        # Default org backfill, FKs, triggers, and tenant RLS
     │   │   ├── 010_add_geofence_radius_to_organizations.sql # Configurable organization geofence radius
     │   │   ├── 011_create_sustainability_targets.sql     # Sustainability target budgets table & RLS
-    │   │   └── 012_add_geofence_exception_to_attendance.sql # Geofence exception columns for active trips
+    │   │   ├── 012_add_geofence_exception_to_attendance.sql # Geofence exception columns for active trips
+    │   │   └── 013_reconcile_full_schema.sql             # Permanent schema fix: FKs, indexes, backfill
     │   └── seed.sql              # Initial database seed records
-    ├── tests/                    # 26 Vitest automated integration test suites
+    ├── tests/                    # 29 Vitest automated integration test suites
     │   ├── ai_assistant.test.ts
     │   ├── ai_resilience_and_caching.test.ts # 14 tests: cache, circuit breaker, single flight
     │   ├── analytics_flow.test.ts
@@ -237,6 +251,7 @@ Minor/
     │   ├── database_multi_org_migration.test.ts # Multi-org schema, migration, RLS, and isolation tests
     │   ├── delay_prediction.test.ts          # 6 tests: ETA math, stopped trip, AI fallback
     │   ├── delete_hard_flow.test.ts
+    │   ├── destination_weather.test.ts       # 11 tests: destination weather API, caching & fallbacks
     │   ├── driver_flow.test.ts
     │   ├── emergency_alerts.test.ts          # 13 tests: SOS triggers, WebSocket alerts
     │   ├── fleet_business_rules.test.ts      # 26 tests across 9 fleet business rules
@@ -244,9 +259,11 @@ Minor/
     │   ├── fuel_expense_flow.test.ts         # 6 tests: fuel logging and operational expenses
     │   ├── maintenance_flow.test.ts          # 3 tests: maintenance logging
     │   ├── maintenance_forecast.test.ts      # 6 tests: 90-day forecast, vehicle risks
+    │   ├── mobile_ui_rbac_matrix.test.ts     # 12 tests: UI RBAC permissions, role definitions & screen gating
     │   ├── multi_org_authorization.test.ts   # 31 tests: multi-tenant RBAC, approval, isolation
     │   ├── offline_sos_idempotency.test.ts
     │   ├── organization_geofencing_e2e.test.ts # 12 tests: configurable geofence radius & attendance
+    │   ├── persistent_data_restart_resilience.test.ts # 8 tests: backend reboot resilience & data persistence
     │   ├── route_intelligence.test.ts        # 4 tests: Google routes & AI recommendations
     │   ├── smoke.test.ts
     │   ├── tracking_pipeline.test.ts
@@ -590,6 +607,7 @@ The mobile application utilizes **Zustand v5** across 14 distinct stores:
 | `/api/trip/complete/:tripID` | PUT | None | `modules/trips/routes.ts` | Completes trip, updates final odometer, frees vehicle to AVAILABLE | Fully Verified |
 | `/api/trip/cancel/:tripID` | PUT | None | `modules/trips/routes.ts` | Cancels trip and frees vehicle to AVAILABLE | Fully Verified |
 | `/api/trip/:tripId/delay-insights` | GET | Optional | `modules/trips/routes.ts` | Deterministic delay calculation and AI ETA insights | Fully Verified |
+| `/api/weather/destination` | GET | Bearer | `modules/weather/routes.ts` | Destination weather, operational dispatch advisory, request coalescing & caching | Fully Verified |
 | `/api/attendance/status` | GET | Optional | `modules/attendance/routes.ts` | Returns today's active shift status, geofence config, and active trip | Fully Verified |
 | `/api/attendance/active-trip` | GET | Bearer | `modules/attendance/routes.ts` | Validates and returns active assigned trip for driver geofence exception | Fully Verified |
 | `/api/attendance/clock-in` | POST | Optional | `modules/attendance/routes.ts` | Opens attendance session; validates geofence or active trip exception | Fully Verified |
@@ -886,6 +904,10 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 | **Fleet Analytics Dashboard** | **Implemented and verified** | `AnalyticsScreen.tsx`, `AnalyticsStore.ts`, `analytics/routes.ts` | `/api/analytics` | 1/1 test passed (`analytics_flow.test.ts`) |
 | **Google Places Autocomplete** | **Implemented and verified** | `locations/routes.ts`, `TripDispatcherScreen.tsx` | `/api/locations/autocomplete`, `/api/locations/details/:id` | Verified with Google Places (New) and empty fallback |
 | **Driver License OCR** | **Mock endpoint only** | `ocr/routes.ts`, `DriversScreen.tsx` | `multipart/form-data` to `/api/ocr/scan-license` | Regula integration abandoned; mock endpoint returns static payload; production OCR planned |
+| **Trip Destination Weather Intelligence** | **Implemented and verified** | `DestinationWeatherModal.tsx`, `weatherService.ts`, `weatherCache.ts`, `weather/routes.ts` | OpenWeatherMap API, `/api/weather/destination`, local LRU cache | 11/11 tests passed (`destination_weather.test.ts`), mobile tested (`destinationWeatherMobile.test.ts`) |
+| **In-App Chat Notification Banner** | **Implemented and verified** | `InAppChatNotificationBanner.tsx`, `ChatStore.ts`, `navigationRef.ts`, `App.tsx` | Native WebSocket `/ws/chat`, Zustand `activeInAppMessage` | Verified: animated dropdown, unread badge, 1-tap navigation |
+| **Balanced Physical Device Geolocation** | **Implemented and verified** | `locationService.ts`, `ClockInWidget.tsx`, `attendanceService.ts` | `@react-native-community/geolocation`, Android coarse/fine permissions | Verified: normal accuracy default, 10m cached fallback, 0 GPS timeouts |
+| **Full Schema Reconciliation & Persistence** | **Implemented and verified** | `database.ts`, `013_reconcile_full_schema.sql`, `clean_dev_reset.sql` | Supabase Postgres relational schema, `organization_id` foreign keys & indexes | 8/8 tests passed (`persistent_data_restart_resilience.test.ts`) |
 | **Digital Proof of Delivery (POD)** | **Planned / Pending** | N/A | N/A | Explicitly NOT implemented; do not claim it is active |
 | **Multiple Gemini API Key Rotation** | **Planned / Pending** | `ai/geminiClient.ts` | `env.ts` | Single key configured with circuit breaker; multiple-key pool planned |
 
@@ -938,6 +960,8 @@ The database is built on PostgreSQL with Supabase migrations in `backend/supabas
 | `GEMINI_MAX_RETRIES` | Max exponential backoff retries | `env.ts`, `geminiClient.ts`| `2` |
 | `GEMINI_CIRCUIT_BREAKER_THRESHOLD` | Consecutive failures before opening circuit | `env.ts`, `circuitBreaker.ts` | `3` |
 | `GEMINI_CIRCUIT_BREAKER_COOLDOWN_MS`| Cooldown period before probing half-open | `env.ts`, `circuitBreaker.ts` | `30000` (30 seconds) |
+| `OPENWEATHER_API_KEY` | OpenWeatherMap API key for destination weather | `env.ts`, `weatherService.ts` | Optional |
+| `OPENWEATHER_TIMEOUT_MS` | Request timeout for OpenWeather calls | `env.ts`, `weatherService.ts` | `5000` (5 seconds) |
 | `PLATFORM_ADMIN_USERNAME` | Configured fixed username for platform admin login | `env.ts`, `modules/admin/routes.ts` | `admin` |
 | `PLATFORM_ADMIN_PASSWORD_HASH` | Bcrypt hash for fixed platform admin password | `env.ts`, `modules/admin/routes.ts` | `$2a$10$...` (configured by owner) |
 
@@ -1670,5 +1694,115 @@ Implemented in `backend/src/modules/carbon/carbonService.ts`:
   - Test command: `npx vitest run tests/carbon_intelligence.test.ts --test-timeout=20000`
   - Result: **14 passed out of 14 tests (100% pass rate)**.
 - **Mobile TypeScript Check**: `npx tsc --noEmit` in `App/`: **0 errors**.
+
+---
+
+## 24. Trip Destination Weather Intelligence & Dispatch Advisory (Completed)
+
+### 24.1 Objectives & Architectural Scope
+Fleet operations must proactively assess weather conditions at delivery destinations prior to and during transit to anticipate transit delays, protect perishable cargo, and safeguard drivers. The Destination Weather module provides an integrated meteorological intelligence system connecting trip dispatching with real-time OpenWeatherMap data.
+
+### 24.2 Backend Meteorological Service Architecture
+- **Route**: `GET /api/weather/destination?lat={lat}&lon={lon}&tripId={tripId}&destinationName={name}`
+- **Security & RBAC Enforcement**:
+  - Requires authenticated session and active organization membership (`requireOrgMembership`).
+  - When `tripId` is supplied:
+    - Verifies trip existence and tenant organization matching.
+    - If caller is a `ROLE_DRIVER`, strictly validates that the trip is assigned to them (`req.user.id === trip.driverID`); unauthorized access yields `403 Forbidden`.
+    - Automatically resolves destination coordinates from `trip.destinationLatitude` and `trip.destinationLongitude` if not explicitly passed in query params.
+  - Coordinate validation: Enforces $-90 \le \text{lat} \le 90$ and $-180 \le \text{lon} \le 180$; non-numeric or out-of-range coordinates return `400 Bad Request`.
+- **Multi-Tiered Caching & Coalescing Engine (`weatherCache.ts`)**:
+  - **Coordinate Normalization**: Rounds coordinates to 2 decimal places ($\approx 1.1\text{ km}$ meteorological grid) to coalesce requests in neighboring zones (`weather_23.02_72.57_metric`).
+  - **Fresh TTL (10 Minutes)**: Cache hits within 10 minutes return instantly with `dataSource: 'cache_fallback'` and `isCached: true`.
+  - **Stale Fallback TTL (24 Hours)**: In case of upstream OpenWeatherMap API network timeouts or 5xx outages, returns the last known good observation flagged with `isStale: true` and `dataSource: 'stale_cache'`.
+  - **Request Coalescing (Single Flight)**: Concurrent requests for the same spatial grid key share a single in-flight Promise, completely preventing upstream request bursts.
+  - **Negative Caching (30s TTL)**: Prevents hammering the upstream provider when invalid coordinates or upstream 4xx errors occur.
+  - **LRU Eviction**: Bounded in-memory map limited to 500 entries.
+- **Deterministic Operational Dispatch Advisory (`weatherAdvisory.ts`)**:
+  - Generates clear, risk-classified dispatch recommendations based on meteorological thresholds:
+    - **Visibility**: Fog/mist warnings if visibility $< 2000\text{ m}$; severe warning if $< 1000\text{ m}$.
+    - **Precipitation**: Rain, drizzle, thunderstorm hazard assessment with wet road speed advisories.
+    - **Wind Speed**: High-wind crosswind alerts for high-profile vehicles when wind exceeds $15\text{ m/s}$ ($54\text{ km/h}$).
+    - **Temperature Extremes**: Extreme heat ($> 42^\circ\text{C}$) and freezing conditions ($\le 0^\circ\text{C}$) advising tire pressure and cargo protection.
+
+### 24.3 Mobile Interface (`DestinationWeatherModal.tsx` & `weatherCache.ts`)
+- **Screen Integration**: Modal accessible directly from `TripDispatcherScreen.tsx` for each trip card.
+- **Persistent Mobile Caching (`App/src/utils/weatherCache.ts`)**:
+  - Leverages `@react-native-async-storage/async-storage` for offline persistence across mobile sessions (10-minute fresh TTL, 24-hour stale limit).
+  - Implements mobile-side request coalescing across concurrent component renders.
+- **Rich Glassmorphic Visuals**:
+  - Weather icon categorization mapping OpenWeather codes to Lucide vectors (`Sun`, `CloudSun`, `CloudRain`, `CloudLightning`, `CloudFog`, `Snowflake`, `Wind`).
+  - Metric cards for Ambient Temp, Feels Like, Humidity, Wind Speed, Visibility, and Atmospheric Pressure.
+  - Operational Dispatch Advisory card with severity badge (`NORMAL`, `ADVISORY`, `WARNING`, `CRITICAL`).
+  - Data freshness banner indicating live network data, cached data, or offline stale fallback with manual pull-to-refresh button.
+
+### 24.4 Verification & Test Results
+- **Backend Test Suite**: `backend/tests/destination_weather.test.ts` (11 integration tests).
+  - Tests request coalescing, 10-minute cache hits, 24-hour stale fallback, negative caching, coordinate validation, and driver RBAC ownership.
+  - Result: **11 passed out of 11 tests (100% pass rate)**.
+- **Mobile Test Suite**: `App/__tests__/destinationWeatherMobile.test.ts` (7 test cases).
+  - Result: **7 passed out of 7 tests (100% pass rate)**.
+
+---
+
+## 25. Real-Time In-App Chat Notifications & Global Navigation (Completed)
+
+### 25.1 Architecture & Problem Addressed
+In previous versions, incoming chat messages over WebSocket were only visible if the user was actively looking at the `ChatScreen` or checking unread badges. If a manager or driver was on the Dashboard, Trips, or Attendance screens, they had no immediate awareness of incoming messages.
+
+### 25.2 Global In-App Notification Component (`InAppChatNotificationBanner.tsx`)
+- **Root Mounting**: Mounted at the top level of `App/App.tsx` outside navigator hierarchies, ensuring visibility across all unauthenticated and authenticated screens.
+- **Animated Transition**: Smooth spring-based top slide-in using React Native `Animated` driver (`useNativeDriver: true`) with safe area inset padding (`useSafeAreaInsets`).
+- **Store-Driven Trigger**: `ChatStore` listens to incoming WebSocket `CHAT_MESSAGE` events. If the message belongs to a conversation other than the currently active one (or if the user is outside `ChatScreen`), `activeInAppMessage` is populated.
+- **Auto-Dismiss & Swipe/Tap Handling**: Automatically slides away after 6 seconds or upon explicit dismissal.
+- **One-Tap Deep Navigation (`navigationRef.ts`)**:
+  - Utilizes a persistent root `NavigationContainerRef` exported in `App/src/navigation/navigationRef.ts`.
+  - Tapping the banner selects the sender's conversation in `ChatStore`, dismisses the banner, and navigates immediately to `'Chat'`, seamlessly switching tabs or drawer views regardless of current screen depth.
+
+---
+
+## 26. Balanced Physical Device Geolocation & Attendance Resilience (Completed)
+
+### 26.1 Physical Android Hardware GPS Challenges
+Testing on real physical Android devices revealed that:
+1. Demanding high-accuracy GPS (`enableHighAccuracy: true`) in indoor depot offices or dense urban environments frequently triggered native Android location timeouts (`Location fix timed out`, Error 3).
+2. Demanding `ACCESS_FINE_LOCATION` caused app rejections when users granted Android 12+ approximate location permissions (`ACCESS_COARSE_LOCATION`).
+
+### 26.2 Balanced Geolocation Implementation (`locationService.ts`)
+- **Permissions Compatibility**: Checks both `ACCESS_FINE_LOCATION` and `ACCESS_COARSE_LOCATION` via `PermissionsAndroid.requestMultiple`. If either is granted, location acquisition proceeds.
+- **Balanced Accuracy by Default**: Uses normal/balanced accuracy (`enableHighAccuracy: false`) with a 15-second native timeout and a 1-minute fresh cache preference (`maximumAge: 60000`).
+- **Two-Tier Fallback on Hardware**:
+  - Primary attempt: Balanced provider fix.
+  - Secondary fallback: If primary fix times out and `allowCachedFallback: true`, attempts to read recent system-cached coordinates (up to 10 minutes old) with a rapid 3-second timeout, returning `{ isCached: true }`.
+  - Zero Mock Coordinates: If both fresh and cached fixes fail, returns an honest actionable error explaining location reception issues without injecting fake or headquarters coordinates.
+- **Verification**: `App/__tests__/locationAndAttendanceBalanced.test.ts` (9 test cases passing 100%).
+
+---
+
+## 27. Full Schema Reconciliation & Persistent Data Resilience (Migration 013)
+
+### 27.1 Problem Statement & Multi-Tenant Isolation
+During rapid development across multiple modules, certain schema additions were applied incrementally. When restarting the backend against production Supabase instances or re-syncing from clean environments, foreign keys and indexes across operational tables required unified reconciliation to ensure 100% data durability.
+
+### 27.2 Schema Migration (`013_reconcile_full_schema.sql` & `clean_dev_reset.sql`)
+- **Foreign Key Columns**: Explicitly verifies and idempotently adds `organization_id (uuid REFERENCES organizations(id))` to:
+  - `users`, `vehicles`, `trips`, `attendance_records`, `maintenance_records`, `fuel_logs`, `expense_records`, `emergency_alerts`, `tracking_locations`, `conversations`, `messages`, `notifications`.
+- **Attendance Exception Columns**: Reconciles `auto_clock_out`, `clock_out_type`, `is_geofence_exception`, `exception_reason`, `trip_id`, `exception_distance`, `exception_action`.
+- **Emergency SOS Idempotency**: Reconciles `client_request_id` on `emergency_alerts`.
+- **Sustainability Targets**: Creates `sustainability_targets` table with unique constraint on `(organization_id, period)`.
+- **Foreign Key Indexes**: Creates B-Tree performance indexes on all `organization_id` foreign keys to ensure sub-millisecond tenant-scoped queries.
+- **Authoritative Existing Data Backfill**:
+  - Backfills `users.organization_id` from verified active `organization_memberships`.
+  - Backfills `vehicles.organization_id` from primary approved organizations.
+  - Backfills `emergency_alerts.organization_id` from driver membership.
+- **Database Abstraction Hardening (`database.ts`)**:
+  - Case-insensitive field mapping across Supabase camelCase and Postgres snake_case columns.
+  - Graceful fallback and error recovery during database reboots.
+
+### 27.3 Verification & Resilience Suite
+- **Test Suite**: `backend/tests/persistent_data_restart_resilience.test.ts` (8 test cases).
+  - Validates environment loading, Supabase credentials, persistent driver retrieval without in-memory state, and cross-restart query durability.
+  - Result: **8 passed out of 8 tests (100% pass rate)**.
+
 
 

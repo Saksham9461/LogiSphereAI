@@ -1,6 +1,8 @@
+import { Platform, Linking, Alert } from 'react-native';
 import { create } from 'zustand';
 import axios from '../api/axiosClient';
-import { GetFuel, RegisterFuel, GetExpenses, RegisterExpenses } from '../api/apiPath';
+import { GetFuel, RegisterFuel, GetExpenses, RegisterExpenses, ExportFuelPdf } from '../api/apiPath';
+import useAuthStore from './AuthStore';
 
 const extractList = (data: any) => {
   if (Array.isArray(data)) return data;
@@ -66,6 +68,7 @@ const useFuelExpenseStore = create<any>((set, get) => ({
   expenses: [],
   loadingFuel: false,
   loadingExpenses: false,
+  fuelExporting: false,
   fuelError: null,
   expenseError: null,
 
@@ -156,12 +159,49 @@ const useFuelExpenseStore = create<any>((set, get) => ({
     }
   },
 
-  addExpense: async (payload: any) => get().createExpense(payload),
+  getExportPdfUrl: (search?: string, startDate?: string, endDate?: string) => {
+    const token = useAuthStore.getState().token;
+    const queryParams = new URLSearchParams();
+
+    if (token) queryParams.append('token', token);
+    if (search?.trim()) queryParams.append('search', search.trim());
+    if (startDate) queryParams.append('startDate', startDate);
+    if (endDate) queryParams.append('endDate', endDate);
+
+    const queryString = queryParams.toString();
+    return queryString ? `${ExportFuelPdf}?${queryString}` : ExportFuelPdf;
+  },
+
+  exportPdf: async (search?: string, startDate?: string, endDate?: string) => {
+    try {
+      set({ fuelExporting: true });
+      const downloadUrl = get().getExportPdfUrl(search, startDate, endDate);
+      const supported = await Linking.canOpenURL(downloadUrl);
+
+      if (supported || Platform.OS === 'android' || Platform.OS === 'ios') {
+        await Linking.openURL(downloadUrl);
+        set({ fuelExporting: false });
+        return {
+          success: true,
+          url: downloadUrl,
+          message: 'Fuel & Expenses PDF report download initiated. Check your device Downloads or browser.',
+        };
+      } else {
+        throw new Error('Device cannot open PDF download URL');
+      }
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to export fuel & expenses PDF';
+      set({ fuelExporting: false });
+      Alert.alert('Export Failed', msg);
+      return { success: false, message: msg };
+    }
+  },
 
   clearFuelExpenseStore: () =>
     set({
       fuelLogs: [],
       expenses: [],
+      fuelExporting: false,
       fuelError: null,
       expenseError: null,
     }),

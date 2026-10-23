@@ -126,9 +126,11 @@ export enum Permission {
   FUEL_VIEW_LIMITED = 'fuel.view.limited',
   FUEL_CREATE = 'fuel.create',
   FUEL_UPDATE = 'fuel.update',
+  FUEL_EXPORT = 'fuel.export',
   EXPENSES_VIEW = 'expenses.view',
   EXPENSES_CREATE = 'expenses.create',
   EXPENSES_UPDATE = 'expenses.update',
+  EXPENSES_EXPORT = 'expenses.export',
 
   // Analytics & AI
   ANALYTICS_VIEW_OPERATIONS = 'analytics.view.operations',
@@ -198,9 +200,11 @@ export const ROLE_PERMISSIONS: Record<CanonicalRole, Permission[]> = {
     Permission.FUEL_VIEW,
     Permission.FUEL_CREATE,
     Permission.FUEL_UPDATE,
+    Permission.FUEL_EXPORT,
     Permission.EXPENSES_VIEW,
     Permission.EXPENSES_CREATE,
     Permission.EXPENSES_UPDATE,
+    Permission.EXPENSES_EXPORT,
     Permission.ANALYTICS_VIEW_OPERATIONS,
     Permission.ANALYTICS_VIEW_FINANCE,
     Permission.ANALYTICS_VIEW_SAFETY,
@@ -291,9 +295,11 @@ export const ROLE_PERMISSIONS: Record<CanonicalRole, Permission[]> = {
     Permission.FUEL_VIEW, // Full fuel logging & records
     Permission.FUEL_CREATE,
     Permission.FUEL_UPDATE,
+    Permission.FUEL_EXPORT,
     Permission.EXPENSES_VIEW, // Full expense logging & records
     Permission.EXPENSES_CREATE,
     Permission.EXPENSES_UPDATE,
+    Permission.EXPENSES_EXPORT,
     Permission.ANALYTICS_VIEW_FINANCE,
     Permission.ANALYTICS_VIEW_FUEL_ANOMALIES,
     Permission.ANALYTICS_VIEW_MAINTENANCE_FORECAST,

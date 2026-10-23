@@ -11,7 +11,7 @@ import {
   normalizeRole,
 } from '../../middleware/auth';
 import { fail } from '../../utils/http';
-import { broadcastTrackingTripEnded } from '../chat/websocket';
+import { broadcastTrackingTripEnded, sendDirectChatMessage } from '../chat/websocket';
 import { calculateTripDelayInsights, resolveCityCoords } from './delayPredictionService';
 import { getDestinationWeather, validateCoordinates } from '../weather/weatherService';
 
@@ -423,6 +423,43 @@ tripRouter.post('/create', optionalAuth, async (req, res) => {
     console.log(JSON.stringify(formattedTrip, null, 2));
     console.log('==================================================\n');
 
+    // Notify driver immediately via chat message & in-app notification banner
+    if (resolvedDriverId) {
+      const creatorId = req.user?.userId || req.user?.id || 'usr-manager';
+      const creatorName = (req.user as any)?.name || req.user?.email || 'Fleet Manager';
+      const notifOrgId = trip.organization_id || orgId;
+
+      // 1. In-app system notification record
+      try {
+        await db.insert('notifications', {
+          id: db.makeId('notif-'),
+          userId: resolvedDriverId,
+          role: 'ROLE_DRIVER',
+          title: 'New Trip Assigned',
+          body: `Trip #${resolvedTripId} assigned: ${trip.source} ➔ ${trip.destination}`,
+          tripId: resolvedTripId,
+          ...(notifOrgId ? { organization_id: notifOrgId } : {}),
+          createdAt: new Date().toISOString(),
+          read: false,
+        });
+      } catch (nErr) {
+        console.warn('[Notification Error] Driver trip creation notification failed (non-blocking):', nErr);
+      }
+
+      // 2. Real-time direct chat message (triggers InAppChatNotificationBanner instantly)
+      try {
+        sendDirectChatMessage({
+          senderId: creatorId,
+          senderName: creatorName,
+          receiverId: resolvedDriverId,
+          message: `🚚 You have been assigned a new trip #${resolvedTripId}!\nPickup: ${trip.source}\nDrop: ${trip.destination}`,
+          explicitOrgId: notifOrgId,
+        }).catch((cErr) => console.warn('[Chat Error] Failed to send trip assignment chat message:', cErr));
+      } catch (cErr) {
+        console.warn('[Chat Error] Driver trip assignment chat dispatch failed:', cErr);
+      }
+    }
+
     return res.status(201).json(formattedTrip);
   } catch (error: any) {
     console.error('[Trip API ERROR] POST /api/trip/create failed:', error);
@@ -530,21 +567,42 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
     if (vehicleID) await db.update('vehicles', { vehicleID }, { status: 'ON_TRIP' });
     if (driverID) await db.update('users', { id: driverID }, { status: 'ON_TRIP' });
 
-    // Driver notification
+    // Driver notification and immediate real-time chat message
     if (driverID) {
+      const notifOrgId = trip.organization_id || orgId;
+      const managerId = req.user?.userId || req.user?.id || trip.createdById || 'usr-manager';
+      const managerName = (req.user as any)?.name || req.user?.email || 'Fleet Manager';
+      const tripIdentifier = trip.tripID || tripID;
+
+      // 1. System notification
       try {
         await db.insert('notifications', {
           id: db.makeId('notif-'),
           userId: driverID,
           role: 'ROLE_DRIVER',
-          title: 'New trip assigned',
-          body: `Pickup: ${trip.source} | Drop: ${trip.destination}`,
-          tripId: trip.tripID || tripID,
+          title: targetStatus === 'ACCEPTED' ? 'Trip Accepted by Manager' : 'Trip Dispatched',
+          body: `Trip #${tripIdentifier} has been ${targetStatus.toLowerCase()}! Pickup: ${trip.source} | Drop: ${trip.destination}`,
+          tripId: tripIdentifier,
+          ...(notifOrgId ? { organization_id: notifOrgId } : {}),
           createdAt: new Date().toISOString(),
           read: false,
         });
       } catch (nErr) {
         console.warn('[Notification Error] Driver notification creation failed (non-blocking):', nErr);
+      }
+
+      // 2. Real-time direct chat message (triggers instant InAppChatNotificationBanner)
+      try {
+        const actionLabel = targetStatus === 'ACCEPTED' ? 'accepted and confirmed' : 'assigned/dispatched';
+        sendDirectChatMessage({
+          senderId: managerId,
+          senderName: managerName,
+          receiverId: driverID,
+          message: `✅ Trip #${tripIdentifier} has been ${actionLabel}!\nPickup: ${trip.source}\nDrop: ${trip.destination}`,
+          explicitOrgId: notifOrgId,
+        }).catch((cErr) => console.warn('[Chat Error] Driver status update chat delivery failed:', cErr));
+      } catch (cErr) {
+        console.warn('[Chat Error] Driver status update chat dispatch failed:', cErr);
       }
     }
   } else if (targetStatus === 'DELIVERED' || targetStatus === 'COMPLETED' || targetStatus === 'REJECTED' || targetStatus === 'CANCELLED') {
@@ -633,19 +691,40 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
 
     // Manager notification if delivered
     if (targetStatus === 'DELIVERED' || targetStatus === 'COMPLETED') {
+      const notifOrgId = trip.organization_id || orgId;
+      const tripIdentifier = trip.tripID || tripID;
+      const managerId = trip.createdById || 'usr-manager';
+      const senderDriverId = req.user?.userId || req.user?.id || driverID;
+      const driverName = (req.user as any)?.name || 'Driver';
+
       try {
         await db.insert('notifications', {
           id: db.makeId('notif-'),
-          userId: trip.createdById || 'usr-manager',
+          userId: managerId,
           role: 'ROLE_MANAGER',
           title: 'Trip Delivered',
-          body: `Trip #${trip.tripID || tripID} has been successfully delivered.`,
-          tripId: trip.tripID || tripID,
+          body: `Trip #${tripIdentifier} has been successfully delivered.`,
+          tripId: tripIdentifier,
+          ...(notifOrgId ? { organization_id: notifOrgId } : {}),
           createdAt: new Date().toISOString(),
           read: false,
         });
       } catch (nErr) {
         console.warn('[Notification Error] Manager notification creation failed (non-blocking):', nErr);
+      }
+
+      if (senderDriverId && managerId && senderDriverId !== managerId) {
+        try {
+          sendDirectChatMessage({
+            senderId: senderDriverId,
+            senderName: driverName,
+            receiverId: managerId,
+            message: `📦 Trip #${tripIdentifier} has been successfully marked as ${targetStatus}!`,
+            explicitOrgId: notifOrgId,
+          }).catch((cErr) => console.warn('[Chat Error] Delivery chat message to manager failed:', cErr));
+        } catch (cErr) {
+          console.warn('[Chat Error] Delivery chat dispatch to manager failed:', cErr);
+        }
       }
     }
   }

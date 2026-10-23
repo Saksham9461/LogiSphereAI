@@ -667,3 +667,78 @@ export async function findOrCreateConversation(userIdA: string, userIdB: string,
 
   return newConvId;
 }
+
+export async function sendDirectChatMessage(options: {
+  senderId: string;
+  senderName?: string;
+  receiverId: string;
+  message: string;
+  explicitOrgId?: string;
+}): Promise<any> {
+  const { senderId, senderName, receiverId, message, explicitOrgId } = options;
+  if (!senderId || !receiverId || !message?.trim()) return null;
+
+  try {
+    const conversationId = await findOrCreateConversation(senderId, receiverId, explicitOrgId);
+    const serverCreatedAt = new Date().toISOString();
+    const messageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+
+    const isReceiverOnline = isUserOnline(receiverId);
+    const deliveredAt = isReceiverOnline ? serverCreatedAt : null;
+
+    let orgId = explicitOrgId;
+    if (!orgId) {
+      const conv = await db.find('conversations', { id: conversationId });
+      orgId = conv?.organization_id || conv?.organizationId;
+    }
+
+    const messageRecord = await db.insert('messages', {
+      id: messageId,
+      organization_id: orgId,
+      organizationId: orgId,
+      conversationId,
+      conversation_id: conversationId,
+      senderId,
+      sender_id: senderId,
+      receiverId,
+      receiver_id: receiverId,
+      message: message.trim(),
+      messageType: 'TEXT',
+      message_type: 'TEXT',
+      createdAt: serverCreatedAt,
+      created_at: serverCreatedAt,
+      deliveredAt,
+      delivered_at: deliveredAt,
+      readAt: null,
+      read_at: null,
+    });
+
+    await db.update('conversations', { id: conversationId }, { updated_at: serverCreatedAt });
+
+    let resolvedSenderName = senderName;
+    if (!resolvedSenderName) {
+      const sUser = await db.find('users', { id: senderId });
+      resolvedSenderName = sUser?.name || sUser?.email || 'Fleet Manager';
+    }
+
+    const formattedMsg = {
+      id: messageRecord.id || messageId,
+      conversationId,
+      senderId,
+      senderName: resolvedSenderName,
+      receiverId,
+      message: message.trim(),
+      messageType: 'TEXT',
+      createdAt: serverCreatedAt,
+      deliveredAt,
+      readAt: null,
+      status: deliveredAt ? 'DELIVERED' : 'SENT',
+    };
+
+    broadcastRealtimeMessage(conversationId, formattedMsg, senderId, receiverId);
+    return formattedMsg;
+  } catch (err) {
+    console.warn('[sendDirectChatMessage Error]:', err);
+    return null;
+  }
+}

@@ -48,6 +48,7 @@ export const GetFuel = `${BASE_URL}/api/fuel`;
 export const RegisterFuel = `${BASE_URL}/api/fuel/create`;
 export const GetExpenses = `${BASE_URL}/api/expenses`;
 export const RegisterExpenses = `${BASE_URL}/api/expenses/create`;
+export const ExportFuelPdf = `${BASE_URL}/api/fuel/report/export-pdf`;
 export const GetAnalytics = `${BASE_URL}/api/analytics`;
 export const GetDashboardSummary = `${BASE_URL}/api/dashboard/summary`;
 export const UpdateTripStatus = `${BASE_URL}/api/trip`;

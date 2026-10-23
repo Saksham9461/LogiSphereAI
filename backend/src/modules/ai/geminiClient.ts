@@ -72,7 +72,7 @@ export async function callGemini<T = any>(options: GeminiRequestOptions): Promis
   }
 
   let activeModel = options.model || env.GEMINI_MODEL || 'gemini-3.8-flash';
-  const timeoutMs = options.timeoutMs ?? env.GEMINI_TIMEOUT_MS ?? 5000;
+  const timeoutMs = options.timeoutMs ?? env.GEMINI_TIMEOUT_MS ?? 15000;
   const maxRetries = options.maxRetries ?? env.GEMINI_MAX_RETRIES ?? 2;
   const buildUrl = (m: string) =>
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent?key=${apiKey}`;
@@ -106,14 +106,18 @@ export async function callGemini<T = any>(options: GeminiRequestOptions): Promis
         aiMetrics.recordRetry();
       }
 
-      const res = await fetch(buildUrl(activeModel), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify(requestBody),
-      });
+      let res: Response;
+      try {
+        res = await fetch(buildUrl(activeModel), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify(requestBody),
+        });
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
 
-      clearTimeout(timeoutHandle);
       const latencyMs = Date.now() - startTime;
 
       if (res.ok) {
