@@ -281,6 +281,7 @@ export const ROLE_PERMISSIONS: Record<CanonicalRole, Permission[]> = {
     Permission.SOS_TRIGGER,
     Permission.NOTIFICATIONS_VIEW_OWN,
     Permission.ORGANIZATION_VIEW,
+    Permission.ATTENDANCE_CLOCK_IN_OUT,
   ],
 
   [CanonicalRole.FINANCE]: [
@@ -311,6 +312,7 @@ export const ROLE_PERMISSIONS: Record<CanonicalRole, Permission[]> = {
     Permission.ALERTS_VIEW_OWN,
     Permission.NOTIFICATIONS_VIEW_OWN,
     Permission.ORGANIZATION_VIEW,
+    Permission.ATTENDANCE_CLOCK_IN_OUT,
   ],
 
   [CanonicalRole.DRIVER]: [
