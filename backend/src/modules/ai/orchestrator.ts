@@ -10,18 +10,19 @@ export interface ResilientAiOptions<T> {
   ttlSeconds?: number;
   schemaVersion?: string;
   skipCache?: boolean;
-  executeGemini: () => Promise<T>;
+  executeAi?: () => Promise<T>;
+  executeGemini?: () => Promise<T>;
   validateResponse?: (data: T) => boolean;
   getFallback: () => T;
 }
 
 /**
  * Standard resilient pipeline orchestrating:
- * Cache Check -> Single-Flight Coalesce -> Gemini Execution -> Validation -> Cache Write -> Deterministic Fallback.
+ * Cache Check -> Single-Flight Coalesce -> AI Execution (Gemini -> Groq -> Cerebras) -> Validation -> Cache Write -> Deterministic Fallback.
  */
 export async function executeResilientAi<T>(options: ResilientAiOptions<T>): Promise<T> {
   const model = env.GEMINI_MODEL || 'gemini-1.5-flash';
-  const ttl = options.ttlSeconds ?? FEATURE_TTL_SECONDS[options.feature] ?? 300;
+  const ttl = options.ttlSeconds ?? FEATURE_TTL_SECONDS[options.feature] ?? env.AI_CACHE_TTL_SECONDS ?? 300;
 
   // 1. Generate deterministic SHA-256 cache key
   const cacheKey = generateCacheKey({
@@ -53,8 +54,12 @@ export async function executeResilientAi<T>(options: ResilientAiOptions<T>): Pro
       }
 
       try {
-        // 4. Call Gemini via caller's prompt & configuration
-        const generated = await options.executeGemini();
+        // 4. Call AI via provider manager (Gemini -> Groq -> Cerebras)
+        const executor = options.executeAi || options.executeGemini;
+        if (!executor) {
+          throw new Error('No AI execution function provided');
+        }
+        const generated = await executor();
 
         // 5. Response Validation
         const isValid = options.validateResponse ? options.validateResponse(generated) : Boolean(generated);

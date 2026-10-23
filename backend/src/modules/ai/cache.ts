@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { env } from '../../config/env';
 
 export type AiFeatureType =
   | 'TRIP_DELAY_INSIGHTS'
@@ -303,4 +304,4 @@ export class AiCacheService {
 }
 
 // Singleton global cache instance
-export const aiCache = new AiCacheService();
+export const aiCache = new AiCacheService(env.AI_CACHE_MAX_ENTRIES ?? 500);

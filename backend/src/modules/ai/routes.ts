@@ -9,6 +9,7 @@ import { aiMetrics } from './metrics';
 import { aiCache } from './cache';
 import { aiCircuitBreaker } from './circuitBreaker';
 import { singleFlight } from './singleFlight';
+import { aiProviderManager } from './providerManager';
 
 export const aiRouter = Router();
 
@@ -1465,6 +1466,7 @@ aiRouter.get('/metrics', authenticate, async (req: Request, res: Response) => {
     cache: aiCache.getStats(),
     circuitBreaker: aiCircuitBreaker.getStats(),
     singleFlight: singleFlight.getStats(),
+    providers: aiProviderManager.getStatus(),
   });
 });
 
@@ -1480,6 +1482,7 @@ aiRouter.get('/stats', authenticate, async (req: Request, res: Response) => {
     cache: aiCache.getStats(),
     circuitBreaker: aiCircuitBreaker.getStats(),
     singleFlight: singleFlight.getStats(),
+    providers: aiProviderManager.getStatus(),
   });
 });
 

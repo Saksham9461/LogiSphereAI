@@ -636,6 +636,31 @@ export async function findOrCreateConversation(userIdA: string, userIdB: string,
     }
   }
 
+  // Ensure both users exist in users table so foreign key constraint "conversation_participants_user_id_fkey" is satisfied
+  async function ensureUserExists(uid: string, fallbackRole = 'ROLE_MANAGER') {
+    if (!uid) return;
+    try {
+      const existing = await db.find('users', { id: uid });
+      if (!existing) {
+        await db.insert('users', {
+          id: uid,
+          name: uid.startsWith('usr-manager') ? 'Fleet Manager' : uid.startsWith('drv-') ? 'Fleet Driver' : uid,
+          email: `${uid.toLowerCase()}@logisphere.ai`,
+          role: uid.startsWith('drv-') ? 'ROLE_DRIVER' : fallbackRole,
+          status: 'ACTIVE',
+          ...(isUuid(orgId) ? { organization_id: orgId } : {}),
+        });
+      }
+    } catch (uErr) {
+      console.warn(`[ensureUserExists] Non-blocking user check/provision for ${uid}:`, uErr);
+    }
+  }
+
+  await Promise.all([
+    ensureUserExists(userIdA, 'ROLE_MANAGER'),
+    ensureUserExists(userIdB, 'ROLE_DRIVER'),
+  ]);
+
   // Create new conversation
   const newConvId = `conv-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
   const nowIso = new Date().toISOString();
@@ -648,22 +673,32 @@ export async function findOrCreateConversation(userIdA: string, userIdB: string,
     updated_at: nowIso,
     updatedAt: nowIso,
   });
-  await db.insert('conversation_participants', {
-    conversation_id: newConvId,
-    conversationId: newConvId,
-    user_id: userIdA,
-    userId: userIdA,
-    joined_at: nowIso,
-    joinedAt: nowIso,
-  });
-  await db.insert('conversation_participants', {
-    conversation_id: newConvId,
-    conversationId: newConvId,
-    user_id: userIdB,
-    userId: userIdB,
-    joined_at: nowIso,
-    joinedAt: nowIso,
-  });
+
+  try {
+    await db.insert('conversation_participants', {
+      conversation_id: newConvId,
+      conversationId: newConvId,
+      user_id: userIdA,
+      userId: userIdA,
+      joined_at: nowIso,
+      joinedAt: nowIso,
+    });
+  } catch (cpErrA) {
+    console.warn(`[findOrCreateConversation] Non-blocking participant insert for ${userIdA}:`, cpErrA);
+  }
+
+  try {
+    await db.insert('conversation_participants', {
+      conversation_id: newConvId,
+      conversationId: newConvId,
+      user_id: userIdB,
+      userId: userIdB,
+      joined_at: nowIso,
+      joinedAt: nowIso,
+    });
+  } catch (cpErrB) {
+    console.warn(`[findOrCreateConversation] Non-blocking participant insert for ${userIdB}:`, cpErrB);
+  }
 
   return newConvId;
 }

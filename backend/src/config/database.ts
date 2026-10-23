@@ -555,9 +555,10 @@ export const db = {
         };
         if (table === 'notifications') {
           let notifOrgId = orgId;
-          if (!notifOrgId && (data.userId || data.userid)) {
+          const targetUserId = data.userId || data.userid;
+          if (!notifOrgId && targetUserId) {
             const recipientUser = memory.users.find(
-              (u: any) => String(u.id || u.userID || u.userid || '').toLowerCase() === String(data.userId || data.userid).toLowerCase()
+              (u: any) => String(u.id || u.userID || u.userid || '').toLowerCase() === String(targetUserId).toLowerCase()
             );
             if (recipientUser && isUuid(recipientUser.organization_id || recipientUser.businessId || recipientUser.organizationId)) {
               notifOrgId = recipientUser.organization_id || recipientUser.businessId || recipientUser.organizationId;
@@ -566,6 +567,37 @@ export const db = {
           if (!notifOrgId && memory.organizations.length > 0) {
             notifOrgId = memory.organizations[0].id;
           }
+          if (!notifOrgId) {
+            notifOrgId = 'd27c2bb5-07e7-4b06-93fd-99824a21ad9b';
+          }
+
+          // Ensure recipient user exists in users table to prevent notifications_userid_fkey violation
+          if (targetUserId) {
+            try {
+              const { data: existingUser } = await supabase.from('users').select('id').eq('id', targetUserId).maybeSingle();
+              if (!existingUser) {
+                // If user doesn't exist (e.g. fallback 'usr-manager'), provision or link to an existing manager/admin
+                const { data: firstAdmin } = await supabase.from('users').select('id').eq('role', 'ROLE_MANAGER').limit(1).maybeSingle();
+                if (firstAdmin && targetUserId === 'usr-manager') {
+                  data.userId = firstAdmin.id;
+                  data.userid = firstAdmin.id;
+                } else {
+                  // Provision placeholder user record
+                  await supabase.from('users').insert({
+                    id: targetUserId,
+                    name: targetUserId.startsWith('drv-') ? 'Driver' : 'Fleet Manager',
+                    email: `${targetUserId.toLowerCase()}@logisphere.ai`,
+                    role: targetUserId.startsWith('drv-') ? 'ROLE_DRIVER' : 'ROLE_MANAGER',
+                    status: 'ACTIVE',
+                    ...(notifOrgId ? { organization_id: notifOrgId } : {}),
+                  });
+                }
+              }
+            } catch (uCheckErr) {
+              console.warn(`[DB Insert notifications] User existence check/provision warning:`, uCheckErr);
+            }
+          }
+
           insertPayload = {
             id: data.id || `notif-${Date.now()}`,
             userid: data.userId || data.userid || null,
@@ -575,6 +607,7 @@ export const db = {
             ...(notifOrgId ? { organization_id: notifOrgId } : {}),
           };
         } else if (table === 'maintenance_records') {
+          const recOrgId = orgId || (isUuid(data.organization_id || data.organizationId || data.businessId) ? (data.organization_id || data.organizationId || data.businessId) : (memory.organizations[0]?.id || 'd27c2bb5-07e7-4b06-93fd-99824a21ad9b'));
           insertPayload = {
             id: data.id,
             vehicleid: data.vehicleID || data.vehicleid,
@@ -582,18 +615,20 @@ export const db = {
             cost: Number(data.cost) || 0,
             date: data.date,
             status: data.status,
-            ...(orgId ? { organization_id: orgId } : {}),
+            ...(recOrgId ? { organization_id: recOrgId } : {}),
           };
         } else if (table === 'fuel_logs') {
+          const fuelOrgId = orgId || (isUuid(data.organization_id || data.organizationId || data.businessId) ? (data.organization_id || data.organizationId || data.businessId) : (memory.organizations[0]?.id || 'd27c2bb5-07e7-4b06-93fd-99824a21ad9b'));
           insertPayload = {
             fuellogid: data.fuelLogId || data.fuellogid || data.id,
             vehicleid: data.vehicleID || data.vehicleid,
             date: data.date,
             liters: Number(data.liters) || 0,
             cost: Number(data.cost) || 0,
-            ...(orgId ? { organization_id: orgId } : {}),
+            ...(fuelOrgId ? { organization_id: fuelOrgId } : {}),
           };
         } else if (table === 'expense_records') {
+          const expOrgId = orgId || (isUuid(data.organization_id || data.organizationId || data.businessId) ? (data.organization_id || data.organizationId || data.businessId) : (memory.organizations[0]?.id || 'd27c2bb5-07e7-4b06-93fd-99824a21ad9b'));
           insertPayload = {
             expenseid: data.expenseId || data.expenseid || data.id,
             tripid: data.tripID || data.tripid || data.id,
@@ -601,10 +636,11 @@ export const db = {
             toll: Number(data.toll) || 0,
             other: Number(data.other) || 0,
             maint: Number(data.maint) || 0,
-            ...(orgId ? { organization_id: orgId } : {}),
+            ...(expOrgId ? { organization_id: expOrgId } : {}),
           };
         } else if (table === 'vehicles') {
           const regVal = data.registrationnumber || data.registrationNumber || data.reg;
+          const vehicleOrgId = orgId || (isUuid(data.organization_id || data.organizationId || data.businessId) ? (data.organization_id || data.organizationId || data.businessId) : (memory.organizations[0]?.id || 'd27c2bb5-07e7-4b06-93fd-99824a21ad9b'));
           insertPayload = {
             vehicleid: data.vehicleID || data.vehicleid,
             registrationnumber: regVal,
@@ -614,7 +650,7 @@ export const db = {
             odometer: Number(data.odometer ?? 0),
             acquisitioncost: Number(data.acquisitionCost ?? data.acquisitioncost ?? 0),
             status: data.status || 'AVAILABLE',
-            ...(orgId ? { organization_id: orgId } : {}),
+            ...(vehicleOrgId ? { organization_id: vehicleOrgId } : {}),
           };
         } else if (table === 'users') {
           const pwdHash = data.passwordHash || data.passwordhash || '$2a$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW';
@@ -672,6 +708,7 @@ export const db = {
           }
         } else if (table === 'trips') {
           const tripIdVal = data.tripID || data.tripid || data.id || `TRP-${Math.floor(1000 + Math.random() * 9000)}`;
+          const tripOrgId = orgId || (isUuid(data.organization_id || data.organizationId || data.businessId) ? (data.organization_id || data.organizationId || data.businessId) : (memory.organizations[0]?.id || 'd27c2bb5-07e7-4b06-93fd-99824a21ad9b'));
           insertPayload = {
             tripid: tripIdVal,
             source: data.source,
@@ -682,7 +719,7 @@ export const db = {
             cargoweight: Number(data.cargoWeight ?? data.cargoweight ?? 0),
             planneddistance: Number(data.plannedDistance ?? data.planneddistance ?? 0),
             startingodometer: Number(data.startingOdometer ?? data.startingodometer ?? 0),
-            ...(orgId ? { organization_id: orgId } : {}),
+            ...(tripOrgId ? { organization_id: tripOrgId } : {}),
           };
           if (data.finalOdometer !== undefined || data.finalodometer !== undefined) {
             insertPayload.finalodometer = Number(data.finalOdometer ?? data.finalodometer);
