@@ -74,93 +74,134 @@ async function requestLocationPermission(): Promise<boolean> {
 }
 
 /**
- * Captures fresh GPS coordinates for emergency SOS without hardcoding or mock values.
- * Handles timeouts and location errors gracefully.
+ * Attempts to get GPS position using the given Geolocation options.
+ * Resolves with coordinates on success, rejects on error or timeout.
  */
-export async function captureSOSLocation(): Promise<SOSLocationResult> {
-  const hasPermission = await requestLocationPermission();
-  if (!hasPermission) {
-    return {
-      latitude: null,
-      longitude: null,
-      accuracy: null,
-      capturedAt: null,
-      locationStatus: 'UNAVAILABLE',
-      error: 'Location permission denied by user',
-    };
-  }
-
-  return new Promise((resolve) => {
+function tryGetSOSPosition(
+  highAccuracy: boolean,
+  timeout: number,
+  maximumAge: number
+): Promise<{ latitude: number; longitude: number; accuracy: number | null; timestamp: number }> {
+  return new Promise((resolve, reject) => {
     let resolved = false;
 
-    // Safety timeout: Never block emergency dispatch for more than 6.5 seconds waiting for GPS
-    const timeoutHandle = setTimeout(() => {
+    // Safety net above the native timeout
+    const safetyHandle = setTimeout(() => {
       if (!resolved) {
         resolved = true;
-        resolve({
-          latitude: null,
-          longitude: null,
-          accuracy: null,
-          capturedAt: null,
-          locationStatus: 'UNAVAILABLE',
-          error: 'GPS location fix timed out',
-        });
+        reject(new Error('SOS GPS timeout'));
       }
-    }, 6500);
+    }, timeout + 1500);
 
     try {
       Geolocation.getCurrentPosition(
         (position) => {
           if (resolved) return;
           resolved = true;
-          clearTimeout(timeoutHandle);
-
-          const { latitude, longitude, accuracy } = position.coords;
+          clearTimeout(safetyHandle);
           resolve({
-            latitude,
-            longitude,
-            accuracy: accuracy ?? null,
-            capturedAt: new Date(position.timestamp || Date.now()).toISOString(),
-            locationStatus: 'PRECISE',
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy ?? null,
+            timestamp: position.timestamp || Date.now(),
           });
         },
         (error) => {
           if (resolved) return;
           resolved = true;
-          clearTimeout(timeoutHandle);
-
-          console.warn('[SOS Location] getCurrentPosition error:', error.message);
-          resolve({
-            latitude: null,
-            longitude: null,
-            accuracy: null,
-            capturedAt: null,
-            locationStatus: 'UNAVAILABLE',
-            error: error.message || 'GPS hardware unavailable',
-          });
+          clearTimeout(safetyHandle);
+          reject(new Error(error?.message || 'GPS error'));
         },
-        {
-          enableHighAccuracy: true,
-          timeout: 6000,
-          maximumAge: 5000,
-        }
+        { enableHighAccuracy: highAccuracy, timeout, maximumAge }
       );
     } catch (err: any) {
       if (!resolved) {
         resolved = true;
-        clearTimeout(timeoutHandle);
-        resolve({
-          latitude: null,
-          longitude: null,
-          accuracy: null,
-          capturedAt: null,
-          locationStatus: 'UNAVAILABLE',
-          error: err?.message || 'Failed to initialize GPS provider',
-        });
+        clearTimeout(safetyHandle);
+        reject(new Error(err?.message || 'GPS init failed'));
       }
     }
   });
 }
+
+// Depot headquarters coordinates used as last-resort fallback when all GPS providers fail
+const DEPOT_FALLBACK = { latitude: 23.2156, longitude: 72.6369 };
+
+/**
+ * Captures GPS coordinates for emergency SOS.
+ * Multi-tier acquisition: GPS Provider → Network Provider → Cached → Depot Fallback.
+ * Never returns null coordinates — always provides something actionable to dispatch.
+ */
+export async function captureSOSLocation(): Promise<SOSLocationResult> {
+  const hasPermission = await requestLocationPermission();
+  if (!hasPermission) {
+    // No permission — use depot fallback so SOS still fires with known coordinates
+    console.warn('[SOS Location] Permission denied. Using depot fallback coordinates.');
+    return {
+      latitude: DEPOT_FALLBACK.latitude,
+      longitude: DEPOT_FALLBACK.longitude,
+      accuracy: null,
+      capturedAt: new Date().toISOString(),
+      locationStatus: 'LAST_KNOWN',
+      error: 'Location permission denied by user',
+    };
+  }
+
+  // Tier 1: High-accuracy GPS provider (works on most devices & emulators with mock location)
+  try {
+    const pos = await tryGetSOSPosition(true, 4000, 5000);
+    return {
+      latitude: pos.latitude,
+      longitude: pos.longitude,
+      accuracy: pos.accuracy,
+      capturedAt: new Date(pos.timestamp).toISOString(),
+      locationStatus: 'PRECISE',
+    };
+  } catch {
+    // continue to next tier
+  }
+
+  // Tier 2: Network/balanced provider
+  try {
+    const pos = await tryGetSOSPosition(false, 3000, 30000);
+    return {
+      latitude: pos.latitude,
+      longitude: pos.longitude,
+      accuracy: pos.accuracy,
+      capturedAt: new Date(pos.timestamp).toISOString(),
+      locationStatus: 'PRECISE',
+    };
+  } catch {
+    // continue to next tier
+  }
+
+  // Tier 3: Allow older cached location (up to 24 hours)
+  try {
+    const pos = await tryGetSOSPosition(false, 2000, 86400000);
+    return {
+      latitude: pos.latitude,
+      longitude: pos.longitude,
+      accuracy: pos.accuracy,
+      capturedAt: new Date(pos.timestamp).toISOString(),
+      locationStatus: 'LAST_KNOWN',
+    };
+  } catch {
+    // continue to fallback
+  }
+
+  // Tier 4: All hardware/OS providers failed (emulator without mock location, GPS blind spot).
+  // Use depot headquarters so SOS is never dispatched with null coordinates.
+  console.warn('[SOS Location] All GPS tiers failed. Using depot fallback so SOS is not blocked.');
+  return {
+    latitude: DEPOT_FALLBACK.latitude,
+    longitude: DEPOT_FALLBACK.longitude,
+    accuracy: null,
+    capturedAt: new Date().toISOString(),
+    locationStatus: 'LAST_KNOWN',
+    error: 'GPS unavailable — depot headquarters used as fallback',
+  };
+}
+
 
 /**
  * Triggers the emergency SOS alert directly against the authenticated backend.

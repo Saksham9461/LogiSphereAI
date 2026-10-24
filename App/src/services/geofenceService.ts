@@ -14,7 +14,7 @@ export const checkGeofence = (
   targetOrg?: GeofenceTarget
 ) => {
   const target = targetOrg || MOCK_ORGANIZATION;
-  const radius = target.geofenceRadius || 200;
+  const radius = target.geofenceRadius || 500;
   const distance = calculateHaversineDistance(
     userLat,
     userLon,

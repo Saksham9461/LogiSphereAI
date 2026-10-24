@@ -58,10 +58,6 @@ export default function ClockInWidget() {
   const [exceptionSubmitting, setExceptionSubmitting] = useState(false);
   const [exceptionInlineError, setExceptionInlineError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchStatus();
-  }, [fetchStatus]);
-
   useFocusEffect(
     useCallback(() => {
       fetchStatus();

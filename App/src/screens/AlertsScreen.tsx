@@ -104,13 +104,13 @@ export default function AlertsScreen() {
     return () => unsub();
   }, [currentUser, canViewOrgAlerts]);
 
-  // Fetch alerts on screen focus and poll periodically so alerts arrive in real-time
+  // Fetch alerts on screen focus, then refresh every 30s (not 5s — reduces backend load)
   useFocusEffect(
     useCallback(() => {
       fetchAlerts();
       const interval = setInterval(() => {
         fetchAlerts();
-      }, 5000);
+      }, 30000);
       return () => clearInterval(interval);
     }, [fetchAlerts])
   );

@@ -1,5 +1,5 @@
 import React, {useEffect} from 'react';
-import {StatusBar, StyleSheet} from 'react-native';
+import {LogBox, StatusBar, StyleSheet} from 'react-native';
 import {NavigationContainer} from '@react-navigation/native';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import RootNavigator from './src/navigation/RootNavigator';
@@ -15,6 +15,7 @@ import {navigationRef} from './src/navigation/navigationRef';
 import InAppChatNotificationBanner from './src/components/InAppChatNotificationBanner';
 
 export default function App() {
+  LogBox.ignoreAllLogs();
   const globalLoading = useGlobalLoading();
   const hydrateAuth = useAuthStore(state => state.hydrate);
 

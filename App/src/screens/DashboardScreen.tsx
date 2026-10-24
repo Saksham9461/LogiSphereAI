@@ -162,20 +162,10 @@ export default function DashboardScreen({ navigation }: any) {
   React.useEffect(() => {
     if (user) {
       useTripStore.getState().initRealtimeSubscription(user);
-      fetchAttendanceStatus();
     }
   }, [user]);
 
-  // Ensure attendance status is refreshed whenever navigation reaches/focuses this screen
-  React.useEffect(() => {
-    if (!navigation) return;
-    const unsub = navigation.addListener('focus', () => {
-      fetchAttendanceStatus();
-    });
-    return unsub;
-  }, [navigation]);
-
-  // Fetch data on screen focus
+  // Fetch data once whenever this screen comes into focus
   useFocusEffect(
     useCallback(() => {
       fetchDashboardSummary();
@@ -184,9 +174,10 @@ export default function DashboardScreen({ navigation }: any) {
       if (fetchDrivers) fetchDrivers();
       fetchAttendanceStatus();
       useAlertStore.getState().fetchActiveCount();
+      // Poll alerts every 30s — not every 5s — to avoid hammering the backend
       const alertInterval = setInterval(() => {
         useAlertStore.getState().fetchActiveCount();
-      }, 5000);
+      }, 30000);
       return () => clearInterval(alertInterval);
     }, [fetchDashboardSummary, getTrips, getVehicles, fetchDrivers])
   );

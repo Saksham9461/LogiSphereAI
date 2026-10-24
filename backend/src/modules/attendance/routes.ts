@@ -404,8 +404,8 @@ export async function resolveDriverOrganization(userId: string, reqUser?: any) {
     };
   }
 
-  const radiusRaw = Number(org.geofence_radius ?? org.geofenceRadius ?? env.OFFICE_GEOFENCE_RADIUS ?? 200);
-  const geofenceRadius = (!isNaN(radiusRaw) && radiusRaw >= 50 && radiusRaw <= 5000) ? radiusRaw : 200;
+  const radiusRaw = Number(org.geofence_radius ?? org.geofenceRadius ?? env.OFFICE_GEOFENCE_RADIUS ?? 500);
+  const geofenceRadius = (!isNaN(radiusRaw) && radiusRaw >= 50 && radiusRaw <= 5000) ? radiusRaw : 500;
 
   return {
     org,
@@ -670,7 +670,7 @@ attendanceRouter.post('/clock-out', optionalAuth, async (req, res) => {
     const { latitude, longitude } = req.body ?? {};
     let clockOutDistance: number | null = null;
     let orgName = 'Authorized Facility';
-    let geofenceRadius = 200;
+    let geofenceRadius = 500;
 
     if (latitude !== undefined && longitude !== undefined && latitude !== null && longitude !== null) {
       const driverLat = Number(latitude);

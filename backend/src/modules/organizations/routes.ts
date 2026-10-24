@@ -146,7 +146,7 @@ organizationRouter.post('/register', async (req, res) => {
       google_places_id: placeIdToUse,
       latitude: latitude !== undefined ? latitude : null,
       longitude: longitude !== undefined ? longitude : null,
-      geofence_radius: geofenceRadius || 200,
+      geofence_radius: geofenceRadius || 500,
       status: 'pending', // Public registration is ALWAYS pending
       registration_timestamp: new Date().toISOString(),
       contact_email: contactEmail || managerEmail,

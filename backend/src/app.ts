@@ -45,7 +45,7 @@ app.use('/api/weather', weatherRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/maintenance', maintenanceRouter);
 app.use('/api/fuel', fuelRouter);
-app.use('/api/expenses', expenseRouter);
+app.use('/api/eaxpenses', expenseRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/tracking', trackingRouter);
 app.use('/api/analytics', analyticsRouter);
