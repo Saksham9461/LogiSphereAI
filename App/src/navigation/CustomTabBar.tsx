@@ -181,8 +181,21 @@ export default function CustomTabBar({ state, descriptors, navigation }: any) {
   const currentActiveRoute = state.routes[state.index];
   const isSecondaryActive = secondaryRoutes.some((route: any) => route.key === currentActiveRoute?.key);
 
+  // Screens always accessible regardless of clock-in state
+  const CLOCK_IN_EXEMPT = ['Dashboard'];
+
   const handlePress = (route: any, isFocused: boolean) => {
     if (isMoreOpen) setIsMoreOpen(false);
+
+    // Clock-in gate — show alert, never dim or disable icons
+    if (!isClockedIn && !CLOCK_IN_EXEMPT.includes(route.name)) {
+      Alert.alert(
+        '⏱ Clock In Required',
+        'You must clock in before accessing this module.\n\nPlease clock in from the Dashboard to start your shift.',
+        [{ text: 'Go to Dashboard', onPress: () => navigation.navigate('Dashboard') }]
+      );
+      return;
+    }
 
     const event = navigation.emit({
       type: 'tabPress',
@@ -288,7 +301,17 @@ export default function CustomTabBar({ state, descriptors, navigation }: any) {
         {/* More Button - Invariant 5th item across all roles */}
         <Pressable
           style={styles.tabItem}
-          onPress={() => setIsMoreOpen(!isMoreOpen)}>
+          onPress={() => {
+            if (!isClockedIn) {
+              Alert.alert(
+                '⏱ Clock In Required',
+                'You must clock in before accessing this module.\n\nPlease clock in from the Dashboard to start your shift.',
+                [{ text: 'Go to Dashboard', onPress: () => navigation.navigate('Dashboard') }]
+              );
+              return;
+            }
+            setIsMoreOpen(!isMoreOpen);
+          }}>
           <View style={[styles.activeIndicator, { opacity: (isMoreOpen || isSecondaryActive) ? 1 : 0 }]} />
           {isMoreOpen ? (
             <X color={colors.amber} size={24} />

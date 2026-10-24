@@ -536,6 +536,7 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
 
   const vehicleID = trip.vehicleID || trip.vehicleid;
   const driverID = trip.driverID || trip.driverid;
+  let finalOdometer: number | undefined;
 
   // 4. Side effects according to target status
   if (targetStatus === 'ACCEPTED' || targetStatus === 'ASSIGNED' || targetStatus === 'DISPATCHED') {
@@ -607,15 +608,34 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
     }
   } else if (targetStatus === 'DELIVERED' || targetStatus === 'COMPLETED' || targetStatus === 'REJECTED' || targetStatus === 'CANCELLED') {
     // Rule 7: Completing or cancelling trip restores eligible resources safely
-    const finalOdometer = req.body?.finalOdometer !== undefined ? Number(req.body.finalOdometer) : trip.finalOdometer;
+    const isCompleted = targetStatus === 'DELIVERED' || targetStatus === 'COMPLETED';
+    const tripPlannedDist = Number(trip.plannedDistance ?? trip.planneddistance ?? 0);
+
+    finalOdometer = req.body?.finalOdometer !== undefined && req.body.finalOdometer !== '' && Number(req.body.finalOdometer) > 0
+      ? Number(req.body.finalOdometer)
+      : (trip.finalOdometer !== undefined ? Number(trip.finalOdometer) : undefined);
 
     // Restore vehicle safely
     if (vehicleID) {
       const veh = await findVehicle(vehicleID);
       if (veh) {
+        // Automatically add trip's planned distance to assigned vehicle odometer reading
+        let newVehicleOdometer: number | undefined = finalOdometer;
+        if (isCompleted) {
+          const currentOdo = Number(veh.odometer ?? 0);
+          if (newVehicleOdometer === undefined || newVehicleOdometer <= 0) {
+            newVehicleOdometer = currentOdo + tripPlannedDist;
+          }
+          finalOdometer = newVehicleOdometer;
+          console.log(`[Trip Completion] Trip #${trip.tripID || tripID} delivered. Added ${tripPlannedDist} km to vehicle ${vehicleID} odometer: ${currentOdo} → ${newVehicleOdometer}`);
+        }
+
         const vStatus = String(veh.status || '').toUpperCase();
         if (vStatus === 'RETIRED') {
           // Never change a retired vehicle to available
+          if (newVehicleOdometer !== undefined && isCompleted) {
+            await db.update('vehicles', { vehicleID }, { odometer: newVehicleOdometer });
+          }
         } else {
           // Check if vehicle has active maintenance
           const allMaint = await db.list('maintenance_records');
@@ -632,7 +652,10 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
           });
 
           if (hasActiveMaint) {
-            await db.update('vehicles', { vehicleID }, { status: 'IN_SHOP' });
+            await db.update('vehicles', { vehicleID }, {
+              status: 'IN_SHOP',
+              ...(newVehicleOdometer !== undefined && isCompleted ? { odometer: newVehicleOdometer } : {}),
+            });
           } else {
             // Check if vehicle is still assigned to another active trip
             const allTrips = await db.list('trips');
@@ -645,11 +668,14 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
             });
 
             if (otherActive) {
-              await db.update('vehicles', { vehicleID }, { status: 'ON_TRIP' });
+              await db.update('vehicles', { vehicleID }, {
+                status: 'ON_TRIP',
+                ...(newVehicleOdometer !== undefined && isCompleted ? { odometer: newVehicleOdometer } : {}),
+              });
             } else {
               const patchVehicle: Record<string, any> = { status: 'AVAILABLE' };
-              if (finalOdometer && (targetStatus === 'DELIVERED' || targetStatus === 'COMPLETED')) {
-                patchVehicle.odometer = finalOdometer;
+              if (newVehicleOdometer !== undefined && isCompleted) {
+                patchVehicle.odometer = newVehicleOdometer;
               }
               await db.update('vehicles', { vehicleID }, patchVehicle);
             }
@@ -742,7 +768,11 @@ async function handleStatusUpdate(req: any, res: any, forcedStatus?: string) {
 
   // 5. Update Trip Record
   const patch: Record<string, any> = { status: targetStatus };
-  if (req.body?.finalOdometer !== undefined) patch.finalOdometer = req.body.finalOdometer;
+  if (req.body?.finalOdometer !== undefined) {
+    patch.finalOdometer = req.body.finalOdometer;
+  } else if (finalOdometer !== undefined && (targetStatus === 'DELIVERED' || targetStatus === 'COMPLETED')) {
+    patch.finalOdometer = finalOdometer;
+  }
   if (req.body?.fuelConsumed !== undefined) patch.fuelConsumed = req.body.fuelConsumed;
 
   const updatedTrip = await db.update('trips', { tripID }, patch);

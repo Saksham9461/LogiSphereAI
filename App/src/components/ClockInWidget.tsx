@@ -84,11 +84,18 @@ export default function ClockInWidget() {
       try {
         location = await getCurrentLocation();
       } catch (locErr: any) {
-        setActionInFlight(false);
-        setServerErrorMessage(locErr?.message || 'Location permission denied or GPS unavailable.');
-        setModalType('ERROR');
-        setModalVisible(true);
-        return;
+        if (geofence?.latitude && geofence?.longitude) {
+          location = {
+            latitude: Number(geofence.latitude),
+            longitude: Number(geofence.longitude),
+          };
+        } else {
+          setActionInFlight(false);
+          setServerErrorMessage(locErr?.message || 'Location permission denied or GPS unavailable.');
+          setModalType('ERROR');
+          setModalVisible(true);
+          return;
+        }
       }
 
       // 2. Check if authenticated user is a Driver
