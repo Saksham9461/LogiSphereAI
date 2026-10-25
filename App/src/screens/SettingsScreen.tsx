@@ -205,7 +205,7 @@ export default function SettingsScreen({ navigation }: any) {
           <Text style={styles.sectionTitle}>SECURITY & CREDENTIALS</Text>
 
           {/* 1. Forgot Password Option */}
-          <Pressable
+          {/* <Pressable
             style={styles.cardItem}
             onPress={() => navigation.navigate('ResetPassword')}
           >
@@ -219,10 +219,10 @@ export default function SettingsScreen({ navigation }: any) {
               </Text>
             </View>
             <ChevronRight size={20} color={colors.textMuted} />
-          </Pressable>
+          </Pressable> */}
 
           {/* Quick Action: Send reset email for current account directly */}
-          <Pressable
+          {/* <Pressable
             style={styles.quickResetBar}
             onPress={handleQuickReset}
             disabled={sendingReset}
@@ -232,7 +232,7 @@ export default function SettingsScreen({ navigation }: any) {
               {sendingReset ? 'Sending reset instructions...' : 'Send reset link to current email'}
             </Text>
             {sendingReset && <ActivityIndicator size="small" color={colors.amber} />}
-          </Pressable>
+          </Pressable> */}
 
           {/* 2. Change Password Option */}
           <Pressable

@@ -572,7 +572,7 @@ export default function MaintenanceScreen() {
                   <View style={styles.aiAdvisoryHeader}>
                     <View style={styles.aiAdvisoryHeaderLeft}>
                       <Sparkles size={16} color={colors.amber} />
-                      <Text style={styles.aiAdvisoryTitle}>Gemini AI Maintenance Advisory</Text>
+                      <Text style={styles.aiAdvisoryTitle}>AI Maintenance Advisory</Text>
                     </View>
                     <View style={styles.aiAdvisoryPill}>
                       <Text style={styles.aiAdvisoryPillText}>ADVISORY ONLY</Text>
@@ -618,9 +618,9 @@ export default function MaintenanceScreen() {
                   })()}
                 </View>
 
-                <Text style={styles.dataQualityFootnote}>
+                {/* <Text style={styles.dataQualityFootnote}>
                   {forecastData.dataQualityIndicator} All figures are deterministic, advisory, and read-only.
-                </Text>
+                </Text> */}
               </>
             ) : null}
           </View>

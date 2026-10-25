@@ -1192,7 +1192,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.panel,
     borderRadius: 16,
     padding: 16,
-    marginBottom: 12,
+    marginBottom: 90,
     borderWidth: 1,
     borderColor: colors.borderSoft,
   },
