@@ -54,6 +54,21 @@ export interface OrgStatusData {
   reviewReason?: string;
 }
 
+export interface OrgStatusByEmailResult {
+  organizationName: string;
+  maskedEmail: string;
+  status: OrgApprovalStatus;
+  registrationTimestamp: string;
+  reviewReason?: string;
+}
+
+export interface CheckStatusApiResponse {
+  success: boolean;
+  found: boolean;
+  message?: string;
+  data?: OrgStatusByEmailResult;
+}
+
 export interface PlaceSuggestion {
   placeId: string;
   title: string;

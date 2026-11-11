@@ -35,7 +35,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan(env.NODE_ENV === 'test' ? 'tiny' : 'dev'));
 
 app.get('/health', (_req, res) => res.json({ success: true, service: 'LogiSphere AI Backend' }));
-app.use('/api/org', organizationRouter);
+app.use(['/api/org', '/api/organizations'], organizationRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/auth', authRouter);
 app.use(['/api/user', '/api/users'], userRouter);

@@ -14,6 +14,7 @@ import type {
   OrgRegistrationPayload,
   OrgRegistrationResponseData,
   OrgStatusData,
+  CheckStatusApiResponse,
   PlaceSuggestion,
   PlaceDetails,
 } from '../types';
@@ -68,6 +69,35 @@ export async function getOrganizationStatus(
     if (status === 404) {
       serverMsg = `No organization found matching "${cleanId}". Please check the slug or registration ID.`;
     }
+    const error: any = new Error(serverMsg);
+    error.status = status || 500;
+    error.response = err?.response;
+    throw error;
+  }
+}
+
+/**
+ * Queries the public review status of an organization application using the registered manager email.
+ * Rate-limited and masked on the server to prevent enumeration and data leakage.
+ */
+export async function checkRegistrationStatusByEmail(
+  email: string
+): Promise<CheckStatusApiResponse> {
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!cleanEmail) {
+    throw new Error('Manager email address is required.');
+  }
+
+  try {
+    const response = await apiClient.get<CheckStatusApiResponse>(
+      ENDPOINTS.ORGANIZATION.STATUS_BY_EMAIL,
+      { params: { email: cleanEmail } }
+    );
+    return response.data;
+  } catch (err: any) {
+    const status = err?.response?.status || err?.status;
+    const serverMsg =
+      err?.response?.data?.message || err?.message || 'Failed to check organization status';
     const error: any = new Error(serverMsg);
     error.status = status || 500;
     error.response = err?.response;

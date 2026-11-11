@@ -4,6 +4,7 @@
    ============================================================================== */
 
 @import './styles/theme.css';
+@import './styles/saas.css';
 @import './styles/registration.css';
 @import './styles/admin.css';
 

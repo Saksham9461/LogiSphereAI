@@ -33,14 +33,15 @@
   --color-blue: #3B82F6;
   --color-blue-light: #DBEAFE;
 
-  /* Executive Dark Sidebar Tokens for High-Contrast SaaS Hierarchy */
-  --sidebar-bg: #0F172A;
-  --sidebar-panel: #1E293B;
-  --sidebar-border: #334155;
-  --sidebar-text: #F8FAFC;
-  --sidebar-text-muted: #94A3B8;
-  --sidebar-active-bg: rgba(245, 158, 11, 0.15);
+  /* Executive White & Amber Sidebar Tokens matching Mobile App Theme */
+  --sidebar-bg: #FFFFFF;
+  --sidebar-panel: #F9FAFB;
+  --sidebar-border: #E5E7EB;
+  --sidebar-text: #111827;
+  --sidebar-text-muted: #6B7280;
+  --sidebar-active-bg: #FEF3C7;
   --sidebar-active-border: #F59E0B;
+  --sidebar-active-text: #B45309;
 
   /* Elevation Shadows */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);

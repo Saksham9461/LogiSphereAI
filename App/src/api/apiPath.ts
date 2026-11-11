@@ -10,7 +10,7 @@ import { Platform } from 'react-native';
 //     ? 'http://10.0.2.2:5001'
 //     : 'http://localhost:5001';
 
-export const BASE_URL = 'http://10.120.151.18:5001';
+export const BASE_URL = 'http://10.43.204.18:5001';
 
 export const WS_URL = BASE_URL.replace(/^http/, 'ws');
 

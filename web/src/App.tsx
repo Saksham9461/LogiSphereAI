@@ -1,13 +1,28 @@
 // ==============================================================================
-// LogiSphere AI — Clean Web Application & Routing Entry
-// Strictly adheres to minimal architecture:
-// 1. Public organization registration: #/register
-// 2. Registration confirmation: #/registration-success
-// 3. Protected admin approval portal: #/admin
-// Root route #/ and unknown/old dashboard routes redirect to #/register
+// LogiSphere AI — Complete SaaS Website & Routing Entry
+// Professional Enterprise Platform Navigation:
+// - #/ or #/home           : SaaS Enterprise Landing Page
+// - #/features             : Deep-Dive Product Capabilities
+// - #/about                : Mission, Architecture & Security
+// - #/contact              : Enterprise Consultation Inquiry
+// - #/signin               : Static Sign In Experience (Navigates to Demo Dashboard)
+// - #/signup or #/register : Preserved Multi-Tenant Organization Registration
+// - #/check-status         : Dedicated Application & Approval Status Lookup
+// - #/demo-dashboard       : Simulated Executive Console with Static Telemetry
+// - #/registration-success : Preserved Registration Confirmation
+// - #/admin                : Protected Platform Admin Approval Portal
 // ==============================================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { Navbar } from './components/Navbar';
+import { Footer } from './components/Footer';
+import { Home } from './pages/Home';
+import { Features } from './pages/Features';
+import { About } from './pages/About';
+import { Contact } from './pages/Contact';
+import { SignIn } from './pages/SignIn';
+import { DemoDashboard } from './pages/DemoDashboard';
+import { CheckStatus } from './pages/CheckStatus';
 import { OrganizationRegistration } from './pages/OrganizationRegistration';
 import { RegistrationConfirmation } from './pages/RegistrationConfirmation';
 import { AdminLogin } from './pages/admin/AdminLogin';
@@ -16,7 +31,8 @@ import { adminService } from './services/adminService';
 import type { OrgRegistrationResponseData, AdminUser } from './types';
 
 export function App() {
-  const [route, setRoute] = useState<string>('register');
+  const [route, setRoute] = useState<string>('home');
+  const [demoUserEmail, setDemoUserEmail] = useState<string>('manager@logisphere.ai');
   const [registeredOrg, setRegisteredOrg] = useState<OrgRegistrationResponseData | null>(() => {
     try {
       const saved = sessionStorage.getItem('last_registered_org');
@@ -44,46 +60,65 @@ export function App() {
     };
   }, []);
 
-  // 2. Hash router: sync with URL hash, handle redirects
-  useEffect(() => {
-    const handleHashSync = () => {
-      const rawHash = window.location.hash.replace(/^#\/?/, '').trim();
-      const currentPath = rawHash.split('?')[0];
+  // 2. Hash router: sync with URL hash, handle deep links and back/forward navigation
+  const syncRouteWithHash = useCallback(() => {
+    const rawHash = window.location.hash.replace(/^#\/?/, '').trim();
+    const currentPath = rawHash.split('?')[0].toLowerCase();
 
-      if (currentPath === 'register') {
-        setRoute('register');
-      } else if (currentPath === 'registration-success') {
-        let currentOrg = registeredOrg;
-        if (!currentOrg) {
-          try {
-            const saved = sessionStorage.getItem('last_registered_org');
-            if (saved) {
-              currentOrg = JSON.parse(saved);
-              setRegisteredOrg(currentOrg);
-            }
-          } catch {
-            currentOrg = null;
+    if (!currentPath || currentPath === 'home') {
+      setRoute('home');
+    } else if (currentPath === 'features') {
+      setRoute('features');
+    } else if (currentPath === 'about') {
+      setRoute('about');
+    } else if (currentPath === 'contact') {
+      setRoute('contact');
+    } else if (currentPath === 'signin' || currentPath === 'login') {
+      setRoute('signin');
+    } else if (currentPath === 'signup' || currentPath === 'register') {
+      setRoute('signup');
+    } else if (currentPath === 'check-status' || currentPath === 'status') {
+      setRoute('check-status');
+    } else if (currentPath === 'demo-dashboard' || currentPath === 'dashboard-preview') {
+      setRoute('demo-dashboard');
+    } else if (currentPath === 'registration-success') {
+      let currentOrg = registeredOrg;
+      if (!currentOrg) {
+        try {
+          const saved = sessionStorage.getItem('last_registered_org');
+          if (saved) {
+            currentOrg = JSON.parse(saved);
+            setRegisteredOrg(currentOrg);
           }
+        } catch {
+          currentOrg = null;
         }
-
-        if (currentOrg) {
-          setRoute('registration-success');
-        } else {
-          // If no successful registration data, redirect to registration
-          window.location.hash = '#/register';
-        }
-      } else if (currentPath.startsWith('admin')) {
-        setRoute('admin');
-      } else {
-        // Root route #/ and unknown or old dashboard routes redirect to #/register
-        window.location.hash = '#/register';
       }
-    };
 
-    handleHashSync();
-    window.addEventListener('hashchange', handleHashSync);
-    return () => window.removeEventListener('hashchange', handleHashSync);
+      if (currentOrg) {
+        setRoute('registration-success');
+      } else {
+        window.location.hash = '#/signup';
+      }
+    } else if (currentPath.startsWith('admin')) {
+      setRoute('admin');
+    } else {
+      // Default fallback for unknown routes: redirect to Home
+      setRoute('home');
+    }
   }, [registeredOrg]);
+
+  useEffect(() => {
+    syncRouteWithHash();
+    window.addEventListener('hashchange', syncRouteWithHash);
+    return () => window.removeEventListener('hashchange', syncRouteWithHash);
+  }, [syncRouteWithHash]);
+
+  const handleNavigate = (newRoute: string) => {
+    setRoute(newRoute);
+    window.location.hash = `#/${newRoute}`;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const handleRegistrationSuccess = (data: OrgRegistrationResponseData) => {
     try {
@@ -103,8 +138,19 @@ export function App() {
     } catch {
       // safely ignored
     }
-    setRoute('register');
-    window.location.hash = '#/register';
+    setRoute('signup');
+    window.location.hash = '#/signup';
+  };
+
+  const handleSignInSuccess = (email: string) => {
+    setDemoUserEmail(email);
+    setRoute('demo-dashboard');
+    window.location.hash = '#/demo-dashboard';
+  };
+
+  const handleDemoSignOut = () => {
+    setRoute('signin');
+    window.location.hash = '#/signin';
   };
 
   const handleAdminLoginSuccess = (admin: AdminUser) => {
@@ -118,18 +164,18 @@ export function App() {
     window.location.hash = '#/admin';
   };
 
-  // Route: `#/admin`
+  // Route: `#/admin` (Platform Governance & Approval Dashboard)
   if (route === 'admin') {
     if (checkingSession) {
       return (
         <div
           style={{
             minHeight: '100vh',
-            background: '#0a0f1d',
+            background: '#F3F4F6',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#94a3b8',
+            color: '#4B5563',
             fontSize: '0.9rem',
           }}
         >
@@ -142,9 +188,7 @@ export function App() {
       return (
         <AdminLogin
           onSuccess={handleAdminLoginSuccess}
-          onExit={() => {
-            window.location.hash = '#/register';
-          }}
+          onExit={() => handleNavigate('home')}
         />
       );
     }
@@ -157,47 +201,53 @@ export function App() {
     );
   }
 
-  // Route: `#/registration-success`
-  const activeRegisteredOrg =
-    registeredOrg ||
-    (() => {
-      try {
-        const saved = sessionStorage.getItem('last_registered_org');
-        return saved ? JSON.parse(saved) : null;
-      } catch {
-        return null;
-      }
-    })();
-
-  if (route === 'registration-success' && activeRegisteredOrg) {
+  // Route: `#/demo-dashboard` (Simulated Executive Dashboard Preview)
+  if (route === 'demo-dashboard') {
     return (
-      <div className="public-portal-wrapper">
-        <header className="public-header-bar">
-          <div className="public-header-brand">
-            <span style={{ color: '#3b82f6', fontWeight: 800 }}>LogiSphere</span> AI
-          </div>
-          <span className="public-header-tag">Registration Status</span>
-        </header>
-        <RegistrationConfirmation
-          data={activeRegisteredOrg}
-          onRegisterAnother={handleRegisterAnother}
-        />
-      </div>
+      <DemoDashboard
+        userEmail={demoUserEmail}
+        onSignOut={handleDemoSignOut}
+        onNavigateHome={() => handleNavigate('home')}
+      />
     );
   }
 
-  // Route: `#/register` (Default & Redirect Target)
+  // Render SaaS Website Shell (Navbar + Content + Footer)
   return (
-    <div className="public-portal-wrapper">
-      <header className="public-header-bar">
-        <div className="public-header-brand">
-          <span style={{ color: '#3b82f6', fontWeight: 800 }}>LogiSphere</span> AI
-        </div>
-        <span className="public-header-tag">Company Onboarding</span>
-      </header>
-      <OrganizationRegistration
-        onSuccess={handleRegistrationSuccess}
-      />
+    <div className="saas-layout">
+      <Navbar currentRoute={route} onNavigate={handleNavigate} />
+
+      <main style={{ minHeight: 'calc(100vh - 72px - 280px)' }}>
+        {route === 'home' && <Home onNavigate={handleNavigate} />}
+        {route === 'features' && <Features onNavigate={handleNavigate} />}
+        {route === 'about' && <About onNavigate={handleNavigate} />}
+        {route === 'contact' && <Contact onNavigate={handleNavigate} />}
+        {route === 'signin' && (
+          <SignIn
+            onNavigate={handleNavigate}
+            onLoginSuccess={handleSignInSuccess}
+          />
+        )}
+        {route === 'signup' && (
+          <div style={{ padding: '2.5rem 1rem 4rem' }}>
+            <OrganizationRegistration
+              onSuccess={handleRegistrationSuccess}
+              onNavigateStatus={() => handleNavigate('check-status')}
+            />
+          </div>
+        )}
+        {route === 'check-status' && <CheckStatus onNavigate={handleNavigate} />}
+        {route === 'registration-success' && registeredOrg && (
+          <div style={{ padding: '2.5rem 1rem 4rem' }}>
+            <RegistrationConfirmation
+              data={registeredOrg}
+              onRegisterAnother={handleRegisterAnother}
+            />
+          </div>
+        )}
+      </main>
+
+      <Footer onNavigate={handleNavigate} />
     </div>
   );
 }
