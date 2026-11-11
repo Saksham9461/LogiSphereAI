@@ -7,6 +7,7 @@
 @import './styles/saas.css';
 @import './styles/registration.css';
 @import './styles/admin.css';
+@import './styles/app.css';
 
 #root {
   min-height: 100vh;

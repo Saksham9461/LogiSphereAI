@@ -1,16 +1,31 @@
 // ==============================================================================
-// LogiSphere AI — Complete SaaS Website & Routing Entry
-// Professional Enterprise Platform Navigation:
+// LogiSphere AI — Complete SaaS Website & Authenticated Application Entry
+// Comprehensive Enterprise Platform Routing:
+// Public Marketing Routes:
 // - #/ or #/home           : SaaS Enterprise Landing Page
 // - #/features             : Deep-Dive Product Capabilities
 // - #/about                : Mission, Architecture & Security
 // - #/contact              : Enterprise Consultation Inquiry
-// - #/signin               : Static Sign In Experience (Navigates to Demo Dashboard)
+// - #/signin               : Authenticated Sign In Experience (POST /api/auth/login)
 // - #/signup or #/register : Preserved Multi-Tenant Organization Registration
 // - #/check-status         : Dedicated Application & Approval Status Lookup
-// - #/demo-dashboard       : Simulated Executive Console with Static Telemetry
+// - #/demo-dashboard       : Simulated Executive Console Preview
 // - #/registration-success : Preserved Registration Confirmation
 // - #/admin                : Protected Platform Admin Approval Portal
+// Authenticated Operations Modules (Guarded by RBAC & Session State):
+// - #/dashboard            : Fleet Operations Command Console
+// - #/vehicles             : Commercial Fleet Registry (CRUD)
+// - #/drivers              : Driver Operations Roster & Credentials
+// - #/trips                : Trip Dispatcher, Delay AI & Weather
+// - #/tracking             : Live GIS Telematics & WebSocket Stream
+// - #/attendance           : Geofenced Shift Verification & Reports
+// - #/maintenance          : Maintenance Work Orders & Predictive Health
+// - #/fuel-expenses        : Fuel Logs & Expense Accounting
+// - #/alerts               : Emergency SOS Incident Command
+// - #/chat                 : Real-time Team Communications
+// - #/ai                   : AI Fleet Operations Assistant (Gemini)
+// - #/carbon               : Carbon Intelligence & Decarbonization
+// - #/profile              : Account Profile & Password Management
 // ==============================================================================
 
 import { useState, useEffect, useCallback } from 'react';
@@ -28,9 +43,49 @@ import { RegistrationConfirmation } from './pages/RegistrationConfirmation';
 import { AdminLogin } from './pages/admin/AdminLogin';
 import { AdminApprovalDashboard } from './pages/admin/AdminApprovalDashboard';
 import { adminService } from './services/adminService';
+
+// Authenticated Application Views
+import { AppShell } from './components/app/AppShell';
+import { DashboardView } from './pages/app/DashboardView';
+import { VehiclesView } from './pages/app/VehiclesView';
+import { DriversView } from './pages/app/DriversView';
+import { TripsView } from './pages/app/TripsView';
+import { LiveTrackingView } from './pages/app/LiveTrackingView';
+import { AttendanceView } from './pages/app/AttendanceView';
+import { MaintenanceView } from './pages/app/MaintenanceView';
+import { FuelExpenseView } from './pages/app/FuelExpenseView';
+import { AlertsView } from './pages/app/AlertsView';
+import { ChatView } from './pages/app/ChatView';
+import { AIAssistantView } from './pages/app/AIAssistantView';
+import { CarbonView } from './pages/app/CarbonView';
+import { ProfileView } from './pages/app/ProfileView';
+import { AnalyticsView } from './pages/app/AnalyticsView';
+
+import { useAuth } from './stores/authStore';
+import { isRouteAllowed } from './utils/rbac';
 import type { OrgRegistrationResponseData, AdminUser } from './types';
+import { ShieldAlert, ArrowLeft } from 'lucide-react';
+import { AppSplashScreen } from './components/Loader';
+
+const APP_ROUTES = new Set([
+  'dashboard',
+  'vehicles',
+  'drivers',
+  'trips',
+  'tracking',
+  'attendance',
+  'maintenance',
+  'fuel-expenses',
+  'alerts',
+  'chat',
+  'ai',
+  'carbon',
+  'profile',
+  'analytics',
+]);
 
 export function App() {
+  const { user, isAuthenticated, loading: authLoading } = useAuth();
   const [route, setRoute] = useState<string>('home');
   const [demoUserEmail, setDemoUserEmail] = useState<string>('manager@logisphere.ai');
   const [registeredOrg, setRegisteredOrg] = useState<OrgRegistrationResponseData | null>(() => {
@@ -47,7 +102,7 @@ export function App() {
   // 1. Session verification: Check active platform admin session on boot
   useEffect(() => {
     let isMounted = true;
-    adminService.verifyAdminSession().then(verifiedAdmin => {
+    adminService.verifyAdminSession().then((verifiedAdmin) => {
       if (isMounted) {
         if (verifiedAdmin) {
           setAdminUser(verifiedAdmin);
@@ -74,7 +129,11 @@ export function App() {
     } else if (currentPath === 'contact') {
       setRoute('contact');
     } else if (currentPath === 'signin' || currentPath === 'login') {
-      setRoute('signin');
+      if (isAuthenticated) {
+        setRoute('dashboard');
+      } else {
+        setRoute('signin');
+      }
     } else if (currentPath === 'signup' || currentPath === 'register') {
       setRoute('signup');
     } else if (currentPath === 'check-status' || currentPath === 'status') {
@@ -102,11 +161,18 @@ export function App() {
       }
     } else if (currentPath.startsWith('admin')) {
       setRoute('admin');
+    } else if (APP_ROUTES.has(currentPath)) {
+      if (!isAuthenticated && !authLoading) {
+        window.location.hash = '#/signin';
+        setRoute('signin');
+      } else {
+        setRoute(currentPath);
+      }
     } else {
       // Default fallback for unknown routes: redirect to Home
       setRoute('home');
     }
-  }, [registeredOrg]);
+  }, [registeredOrg, isAuthenticated, authLoading]);
 
   useEffect(() => {
     syncRouteWithHash();
@@ -144,8 +210,8 @@ export function App() {
 
   const handleSignInSuccess = (email: string) => {
     setDemoUserEmail(email);
-    setRoute('demo-dashboard');
-    window.location.hash = '#/demo-dashboard';
+    setRoute('dashboard');
+    window.location.hash = '#/dashboard';
   };
 
   const handleDemoSignOut = () => {
@@ -168,19 +234,10 @@ export function App() {
   if (route === 'admin') {
     if (checkingSession) {
       return (
-        <div
-          style={{
-            minHeight: '100vh',
-            background: '#F3F4F6',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#4B5563',
-            fontSize: '0.9rem',
-          }}
-        >
-          <span>Verifying administrator session...</span>
-        </div>
+        <AppSplashScreen
+          title="LogiSphere Admin"
+          subtitle="Verifying platform administrator credentials..."
+        />
       );
     }
 
@@ -210,6 +267,65 @@ export function App() {
         onNavigateHome={() => handleNavigate('home')}
       />
     );
+  }
+
+  // Authenticated Operations Application (Inside Executive AppShell)
+  if (APP_ROUTES.has(route)) {
+    if (authLoading) {
+      return (
+        <AppSplashScreen
+          title="LogiSphere AI"
+          subtitle="Verifying operational fleet session..."
+        />
+      );
+    }
+
+    if (isAuthenticated) {
+      const isAllowed = isRouteAllowed(user?.role, route);
+
+      return (
+        <AppShell currentRoute={route} onNavigate={handleNavigate}>
+          {!isAllowed ? (
+            <div className="app-card" style={{ textAlign: 'center', padding: '3.5rem 1.5rem' }}>
+              <div style={{ background: '#FEE2E2', width: 56, height: 56, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem auto' }}>
+                <ShieldAlert size={28} color="#DC2626" />
+              </div>
+              <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#111827', marginBottom: '0.5rem' }}>
+                Access Restricted
+              </h2>
+              <p style={{ color: '#4B5563', maxWidth: 460, margin: '0 auto 1.5rem auto', fontSize: '0.9rem', lineHeight: 1.5 }}>
+                Your assigned role (<strong>{user?.role?.replace(/ROLE_/g, '').replace(/_/g, ' ')}</strong>) does not have authorization to view this module.
+              </p>
+              <button
+                type="button"
+                onClick={() => handleNavigate('dashboard')}
+                className="btn-primary"
+              >
+                <ArrowLeft size={16} />
+                <span>Return to Command Console</span>
+              </button>
+            </div>
+          ) : (
+            <>
+              {route === 'dashboard' && <DashboardView onNavigate={handleNavigate} />}
+              {route === 'vehicles' && <VehiclesView />}
+              {route === 'drivers' && <DriversView />}
+              {route === 'trips' && <TripsView />}
+              {route === 'tracking' && <LiveTrackingView />}
+              {route === 'attendance' && <AttendanceView />}
+              {route === 'maintenance' && <MaintenanceView />}
+              {route === 'fuel-expenses' && <FuelExpenseView />}
+              {route === 'alerts' && <AlertsView />}
+              {route === 'chat' && <ChatView />}
+              {route === 'ai' && <AIAssistantView onNavigate={handleNavigate} />}
+              {route === 'carbon' && <CarbonView />}
+              {route === 'profile' && <ProfileView />}
+              {route === 'analytics' && <AnalyticsView />}
+            </>
+          )}
+        </AppShell>
+      );
+    }
   }
 
   // Render SaaS Website Shell (Navbar + Content + Footer)
