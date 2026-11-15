@@ -56,7 +56,7 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({ onNavigate }) 
       text: isDriver
         ? "Hello! I am your LogiSphere Fleet Assistant. You can ask me about your assigned trips, your current vehicle, or your today's attendance status."
         : 'Welcome to the LogiSphere AI Operations Console. Ask me any natural-language question regarding active dispatches, live GPS tracking, vehicle maintenance, or driver shifts.',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }),
     },
   ]);
 
@@ -82,7 +82,7 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({ onNavigate }) 
       id: `u-${Date.now()}`,
       sender: 'user',
       text: q,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }),
     };
 
     setMessages((prev) => [...prev, userMsg]);
@@ -99,7 +99,7 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({ onNavigate }) 
         sender: 'assistant',
         text: res.message || 'Analysis complete.',
         response: res,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }),
       };
 
       setMessages((prev) => [...prev, botMsg]);
@@ -108,7 +108,7 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({ onNavigate }) 
         id: `err-${Date.now()}`,
         sender: 'assistant',
         text: err?.response?.data?.message || err?.message || 'Sorry, I encountered an error executing that fleet query.',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }),
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {

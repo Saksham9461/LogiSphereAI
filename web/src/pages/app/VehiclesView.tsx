@@ -18,7 +18,7 @@ import { useAuth } from '../../stores/authStore';
 import { fleetService } from '../../services/fleetService';
 import type { Vehicle } from '../../types';
 import { hasPermission, Permission } from '../../utils/rbac';
-import { Loader } from '../../components/Loader';
+import { Loader, FullScreenLoader } from '../../components/Loader';
 
 export const VehiclesView: React.FC = () => {
   const { user } = useAuth();
@@ -185,6 +185,13 @@ export const VehiclesView: React.FC = () => {
 
   return (
     <div>
+      {/* Full-Screen Loader matching App/ while data is loading */}
+      <FullScreenLoader
+        show={loading}
+        text="Loading Commercial Fleet Registry..."
+        subtext="Retrieving registered commercial vehicles and statuses..."
+      />
+
       {/* Top Action Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
@@ -295,9 +302,6 @@ export const VehiclesView: React.FC = () => {
                         </div>
                         <div>
                           <div style={{ fontWeight: 700, color: '#111827' }}>{v.name}</div>
-                          <div className="ops-mono" style={{ fontSize: '0.72rem', color: '#6B7280' }}>
-                            ID: {v.vehicleID || v.id}
-                          </div>
                         </div>
                       </div>
                     </td>
@@ -309,7 +313,7 @@ export const VehiclesView: React.FC = () => {
                     </td>
                     <td>{(v.maxLoadCapacity || v.capacity || 0).toLocaleString()} kg</td>
                     <td className="ops-mono">{(v.odometer || 0).toLocaleString()} km</td>
-                    <td>${(v.acquisitionCost || v.cost || 0).toLocaleString()}</td>
+                    <td>₹{(v.acquisitionCost || v.cost || 0).toLocaleString()}</td>
                     <td>{getStatusBadge(v.status)}</td>
                     {(canUpdate || canDelete) && (
                       <td style={{ textAlign: 'right' }}>
@@ -474,7 +478,7 @@ export const VehiclesView: React.FC = () => {
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-                    Cost ($)
+                    Cost (₹)
                   </label>
                   <input
                     type="number"

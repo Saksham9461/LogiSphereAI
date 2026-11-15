@@ -10,13 +10,13 @@ import {
   Search,
   RefreshCw,
   AlertTriangle,
-  DollarSign,
+  IndianRupee,
   Fuel,
   Gauge,
   Percent,
 } from 'lucide-react';
 import { dashboardService } from '../../services/dashboardService';
-import { Loader } from '../../components/Loader';
+import { Loader, FullScreenLoader } from '../../components/Loader';
 
 const COLOR_PALETTE = ['#F43F5E', '#F59E0B', '#3B82F6', '#14B8A6', '#8B5CF6'];
 
@@ -81,9 +81,9 @@ export const AnalyticsView: React.FC = () => {
         },
         {
           label: 'Operational Cost',
-          value: `$${operationalCost.toLocaleString()}`,
+          value: `₹${operationalCost.toLocaleString()}`,
           accent: '#F59E0B',
-          icon: DollarSign,
+          icon: IndianRupee,
         },
         {
           label: 'Vehicle ROI',
@@ -153,6 +153,13 @@ export const AnalyticsView: React.FC = () => {
 
   return (
     <div>
+      {/* Full-Screen Loader matching App/ while data is loading */}
+      <FullScreenLoader
+        show={loading}
+        text="Loading Financial & Operational Analytics..."
+        subtext="Aggregating telemetry costs, yield curves, and efficiency metrics..."
+      />
+
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
@@ -248,7 +255,7 @@ export const AnalyticsView: React.FC = () => {
             <div className="app-card-header">
               <div className="app-card-title">
                 <TrendingUp size={18} color="#F59E0B" />
-                <span>Monthly Revenue Yield ($ in Thousands)</span>
+                <span>Monthly Revenue Yield (₹ in Thousands)</span>
               </div>
             </div>
 
@@ -287,7 +294,7 @@ export const AnalyticsView: React.FC = () => {
                           marginBottom: '0.4rem',
                         }}
                       >
-                        ${item.revenue}k
+                        ₹{item.revenue}k
                       </div>
                       <div
                         style={{
@@ -298,7 +305,7 @@ export const AnalyticsView: React.FC = () => {
                           transition: 'height 0.3s ease',
                           minHeight: 12,
                         }}
-                        title={`${item.month}: $${item.revenue}k`}
+                        title={`${item.month}: ₹${item.revenue}k`}
                       />
                       <div
                         style={{
@@ -356,7 +363,7 @@ export const AnalyticsView: React.FC = () => {
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.875rem' }}>
                         <span style={{ fontWeight: 700, color: '#111827' }}>{v.name}</span>
                         <span className="ops-mono" style={{ fontWeight: 700, color: '#111827' }}>
-                          ${v.cost.toLocaleString()}
+                          ₹{v.cost.toLocaleString()}
                         </span>
                       </div>
                       <div style={{ width: '100%', height: 10, background: '#F3F4F6', borderRadius: 999, overflow: 'hidden' }}>

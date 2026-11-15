@@ -85,18 +85,17 @@ export const AppShell: React.FC<AppShellProps> = ({
   const navItems = getNavItemsForRole(user?.role);
   const canonicalRole = normalizeRole(user?.role);
 
-  // Live operational clock
+  // Live operational clock (strictly 12-hour format: hh:mm:ss AM/PM)
   useEffect(() => {
     const update = () => {
       const now = new Date();
-      setLiveTime(
-        now.toLocaleTimeString('en-US', {
-          hour12: false,
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-        })
-      );
+      let hours = now.getHours();
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      const formattedHours = String(hours ? hours : 12).padStart(2, '0');
+      setLiveTime(`${formattedHours}:${minutes}:${seconds} ${ampm}`);
     };
     update();
     const interval = setInterval(update, 1000);
@@ -208,9 +207,6 @@ export const AppShell: React.FC<AppShellProps> = ({
           <div className="sidebar-full-only" style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#111827', letterSpacing: '-0.02em' }}>
               LogiSphere<span style={{ color: '#F59E0B' }}> AI</span>
-            </div>
-            <div style={{ fontSize: '0.72rem', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Enterprise SaaS
             </div>
           </div>
 
@@ -471,7 +467,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                   background: '#10B981',
                 }}
               />
-              <span>{liveTime || '00:00:00'}</span>
+              <span>{liveTime || '12:00:00 AM'}</span>
             </div>
 
             {/* Active Emergency SOS Alert Pill */}

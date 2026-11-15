@@ -22,7 +22,7 @@ import { useAuth } from '../../stores/authStore';
 import { fleetService } from '../../services/fleetService';
 import type { Driver } from '../../types';
 import { hasPermission, Permission } from '../../utils/rbac';
-import { Loader } from '../../components/Loader';
+import { Loader, FullScreenLoader } from '../../components/Loader';
 
 export const DriversView: React.FC = () => {
   const { user } = useAuth();
@@ -193,6 +193,13 @@ export const DriversView: React.FC = () => {
 
   return (
     <div>
+      {/* Full-Screen Loader matching App/ while data is loading */}
+      <FullScreenLoader
+        show={loading}
+        text="Loading Driver Operations Roster..."
+        subtext="Retrieving driver credentials, safety ratings, and duty statuses..."
+      />
+
       {/* Top Action Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
@@ -290,9 +297,6 @@ export const DriversView: React.FC = () => {
                         </div>
                         <div>
                           <div style={{ fontWeight: 700, color: '#111827' }}>{drv.name}</div>
-                          <div className="ops-mono" style={{ fontSize: '0.72rem', color: '#6B7280' }}>
-                            ID: {drv.driverID || drv.userID || drv.id}
-                          </div>
                         </div>
                       </div>
                     </td>

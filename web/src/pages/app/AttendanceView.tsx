@@ -12,9 +12,10 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../stores/authStore';
 import { attendanceService } from '../../services/attendanceService';
-import type { AttendanceRecord, AttendanceStatusResponse } from '../../types';
+import { fleetService } from '../../services/fleetService';
+import type { AttendanceRecord, AttendanceStatusResponse, Driver } from '../../types';
 import { hasPermission, Permission } from '../../utils/rbac';
-import { Loader, ActivityIndicator } from '../../components/Loader';
+import { Loader, ActivityIndicator, FullScreenLoader } from '../../components/Loader';
 
 export const AttendanceView: React.FC = () => {
   const { user } = useAuth();
@@ -23,6 +24,7 @@ export const AttendanceView: React.FC = () => {
 
   const [statusData, setStatusData] = useState<AttendanceStatusResponse | null>(null);
   const [reportRecords, setReportRecords] = useState<AttendanceRecord[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,8 +54,12 @@ export const AttendanceView: React.FC = () => {
       setStatusData(data);
 
       if (canViewOrgReport) {
-        const report = await attendanceService.getAttendanceReport();
+        const [report, dList] = await Promise.all([
+          attendanceService.getAttendanceReport(),
+          fleetService.getDrivers().catch(() => []),
+        ]);
         setReportRecords(report);
+        setDrivers(dList || []);
       }
     } catch (err: any) {
       console.error('Failed to load attendance status', err);
@@ -164,6 +170,13 @@ export const AttendanceView: React.FC = () => {
 
   return (
     <div>
+      {/* Full-Screen Loader matching App/ while data is loading */}
+      <FullScreenLoader
+        show={loading || actionLoading}
+        text={actionLoading ? 'Registering Shift Attendance...' : 'Loading Attendance & Shift Ledger...'}
+        subtext="Verifying geofence coordinates and shift duty ledger..."
+      />
+
       {/* Top Action Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
@@ -336,9 +349,25 @@ export const AttendanceView: React.FC = () => {
                     <tr key={rec.id}>
                       <td className="ops-mono" style={{ fontWeight: 600 }}>{rec.date}</td>
                       <td>
-                        <span style={{ fontWeight: 700, color: '#111827' }}>
-                          {rec.userId ? `User #${rec.userId.slice(0, 8)}` : 'Fleet Driver'}
-                        </span>
+                        {(() => {
+                          const staffName = (rec as any).staffName || (rec as any).userName || (rec as any).name;
+                          const found = drivers.find((d) => String(d.id || d.userID || d.driverID || '').toLowerCase() === String(rec.userId || '').toLowerCase());
+                          const resolvedName = staffName || found?.name || (rec.userId === user?.id ? user?.name : 'Fleet Staff Member');
+                          const resolvedRole = (rec as any).staffRole || found?.role;
+
+                          return (
+                            <div>
+                              <div style={{ fontWeight: 700, color: '#111827' }}>
+                                {resolvedName}
+                              </div>
+                              {resolvedRole && (
+                                <div style={{ fontSize: '0.72rem', color: '#6B7280', textTransform: 'capitalize' }}>
+                                  {String(resolvedRole).replace(/ROLE_/g, '').replace(/_/g, ' ').toLowerCase()}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="ops-mono">{rec.clockInTime || 'N/A'}</td>
                       <td className="ops-mono">{rec.clockOutTime || 'Active on Duty'}</td>

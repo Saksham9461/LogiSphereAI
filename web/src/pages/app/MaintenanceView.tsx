@@ -17,7 +17,7 @@ import type { MaintenanceForecastItem } from '../../services/maintenanceService'
 import { fleetService } from '../../services/fleetService';
 import type { MaintenanceRecord, Vehicle } from '../../types';
 import { hasPermission, Permission } from '../../utils/rbac';
-import { Loader } from '../../components/Loader';
+import { Loader, FullScreenLoader } from '../../components/Loader';
 
 export const MaintenanceView: React.FC = () => {
   const { user } = useAuth();
@@ -116,6 +116,13 @@ export const MaintenanceView: React.FC = () => {
 
   return (
     <div>
+      {/* Full-Screen Loader matching App/ while data is loading */}
+      <FullScreenLoader
+        show={loading}
+        text="Loading Vehicle Maintenance Records..."
+        subtext="Syncing shop work orders and predictive maintenance forecasts..."
+      />
+
       {/* Top Action Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
@@ -170,10 +177,10 @@ export const MaintenanceView: React.FC = () => {
             {forecasts.slice(0, 3).map((f) => (
               <div key={f.vehicleID} style={{ background: '#FFFFFF', padding: '0.65rem 0.85rem', borderRadius: 8, border: '1px solid #FEF3C7' }}>
                 <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#111827' }}>
-                  {f.name || `Vehicle ${f.vehicleID}`}
+                  {f.name || vehicles.find(v => (v.vehicleID || v.id) === f.vehicleID)?.name || 'Fleet Commercial Vehicle'}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: '#B45309', marginTop: 2 }}>
-                  Risk: <strong>{f.riskLevel || 'Elevated'}</strong> • Projected Cost: ${f.projectedCost || 350}
+                  Risk: <strong>{f.riskLevel || 'Elevated'}</strong> • Projected Cost: ₹{f.projectedCost || 350}
                 </div>
                 <div style={{ fontSize: '0.72rem', color: '#6B7280', marginTop: 2 }}>
                   {f.recommendedAction || 'Schedule fluid and brake inspection'}
@@ -213,15 +220,17 @@ export const MaintenanceView: React.FC = () => {
                       </td>
                       <td>
                         <div style={{ fontWeight: 700, color: '#111827' }}>
-                          {v ? v.name : `Vehicle #${rec.vehicleID}`}
+                          {v ? v.name : ((rec as any).vehicleName || 'Commercial Vehicle')}
                         </div>
-                        <div className="ops-mono" style={{ fontSize: '0.72rem', color: '#6B7280' }}>
-                          ID: {rec.vehicleID}
-                        </div>
+                        {v?.registrationNumber && (
+                          <div className="ops-mono" style={{ fontSize: '0.72rem', color: '#6B7280' }}>
+                            {v.registrationNumber}
+                          </div>
+                        )}
                       </td>
                       <td style={{ fontWeight: 600 }}>{rec.serviceType || rec.service}</td>
                       <td className="ops-mono">{rec.date}</td>
-                      <td style={{ fontWeight: 700 }}>${rec.cost.toLocaleString()}</td>
+                      <td style={{ fontWeight: 700 }}>₹{rec.cost.toLocaleString()}</td>
                       <td>
                         <span className={`badge ${isCompleted ? 'badge-success' : 'badge-danger'}`}>
                           {isCompleted ? 'Completed' : 'Active In Shop'}
@@ -321,7 +330,7 @@ export const MaintenanceView: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-                    Estimated Cost ($)
+                    Estimated Cost (₹)
                   </label>
                   <input
                     type="number"

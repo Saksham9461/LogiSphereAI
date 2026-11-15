@@ -15,6 +15,7 @@ import {
 import { useAuth } from '../../stores/authStore';
 import { chatService } from '../../services/chatService';
 import type { ChatUser, ChatMessage, ConversationSummary } from '../../types';
+import { FullScreenLoader } from '../../components/Loader';
 
 export const ChatView: React.FC = () => {
   const { user } = useAuth();
@@ -165,6 +166,13 @@ export const ChatView: React.FC = () => {
 
   return (
     <div>
+      {/* Full-Screen Loader matching App/ while data is loading */}
+      <FullScreenLoader
+        show={loading}
+        text="Connecting Fleet Team Directory..."
+        subtext="Syncing colleague roster and active direct messages..."
+      />
+
       {/* Top Action Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
@@ -431,7 +439,7 @@ export const ChatView: React.FC = () => {
                       </div>
 
                       <div style={{ fontSize: '0.68rem', color: '#9CA3AF', marginTop: 3, display: 'flex', alignItems: 'center', gap: 3 }}>
-                        <span>{new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span>{new Date(m.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}</span>
                         {isMine && (
                           m.status === 'READ' ? <CheckCheck size={12} color="#10B981" /> : <Check size={12} />
                         )}

@@ -19,7 +19,7 @@ import { tripService } from '../../services/tripService';
 import { fleetService } from '../../services/fleetService';
 import type { Trip, Vehicle, Driver } from '../../types';
 import { hasPermission, Permission, CanonicalRole, normalizeRole } from '../../utils/rbac';
-import { Loader } from '../../components/Loader';
+import { Loader, FullScreenLoader } from '../../components/Loader';
 
 export const TripsView: React.FC = () => {
   const { user } = useAuth();
@@ -87,11 +87,68 @@ export const TripsView: React.FC = () => {
     }
   };
 
+  const getVehicleInfo = (trip: any) => {
+    const rawId = String(trip.vehicleID || trip.vehicleid || '').trim();
+    const explicitName = trip.vehicleName && trip.vehicleName !== rawId ? trip.vehicleName : null;
+    const explicitPlate = trip.registrationNumber || trip.vehiclePlate || trip.reg || null;
+
+    if (explicitName && explicitPlate) {
+      return { name: explicitName, plate: explicitPlate };
+    }
+
+    const normId = rawId.toLowerCase();
+    const match = vehicles.find((v) => {
+      const vid = String(v.id || v.vehicleID || '').toLowerCase();
+      const vreg = String(v.registrationNumber || v.reg || '').toLowerCase();
+      return (vid && vid === normId) || (vreg && vreg === normId);
+    });
+
+    if (match) {
+      return {
+        name: match.name || explicitName || match.registrationNumber || rawId || 'Assigned Vehicle',
+        plate: match.registrationNumber || match.reg || explicitPlate || rawId,
+      };
+    }
+
+    return {
+      name: explicitName || rawId || 'Assigned Vehicle',
+      plate: explicitPlate || (rawId ? rawId : undefined),
+    };
+  };
+
+  const getDriverInfo = (trip: any) => {
+    const rawId = String(trip.driverID || trip.driverid || '').trim();
+    const explicitName = trip.driverName && trip.driverName !== rawId ? trip.driverName : null;
+
+    if (explicitName) {
+      return { name: explicitName };
+    }
+
+    const normId = rawId.toLowerCase();
+    const match = drivers.find((d) => {
+      const did = String(d.id || d.driverID || d.userID || '').toLowerCase();
+      return did && did === normId;
+    });
+
+    if (match) {
+      return {
+        name: match.name || match.email?.split('@')[0] || rawId || 'Assigned Driver',
+        contact: match.phoneNo || match.email,
+      };
+    }
+
+    if (isDriver && user?.name) {
+      return { name: user.name, contact: user.email };
+    }
+
+    return {
+      name: explicitName || rawId || 'Assigned Driver',
+    };
+  };
+
   useEffect(() => {
     fetchTrips();
-    if (canCreate) {
-      loadResources();
-    }
+    loadResources();
   }, []);
 
   const handleCreateTrip = async (e: React.FormEvent) => {
@@ -203,6 +260,13 @@ export const TripsView: React.FC = () => {
 
   return (
     <div>
+      {/* Full-Screen Loader matching App/ while data is loading */}
+      <FullScreenLoader
+        show={loading}
+        text="Loading Trip Dispatches & Telematics..."
+        subtext="Syncing active dispatches, commercial vehicles, and drivers..."
+      />
+
       {/* Top Action Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
@@ -325,8 +389,40 @@ export const TripsView: React.FC = () => {
                           Full: {trip.source} ➔ {trip.destination}
                         </div>
                       </td>
-                      <td className="ops-mono">{trip.vehicleName || trip.vehicleID}</td>
-                      <td>{trip.driverName || trip.driverID}</td>
+                      <td>
+                        {(() => {
+                          const vInfo = getVehicleInfo(trip);
+                          return (
+                            <div>
+                              <div style={{ fontWeight: 600, color: '#111827' }}>
+                                {vInfo.name}
+                              </div>
+                              {vInfo.plate && vInfo.plate !== vInfo.name && (
+                                <div style={{ fontSize: '0.72rem', color: '#6B7280' }} className="ops-mono">
+                                  {vInfo.plate}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td>
+                        {(() => {
+                          const dInfo = getDriverInfo(trip);
+                          return (
+                            <div>
+                              <div style={{ fontWeight: 600, color: '#111827' }}>
+                                {dInfo.name}
+                              </div>
+                              {dInfo.contact && (
+                                <div style={{ fontSize: '0.72rem', color: '#6B7280' }}>
+                                  {dInfo.contact}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td>{trip.cargoWeight ? `${trip.cargoWeight} kg` : 'N/A'}</td>
                       <td>{getStatusBadge(trip.status)}</td>
                       <td style={{ textAlign: 'right' }}>

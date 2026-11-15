@@ -17,7 +17,7 @@ import { fuelExpenseService } from '../../services/fuelExpenseService';
 import { fleetService } from '../../services/fleetService';
 import type { FuelLog, ExpenseRecord, Vehicle } from '../../types';
 import { hasPermission, Permission } from '../../utils/rbac';
-import { Loader } from '../../components/Loader';
+import { Loader, FullScreenLoader } from '../../components/Loader';
 
 export const FuelExpenseView: React.FC = () => {
   const { user } = useAuth();
@@ -145,6 +145,13 @@ export const FuelExpenseView: React.FC = () => {
 
   return (
     <div>
+      {/* Full-Screen Loader matching App/ while data is loading */}
+      <FullScreenLoader
+        show={loading}
+        text="Loading Fuel Refill & Expense Logs..."
+        subtext="Syncing fuel purchases, toll tolls, and expense ledgers..."
+      />
+
       {/* Top Action Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
@@ -202,7 +209,7 @@ export const FuelExpenseView: React.FC = () => {
         <div className="kpi-card">
           <span className="kpi-label">Total Fuel Purchases</span>
           <div className="kpi-value" style={{ color: '#111827' }}>
-            ${totalFuelCost.toLocaleString()}
+            ₹{totalFuelCost.toLocaleString()}
           </div>
           <span className="kpi-meta">{fuelLogs.length} logged fill-ups</span>
         </div>
@@ -218,7 +225,7 @@ export const FuelExpenseView: React.FC = () => {
         <div className="kpi-card">
           <span className="kpi-label">Disbursements & Expenses</span>
           <div className="kpi-value" style={{ color: '#3B82F6' }}>
-            ${totalExpenses.toLocaleString()}
+            ₹{totalExpenses.toLocaleString()}
           </div>
           <span className="kpi-meta">Tolls, maintenance, and fees</span>
         </div>
@@ -283,13 +290,20 @@ export const FuelExpenseView: React.FC = () => {
                           #{id.slice(0, 8)}
                         </td>
                         <td>
-                          <div style={{ fontWeight: 700, color: '#111827' }}>
-                            {v ? v.name : `Vehicle #${log.vehicleID}`}
+                          <div>
+                            <div style={{ fontWeight: 700, color: '#111827' }}>
+                              {v ? v.name : ((log as any).vehicleName || 'Commercial Vehicle')}
+                            </div>
+                            {v?.registrationNumber && (
+                              <div className="ops-mono" style={{ fontSize: '0.72rem', color: '#6B7280' }}>
+                                {v.registrationNumber}
+                              </div>
+                            )}
                           </div>
                         </td>
                         <td className="ops-mono">{log.date}</td>
                         <td style={{ fontWeight: 600 }}>{log.liters} L</td>
-                        <td style={{ fontWeight: 700 }}>${log.cost.toLocaleString()}</td>
+                        <td style={{ fontWeight: 700 }}>₹{log.cost.toLocaleString()}</td>
                         <td className="ops-mono">{log.odometer ? `${log.odometer.toLocaleString()} km` : 'N/A'}</td>
                       </tr>
                     );
@@ -339,15 +353,22 @@ export const FuelExpenseView: React.FC = () => {
                           #{id.slice(0, 8)}
                         </td>
                         <td>
-                          <div style={{ fontWeight: 700, color: '#111827' }}>
-                            {v ? v.name : `Vehicle #${exp.vehicleID}`}
+                          <div>
+                            <div style={{ fontWeight: 700, color: '#111827' }}>
+                              {v ? v.name : ((exp as any).vehicleName || 'Commercial Vehicle')}
+                            </div>
+                            {v?.registrationNumber && (
+                              <div className="ops-mono" style={{ fontSize: '0.72rem', color: '#6B7280' }}>
+                                {v.registrationNumber}
+                              </div>
+                            )}
                           </div>
                         </td>
-                        <td>${exp.toll.toLocaleString()}</td>
-                        <td>${exp.maint.toLocaleString()}</td>
-                        <td>${exp.other.toLocaleString()}</td>
+                        <td>₹{exp.toll.toLocaleString()}</td>
+                        <td>₹{exp.maint.toLocaleString()}</td>
+                        <td>₹{exp.other.toLocaleString()}</td>
                         <td style={{ fontWeight: 800, color: '#065F46' }}>
-                          ${exp.total.toLocaleString()}
+                          ₹{exp.total.toLocaleString()}
                         </td>
                       </tr>
                     );
@@ -429,7 +450,7 @@ export const FuelExpenseView: React.FC = () => {
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-                    Total Cost ($) *
+                    Total Cost (₹) *
                   </label>
                   <input
                     type="number"
@@ -526,7 +547,7 @@ export const FuelExpenseView: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-                    Toll Fee ($)
+                    Toll Fee (₹)
                   </label>
                   <input
                     type="number"
@@ -539,7 +560,7 @@ export const FuelExpenseView: React.FC = () => {
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-                    Maintenance ($)
+                    Maintenance (₹)
                   </label>
                   <input
                     type="number"
@@ -552,7 +573,7 @@ export const FuelExpenseView: React.FC = () => {
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-                    Other Fees ($)
+                    Other Fees (₹)
                   </label>
                   <input
                     type="number"

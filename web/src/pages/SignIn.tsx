@@ -12,9 +12,10 @@ import {
   ArrowRight,
   Shield,
   AlertCircle,
+  ChevronDown,
 } from 'lucide-react';
 import { useAuth } from '../stores/authStore';
-import { Loader, ActivityIndicator } from '../components/Loader';
+import { Loader, ActivityIndicator, FullScreenLoader } from '../components/Loader';
 
 interface SignInProps {
   onNavigate: (route: string) => void;
@@ -93,6 +94,13 @@ export const SignIn: React.FC<SignInProps> = ({ onNavigate, onLoginSuccess }) =>
 
   return (
     <div className="saas-main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3.5rem 1rem' }}>
+      {/* Full-Screen Loader matching App/ while signing in */}
+      <FullScreenLoader
+        show={loading}
+        text="Authenticating Credentials..."
+        subtext="Verifying organization tenant and permissions..."
+      />
+
       <div style={{ width: '100%', maxWidth: 460 }}>
         <div className="saas-form-card">
           <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
@@ -198,7 +206,15 @@ export const SignIn: React.FC<SignInProps> = ({ onNavigate, onLoginSuccess }) =>
                   className="saas-input"
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
-                  style={{ background: '#FFFFFF' }}
+                  style={{
+                    background: '#FFFFFF',
+                    paddingLeft: '2.85rem',
+                    paddingRight: '2.5rem',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    MozAppearance: 'none',
+                    cursor: 'pointer',
+                  }}
                 >
                   <option value="">Auto-Detect from Account</option>
                   <option value="ROLE_MANAGER">Fleet Operations Manager</option>
@@ -207,6 +223,15 @@ export const SignIn: React.FC<SignInProps> = ({ onNavigate, onLoginSuccess }) =>
                   <option value="ROLE_FINANCE">Financial Analyst</option>
                   <option value="ROLE_DRIVER">Fleet Driver</option>
                 </select>
+                <ChevronDown
+                  size={16}
+                  style={{
+                    position: 'absolute',
+                    right: '1rem',
+                    color: '#6B7280',
+                    pointerEvents: 'none',
+                  }}
+                />
               </div>
             </div>
 

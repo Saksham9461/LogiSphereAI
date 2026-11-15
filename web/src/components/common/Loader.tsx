@@ -282,6 +282,13 @@ export interface AppSplashScreenProps {
 }
 
 /**
+ * Full-screen loading overlay matching App/src/components/Loader.tsx
+ */
+export const FullScreenLoader: React.FC<LoaderProps> = (props) => {
+  return <Loader {...props} inline={false} />;
+};
+
+/**
  * App Boot Splash Screen
  * Exact equivalent to App/src/screens/SplashScreen.tsx:
  * - Logo image centered

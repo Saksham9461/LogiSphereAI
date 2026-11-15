@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { trackingService } from '../../services/trackingService';
 import type { LiveVehicle } from '../../types';
-import { Loader } from '../../components/Loader';
+import { Loader, FullScreenLoader } from '../../components/Loader';
 
 export const LiveTrackingView: React.FC = () => {
   const [vehicles, setVehicles] = useState<LiveVehicle[]>([]);
@@ -91,6 +91,13 @@ export const LiveTrackingView: React.FC = () => {
 
   return (
     <div>
+      {/* Full-Screen Loader matching App/ while data is loading */}
+      <FullScreenLoader
+        show={loading}
+        text="Loading Live Fleet Telematics..."
+        subtext="Connecting to real-time GPS coordinate telemetry stream..."
+      />
+
       {/* Top Action Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>

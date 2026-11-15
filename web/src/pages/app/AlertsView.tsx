@@ -15,7 +15,7 @@ import { useAuth } from '../../stores/authStore';
 import { alertService } from '../../services/alertService';
 import type { EmergencyAlert } from '../../types';
 import { hasPermission, Permission } from '../../utils/rbac';
-import { Loader } from '../../components/Loader';
+import { Loader, FullScreenLoader } from '../../components/Loader';
 
 export const AlertsView: React.FC = () => {
   const { user } = useAuth();
@@ -144,6 +144,13 @@ export const AlertsView: React.FC = () => {
 
   return (
     <div>
+      {/* Full-Screen Loader matching App/ while data is loading */}
+      <FullScreenLoader
+        show={loading || sosSubmitting}
+        text={sosSubmitting ? 'Broadcasting Emergency SOS Signal...' : 'Loading Emergency SOS Incidents...'}
+        subtext="Connecting to emergency response telematics stream..."
+      />
+
       {/* Top Action Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
@@ -264,9 +271,6 @@ export const AlertsView: React.FC = () => {
                       </td>
                       <td>
                         <div style={{ fontWeight: 700, color: '#111827' }}>{al.driverName || 'Driver'}</div>
-                        <div className="ops-mono" style={{ fontSize: '0.72rem', color: '#6B7280' }}>
-                          ID: {al.driverId}
-                        </div>
                       </td>
                       <td style={{ maxWidth: 280 }}>
                         <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#111827' }}>

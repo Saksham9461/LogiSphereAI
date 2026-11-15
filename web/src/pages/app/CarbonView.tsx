@@ -16,7 +16,7 @@ import { useAuth } from '../../stores/authStore';
 import { carbonService } from '../../services/carbonService';
 import type { CarbonOverviewData, VehicleEmissionsRank } from '../../services/carbonService';
 import { hasPermission, Permission } from '../../utils/rbac';
-import { Loader } from '../../components/Loader';
+import { Loader, FullScreenLoader } from '../../components/Loader';
 
 export const CarbonView: React.FC = () => {
   const { user } = useAuth();
@@ -76,6 +76,13 @@ export const CarbonView: React.FC = () => {
 
   return (
     <div>
+      {/* Full-Screen Loader matching App/ while data is loading */}
+      <FullScreenLoader
+        show={loading}
+        text="Computing Carbon Intelligence & Profiles..."
+        subtext="Analyzing greenhouse gas emissions and vehicle efficiency metrics..."
+      />
+
       {/* Top Action Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>

@@ -14,6 +14,7 @@ import {
   Phone,
 } from 'lucide-react';
 import { useAuth } from '../../stores/authStore';
+import { FullScreenLoader } from '../../components/Loader';
 
 export const ProfileView: React.FC = () => {
   const { user, changePassword } = useAuth();
@@ -65,6 +66,13 @@ export const ProfileView: React.FC = () => {
 
   return (
     <div>
+      {/* Full-Screen Loader matching App/ while updating password */}
+      <FullScreenLoader
+        show={submitting}
+        text="Updating Security Credentials..."
+        subtext="Encrypting and persisting new password credentials..."
+      />
+
       {/* Top Action Header */}
       <div style={{ marginBottom: '1.5rem' }}>
         <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#111827', margin: 0 }}>
