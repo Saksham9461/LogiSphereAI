@@ -684,6 +684,15 @@
   outline: none;
 }
 
+select.saas-input {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-left: 2.85rem !important;
+  padding-right: 2.5rem !important;
+  cursor: pointer;
+}
+
 .saas-input:focus {
   border-color: var(--saas-amber-primary);
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);

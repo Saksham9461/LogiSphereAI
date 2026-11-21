@@ -1,4 +1,4 @@
-# LogiSphere AI — Minor Project Reference & Quickstart
+# LogiSphere AI — Reference & Quickstart
 
 **LogiSphere AI** is an enterprise-grade Fleet Management, Logistics Operations, and AI Intelligence platform designed for real-time fleet dispatch, driver attendance, carbon accounting, and multi-tenant organization governance.
 

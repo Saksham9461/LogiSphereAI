@@ -141,12 +141,9 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
         </div>
 
         {/* Footer Bottom */}
-        <div className="saas-footer-bottom">
+        <div className="saas-footer-bottom d-flex align-items-center justify-content-center">
           <div>
-            &copy; {new Date().getFullYear()} LogiSphere AI Inc. All rights reserved. Enterprise Fleet OS.
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-            <span>Built with precision for mission-critical logistics</span>
+            &copy; {new Date().getFullYear()} LogiSphere AI. All rights reserved.
           </div>
         </div>
       </div>

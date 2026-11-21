@@ -59,7 +59,13 @@ export const DemoDashboard: React.FC<DemoDashboardProps> = ({
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
-      setSimulatedClock(now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' UTC');
+      let hours = now.getHours();
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      const formattedHours = String(hours ? hours : 12).padStart(2, '0');
+      setSimulatedClock(`${formattedHours}:${minutes}:${seconds} ${ampm}`);
     };
     updateTime();
     const interval = setInterval(updateTime, 1000);
