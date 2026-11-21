@@ -231,6 +231,102 @@ organizationRouter.post('/register', async (req, res) => {
   }
 });
 
+// In-memory rate limiter for status lookups: maximum 12 requests per minute per IP
+const statusCheckRateLimit = new Map<string, { count: number; resetAt: number }>();
+
+/**
+ * GET /api/org/status or /api/organizations/status?email=manager@example.com
+ * Public, rate-limited endpoint to check organization application status via manager email.
+ * Never exposes passwords, tokens, internal IDs, or sensitive organizational data.
+ */
+organizationRouter.get('/status', async (req, res) => {
+  try {
+    const ip = String(req.ip || req.socket.remoteAddress || 'unknown');
+    const now = Date.now();
+    const limiter = statusCheckRateLimit.get(ip);
+    if (limiter && limiter.resetAt > now) {
+      if (limiter.count >= 12) {
+        return fail(res, 429, 'Too many status check requests. Please try again in one minute.');
+      }
+      limiter.count += 1;
+    } else {
+      statusCheckRateLimit.set(ip, { count: 1, resetAt: now + 60 * 1000 });
+    }
+
+    const emailQuery = req.query.email;
+    if (!emailQuery || typeof emailQuery !== 'string') {
+      return fail(res, 400, 'Manager email address is required');
+    }
+
+    const cleanEmail = emailQuery.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      return fail(res, 400, 'Please enter a valid email address');
+    }
+
+    // 1. Check users table for manager with this email
+    let user = await db.find('users', { email: cleanEmail });
+    if (!user) {
+      const allUsers = await db.list('users');
+      user = allUsers.find((u: any) => String(u.email || '').trim().toLowerCase() === cleanEmail) || null;
+    }
+
+    let org: any = null;
+
+    if (user) {
+      const userOrgId = user.organization_id || user.organizationId;
+      if (userOrgId && userOrgId !== '00000000-0000-0000-0000-000000000001') {
+        org = await db.find('organizations', { id: userOrgId });
+      }
+
+      if (!org) {
+        const memberships = await db.list('organization_memberships', { user_id: user.id });
+        const managerMembership = memberships.find((m: any) => m.role === 'ROLE_MANAGER') || memberships[0];
+        if (managerMembership) {
+          org = await db.find('organizations', { id: managerMembership.organization_id });
+        }
+      }
+    }
+
+    // 2. Fallback: check contact_email on organizations
+    if (!org) {
+      const orgs = await db.list('organizations');
+      org = orgs.find((o: any) => String(o.contact_email || '').trim().toLowerCase() === cleanEmail) || null;
+    }
+
+    if (!org) {
+      return res.json({
+        success: true,
+        found: false,
+        message: 'No organization registration was found associated with that email address.',
+      });
+    }
+
+    // Safely mask the manager email (e.g. j***n@example.com) to prevent enumeration leakage
+    const [localPart, domainPart] = cleanEmail.split('@');
+    const maskedLocal =
+      localPart.length <= 2
+        ? `${localPart[0]}*`
+        : `${localPart[0]}${'*'.repeat(Math.min(localPart.length - 2, 4))}${localPart[localPart.length - 1]}`;
+    const maskedEmail = `${maskedLocal}@${domainPart}`;
+
+    return res.json({
+      success: true,
+      found: true,
+      data: {
+        organizationName: org.name,
+        maskedEmail,
+        status: org.status, // 'pending' | 'approved' | 'rejected' | 'suspended'
+        registrationTimestamp: org.registration_timestamp || org.created_at || org.createdAt,
+        reviewReason: org.status === 'rejected' ? org.review_reason : undefined,
+      },
+    });
+  } catch (err: any) {
+    console.error('[Org Status Check Error]:', err);
+    return fail(res, 500, 'Failed to check organization status');
+  }
+});
+
 /**
  * GET /api/org/status/:slugOrId
  * Public endpoint to check organization application status.

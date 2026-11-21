@@ -11,6 +11,7 @@ export const ENDPOINTS = {
   ORGANIZATION: {
     REGISTER: '/api/org/register',
     STATUS: (slugOrId: string) => `/api/org/status/${encodeURIComponent(slugOrId)}`,
+    STATUS_BY_EMAIL: '/api/org/status',
     MY_ORGANIZATIONS: '/api/org/my-organizations',
   },
 
