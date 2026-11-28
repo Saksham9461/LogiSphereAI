@@ -443,12 +443,14 @@
   background: var(--bg-card, #0f172a);
   border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
   border-radius: 0.75rem;
-  overflow: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
 .admin-table {
   width: 100%;
+  min-width: 600px;
   border-collapse: collapse;
   text-align: left;
   font-size: 0.875rem;

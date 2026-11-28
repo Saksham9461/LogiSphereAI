@@ -205,11 +205,9 @@ export const ChatView: React.FC = () => {
 
       {/* Main Split Chat Layout */}
       <div
-        className="app-card"
+        className="app-card chat-two-col-grid"
         style={{
           padding: 0,
-          display: 'grid',
-          gridTemplateColumns: 'minmax(280px, 340px) 1fr',
           height: 'calc(100vh - 220px)',
           minHeight: 520,
           maxHeight: 'calc(100vh - 180px)',
@@ -221,6 +219,7 @@ export const ChatView: React.FC = () => {
       >
         {/* Left Column: Team Directory */}
         <div
+          className="chat-roster-column"
           style={{
             borderRight: '1px solid #E5E7EB',
             display: 'flex',
@@ -339,6 +338,7 @@ export const ChatView: React.FC = () => {
         {/* Right Column: Chat History & Input */}
         {selectedUser ? (
           <div
+            className="chat-conversation-column"
             style={{
               display: 'flex',
               flexDirection: 'column',

@@ -1,0 +1,81 @@
+// ==============================================================================
+// LogiSphere AI Demo — Maintenance Mock Fixtures
+// Immutable seed data — never mutate directly; clone into screen state
+// ==============================================================================
+
+import type { MaintenanceRecord } from '../../../types';
+
+export const MOCK_MAINTENANCE: MaintenanceRecord[] = [
+  {
+    id: 'maint-001',
+    maintenanceID: 'maint-001',
+    vehicleID: 'veh-flat-14',
+    vehicle: 'Isuzu F-Series Flatbed (FLAT-14)',
+    serviceType: 'Engine Overhaul & Turbocharger Replacement',
+    service: 'Engine Overhaul & Turbocharger Replacement',
+    cost: 48500,
+    date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    status: 'Active',
+    rawStatus: 'ACTIVE',
+  },
+  {
+    id: 'maint-002',
+    maintenanceID: 'maint-002',
+    vehicleID: 'veh-truck-11',
+    vehicle: 'Freightliner Cascadia (TRUCK-11)',
+    serviceType: 'Routine 10,000 km Inspection & Oil Change',
+    service: 'Routine 10,000 km Inspection & Oil Change',
+    cost: 4200,
+    date: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    status: 'Completed',
+    rawStatus: 'COMPLETED',
+  },
+  {
+    id: 'maint-003',
+    maintenanceID: 'maint-003',
+    vehicleID: 'veh-van-05',
+    vehicle: 'Ford Transit Cargo (VAN-05)',
+    serviceType: 'Brake Pad Replacement & Rotors Check',
+    service: 'Brake Pad Replacement & Rotors Check',
+    cost: 8750,
+    date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    status: 'Completed',
+    rawStatus: 'COMPLETED',
+  },
+  {
+    id: 'maint-004',
+    maintenanceID: 'maint-004',
+    vehicleID: 'veh-semi-40',
+    vehicle: 'Volvo FH16 Heavy Semi (TRUCK-40)',
+    serviceType: 'Tyre Rotation & Wheel Alignment',
+    service: 'Tyre Rotation & Wheel Alignment',
+    cost: 6300,
+    date: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    status: 'Completed',
+    rawStatus: 'COMPLETED',
+  },
+  {
+    id: 'maint-005',
+    maintenanceID: 'maint-005',
+    vehicleID: 'veh-truck-22',
+    vehicle: 'Tata Prima 4038.S (TRUCK-22)',
+    serviceType: 'Air Filter & Fuel Filter Replacement',
+    service: 'Air Filter & Fuel Filter Replacement',
+    cost: 2900,
+    date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    status: 'Active',
+    rawStatus: 'ACTIVE',
+  },
+  {
+    id: 'maint-006',
+    maintenanceID: 'maint-006',
+    vehicleID: 'veh-trailer-33',
+    vehicle: 'Ashok Leyland 4140 Trailer (TRL-33)',
+    serviceType: 'Trailer Hitch & Coupling Inspection',
+    service: 'Trailer Hitch & Coupling Inspection',
+    cost: 5100,
+    date: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    status: 'Completed',
+    rawStatus: 'COMPLETED',
+  },
+];

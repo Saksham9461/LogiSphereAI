@@ -36,7 +36,7 @@ import { Features } from './pages/Features';
 import { About } from './pages/About';
 import { Contact } from './pages/Contact';
 import { SignIn } from './pages/SignIn';
-import { DemoDashboard } from './pages/DemoDashboard';
+import { DemoShell } from './pages/demo/DemoShell';
 import { CheckStatus } from './pages/CheckStatus';
 import { OrganizationRegistration } from './pages/OrganizationRegistration';
 import { RegistrationConfirmation } from './pages/RegistrationConfirmation';
@@ -85,9 +85,8 @@ const APP_ROUTES = new Set([
 ]);
 
 export function App() {
-  const { user, isAuthenticated, loading: authLoading } = useAuth();
+  const { user, isAuthenticated, loading: authLoading, logout } = useAuth();
   const [route, setRoute] = useState<string>('home');
-  const [demoUserEmail, setDemoUserEmail] = useState<string>('manager@logisphere.ai');
   const [registeredOrg, setRegisteredOrg] = useState<OrgRegistrationResponseData | null>(() => {
     try {
       const saved = sessionStorage.getItem('last_registered_org');
@@ -138,7 +137,7 @@ export function App() {
       setRoute('signup');
     } else if (currentPath === 'check-status' || currentPath === 'status') {
       setRoute('check-status');
-    } else if (currentPath === 'demo-dashboard' || currentPath === 'dashboard-preview') {
+    } else if (currentPath === 'demo-dashboard' || currentPath === 'dashboard-preview' || currentPath === 'demo') {
       setRoute('demo-dashboard');
     } else if (currentPath === 'registration-success') {
       let currentOrg = registeredOrg;
@@ -208,15 +207,20 @@ export function App() {
     window.location.hash = '#/signup';
   };
 
-  const handleSignInSuccess = (email: string) => {
-    setDemoUserEmail(email);
+  const handleSignInSuccess = (_email: string) => {
     setRoute('dashboard');
     window.location.hash = '#/dashboard';
   };
 
+  const handleSignOut = async () => {
+    await logout();
+    setRoute('home');
+    window.location.hash = '#/home';
+  };
+
   const handleDemoSignOut = () => {
-    setRoute('signin');
-    window.location.hash = '#/signin';
+    setRoute('home');
+    window.location.hash = '#/home';
   };
 
   const handleAdminLoginSuccess = (admin: AdminUser) => {
@@ -258,11 +262,10 @@ export function App() {
     );
   }
 
-  // Route: `#/demo-dashboard` (Simulated Executive Dashboard Preview)
+  // Route: `#/demo-dashboard` or `#/demo` (Simulated Executive Interactive Demo Replica)
   if (route === 'demo-dashboard') {
     return (
-      <DemoDashboard
-        userEmail={demoUserEmail}
+      <DemoShell
         onSignOut={handleDemoSignOut}
         onNavigateHome={() => handleNavigate('home')}
       />
@@ -284,7 +287,7 @@ export function App() {
       const isAllowed = isRouteAllowed(user?.role, route);
 
       return (
-        <AppShell currentRoute={route} onNavigate={handleNavigate}>
+        <AppShell currentRoute={route} onNavigate={handleNavigate} onSignOut={handleSignOut}>
           {!isAllowed ? (
             <div className="app-card" style={{ textAlign: 'center', padding: '3.5rem 1.5rem' }}>
               <div style={{ background: '#FEE2E2', width: 56, height: 56, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem auto' }}>

@@ -606,7 +606,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           </div>
 
           {/* Fleet Status Breakdown & Quick Action Strip */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
             <div className="app-card">
               <div className="app-card-header">
                 <div className="app-card-title">
@@ -707,15 +707,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
 
         {data?.recentTrips && data.recentTrips.length > 0 ? (
           <div className="data-table-container">
-            <table className="data-table" style={{ tableLayout: 'fixed', width: '100%' }}>
+            <table className="data-table">
               <thead>
                 <tr>
-                  <th style={{ width: '12%' }}>Trip ID</th>
-                  <th style={{ width: '40%' }}>Route (Origin ➔ Destination)</th>
-                  <th style={{ width: '12%' }}>Vehicle</th>
-                  <th style={{ width: '12%' }}>Driver</th>
-                  <th style={{ width: '12%' }}>Status</th>
-                  <th style={{ width: '12%' }}>Progress</th>
+                  <th style={{ width: 100 }}>Trip ID</th>
+                  <th style={{ maxWidth: 240, minWidth: 160 }}>Route (Origin ➔ Destination)</th>
+                  <th>Vehicle</th>
+                  <th>Driver</th>
+                  <th>Status</th>
+                  <th>Progress</th>
                 </tr>
               </thead>
               <tbody>
@@ -725,10 +725,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
 
                   return (
                     <tr key={trip.id || trip.tripID}>
-                      <td className="ops-mono" style={{ width: '12%', fontWeight: 700, color: '#B45309', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <td className="ops-mono" style={{ fontWeight: 700, color: '#B45309', whiteSpace: 'nowrap' }}>
                         #{trip.tripID || trip.tripid || trip.id?.slice(0, 8)}
                       </td>
-                      <td style={{ width: '40%' }}>
+                      <td style={{ maxWidth: 240, minWidth: 160 }}>
                         <div
                           style={{
                             fontWeight: 600,
@@ -744,16 +744,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                           {trip.cargoWeight ? `${trip.cargoWeight} kg cargo` : 'Standard freight'}
                         </div>
                       </td>
-                      <td style={{ width: '12%' }}>
+                      <td>
                         {(() => {
                           const vInfo = getVehicleInfo(trip);
                           return (
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 600, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <div>
+                              <div style={{ fontWeight: 600, color: '#111827', whiteSpace: 'nowrap' }}>
                                 {vInfo.name}
                               </div>
                               {vInfo.plate && vInfo.plate !== vInfo.name && (
-                                <div style={{ fontSize: '0.72rem', color: '#6B7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} className="ops-mono">
+                                <div style={{ fontSize: '0.72rem', color: '#6B7280', whiteSpace: 'nowrap' }} className="ops-mono">
                                   {vInfo.plate}
                                 </div>
                               )}
@@ -761,16 +761,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                           );
                         })()}
                       </td>
-                      <td style={{ width: '12%' }}>
+                      <td>
                         {(() => {
                           const dInfo = getDriverInfo(trip);
                           return (
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 600, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <div>
+                              <div style={{ fontWeight: 600, color: '#111827', whiteSpace: 'nowrap' }}>
                                 {dInfo.name}
                               </div>
                               {dInfo.contact && (
-                                <div style={{ fontSize: '0.72rem', color: '#6B7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                <div style={{ fontSize: '0.72rem', color: '#6B7280', whiteSpace: 'nowrap' }}>
                                   {dInfo.contact}
                                 </div>
                               )}
@@ -778,7 +778,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                           );
                         })()}
                       </td>
-                      <td style={{ width: '12%' }}>
+                      <td>
                         <span
                           className={`badge ${
                             isDelivered
@@ -797,7 +797,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                           {trip.status?.replace(/_/g, ' ')}
                         </span>
                       </td>
-                      <td style={{ width: '12%' }}>
+                      <td>
                         <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#4B5563', whiteSpace: 'nowrap' }}>
                           {trip.progressPercent ? `${trip.progressPercent}%` : isDelivered ? '100%' : 'In Transit'}
                         </span>

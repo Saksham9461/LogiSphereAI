@@ -259,7 +259,7 @@ export const AnalyticsView: React.FC = () => {
               </div>
             </div>
 
-            <div style={{ padding: '1rem 0' }}>
+            <div style={{ padding: '1rem 0', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
               <div
                 style={{
                   display: 'flex',
@@ -269,6 +269,7 @@ export const AnalyticsView: React.FC = () => {
                   gap: '1rem',
                   padding: '1rem 0.5rem 0 0.5rem',
                   borderBottom: '1px solid #E5E7EB',
+                  minWidth: 320,
                 }}
               >
                 {monthlyRevenue.map((item, idx) => {

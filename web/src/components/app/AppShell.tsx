@@ -50,12 +50,14 @@ const ICON_MAP: Record<string, React.ElementType> = {
 interface AppShellProps {
   currentRoute: string;
   onNavigate: (route: string) => void;
+  onSignOut?: () => void;
   children: React.ReactNode;
 }
 
 export const AppShell: React.FC<AppShellProps> = ({
   currentRoute,
   onNavigate,
+  onSignOut,
   children,
 }) => {
   const { user, logout } = useAuth();
@@ -177,6 +179,16 @@ export const AppShell: React.FC<AppShellProps> = ({
     : 'US';
 
   const orgName = user?.organizationName || 'LogiSphere Fleet Operations';
+
+  const handleSignOut = async () => {
+    if (onSignOut) {
+      onSignOut();
+    } else {
+      await logout();
+      window.location.hash = '#/home';
+      onNavigate('home');
+    }
+  };
 
   return (
     <div className="app-layout">
@@ -312,18 +324,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                   {item.label}
                 </span>
                 {isAlertItem && activeAlertCount > 0 && (
-                  <span
-                    style={{
-                      background: '#EF4444',
-                      color: '#FFFFFF',
-                      fontSize: '0.7rem',
-                      fontWeight: 800,
-                      padding: '0.1rem 0.45rem',
-                      borderRadius: 999,
-                      animation: 'pulse 2s infinite',
-                      flexShrink: 0,
-                    }}
-                  >
+                  <span className="sidebar-badge">
                     {activeAlertCount}
                   </span>
                 )}
@@ -390,7 +391,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
           <button
             type="button"
-            onClick={logout}
+            onClick={handleSignOut}
             className="btn-secondary"
             style={{
               width: '100%',
@@ -433,8 +434,8 @@ export const AppShell: React.FC<AppShellProps> = ({
 
             {/* Breadcrumb */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
-              <span style={{ color: '#6B7280' }}>LogiSphere</span>
-              <ChevronRight size={14} color="#9CA3AF" />
+              <span className="header-breadcrumb-root" style={{ color: '#6B7280' }}>LogiSphere</span>
+              <ChevronRight className="header-breadcrumb-root" size={14} color="#9CA3AF" />
               <span style={{ fontWeight: 700, color: '#111827', textTransform: 'capitalize' }}>
                 {currentRoute.replace(/-/g, ' ')}
               </span>
@@ -442,10 +443,10 @@ export const AppShell: React.FC<AppShellProps> = ({
           </div>
 
           {/* Right Header Status Ribbon */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             {/* Live Operational Clock */}
             <div
-              className="ops-mono"
+              className="ops-mono header-clock"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -475,6 +476,7 @@ export const AppShell: React.FC<AppShellProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigate('alerts')}
+                className="header-sos-pill"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -490,12 +492,14 @@ export const AppShell: React.FC<AppShellProps> = ({
                 }}
               >
                 <AlertTriangle size={15} />
-                <span>{activeAlertCount} SOS Alert{activeAlertCount === 1 ? '' : 's'} Active</span>
+                <span className="header-sos-text">{activeAlertCount} SOS Alert{activeAlertCount === 1 ? '' : 's'} Active</span>
+                <span className="header-sos-badge">{activeAlertCount}</span>
               </button>
             )}
 
             {/* Role Badge */}
             <div
+              className="header-role-badge"
               style={{
                 background: roleStyle.bg,
                 color: roleStyle.color,

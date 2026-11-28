@@ -184,6 +184,7 @@ export interface CarbonOverviewResponse {
     estimatedCo2Kg: number;
     actualDataPercentage: number;
     emissionsPerKm: number; // kg CO2 / km
+    avgFuelEconomyKmpl?: number;
     totalDistanceKm: number;
     totalFuelLiters: number;
     totalFuelCostINR: number;

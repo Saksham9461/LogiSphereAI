@@ -46,10 +46,27 @@
 }
 
 .app-sidebar.collapsed .sidebar-item {
+  position: relative;
   justify-content: center;
   padding: 0.65rem;
   width: 44px;
   height: 44px;
+}
+
+.app-sidebar.collapsed .sidebar-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 0.625rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1.5px #FFFFFF;
+  z-index: 2;
 }
 
 .app-sidebar.collapsed .sidebar-footer {
@@ -129,6 +146,7 @@
 }
 
 .sidebar-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -144,6 +162,18 @@
   background: transparent;
   width: 100%;
   text-align: left;
+}
+
+.sidebar-badge {
+  background: #EF4444;
+  color: #FFFFFF;
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  animation: pulse 2s infinite;
+  flex-shrink: 0;
+  line-height: 1.2;
 }
 
 .sidebar-item:hover {
@@ -269,13 +299,16 @@
 /* Tables */
 .data-table-container {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   border-radius: 8px;
   border: 1px solid #E5E7EB;
   background: #FFFFFF;
+  width: 100%;
 }
 
 .data-table {
   width: 100%;
+  min-width: 600px;
   border-collapse: collapse;
   font-size: 0.85rem;
   text-align: left;
@@ -444,5 +477,186 @@
 .logisphere-activity-indicator {
   user-select: none;
 }
+
+/* ==============================================================================
+   Comprehensive Responsive System for All Screen Sizes
+   ============================================================================== */
+
+/* Layout & Grid Helpers */
+.profile-two-col-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 420px) 1fr;
+  gap: 1.5rem;
+  align-items: stretch;
+}
+
+.tracking-two-col-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 380px) 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.chat-two-col-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) 1fr;
+}
+
+.header-sos-badge {
+  display: none;
+}
+
+/* Tablet (1024px and below) */
+@media (max-width: 1024px) {
+  .app-content {
+    padding: 1.25rem 1.5rem;
+  }
+  .tracking-two-col-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Medium Tablets & Large Phones (880px and below) */
+@media (max-width: 880px) {
+  .profile-two-col-grid {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+}
+
+/* Mobile Devices (768px and below) */
+@media (max-width: 768px) {
+  .app-header {
+    height: 56px;
+    padding: 0 0.85rem;
+  }
+  .app-content {
+    padding: 1rem 0.85rem;
+  }
+  .chat-two-col-grid {
+    grid-template-columns: 1fr !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+  .chat-roster-column {
+    max-height: 250px !important;
+    border-right: none !important;
+    border-bottom: 1px solid #E5E7EB !important;
+  }
+  .chat-conversation-column {
+    height: 520px !important;
+  }
+}
+
+/* Standard Mobile Phones (640px and below) */
+@media (max-width: 640px) {
+  .header-breadcrumb-root {
+    display: none !important;
+  }
+  .header-role-badge {
+    display: none !important;
+  }
+  .header-clock {
+    display: none !important;
+  }
+  .header-sos-text {
+    display: none !important;
+  }
+  .header-sos-badge {
+    display: inline-flex !important;
+    font-size: 0.72rem;
+    font-weight: 800;
+  }
+  .app-card {
+    padding: 1rem;
+    border-radius: 10px;
+    margin-bottom: 1rem;
+  }
+  .app-card-header {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 0.75rem;
+  }
+  .app-card-header > div:last-child {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+  .kpi-card {
+    padding: 0.75rem 0.85rem;
+  }
+  .kpi-value {
+    font-size: 1.35rem;
+  }
+  .data-table th,
+  .data-table td {
+    padding: 0.65rem 0.75rem;
+    font-size: 0.8rem;
+  }
+  .modal-overlay {
+    padding: 0.5rem;
+    align-items: flex-end;
+  }
+  .modal-container {
+    max-height: 92vh;
+    padding: 1.15rem;
+    border-radius: 16px 16px 0 0;
+  }
+  .modal-container form div[style*="repeat(2, 1fr)"],
+  .modal-container form div[style*="repeat(3, 1fr)"],
+  .modal-container div[style*="repeat(2, 1fr)"],
+  .modal-container div[style*="repeat(3, 1fr)"],
+  .form-grid-2,
+  .form-grid-3 {
+    grid-template-columns: 1fr !important;
+    gap: 0.75rem !important;
+  }
+  .ai-chat-canvas {
+    height: calc(100vh - 170px) !important;
+    min-height: 440px !important;
+  }
+}
+
+/* Small Mobile Phones (480px and below) */
+@media (max-width: 480px) {
+  .app-content {
+    padding: 0.75rem 0.5rem;
+  }
+  .app-card {
+    padding: 0.85rem;
+    border-radius: 8px;
+  }
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+  }
+  .kpi-card {
+    padding: 0.65rem 0.75rem;
+  }
+  .kpi-value {
+    font-size: 1.2rem;
+  }
+  .kpi-label {
+    font-size: 0.68rem;
+  }
+  .btn-primary,
+  .btn-secondary {
+    padding: 0.45rem 0.75rem;
+    font-size: 0.8rem;
+  }
+}
+
+/* Extra Small Mobile Devices (360px and below) */
+@media (max-width: 360px) {
+  .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 
 

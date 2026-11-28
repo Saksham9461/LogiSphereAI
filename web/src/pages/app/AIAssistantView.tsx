@@ -150,7 +150,7 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({ onNavigate }) 
 
       {/* Main Chat Canvas */}
       <div
-        className="app-card"
+        className="app-card ai-chat-canvas"
         style={{
           padding: 0,
           display: 'flex',

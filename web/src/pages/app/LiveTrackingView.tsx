@@ -158,7 +158,7 @@ export const LiveTrackingView: React.FC = () => {
           />
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 380px) 1fr', gap: '1.5rem', alignItems: 'start' }}>
+      <div className="tracking-two-col-grid" style={{ gap: '1.5rem', alignItems: 'start' }}>
         {/* Left Column: Active Vehicle Stream List */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           <div style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', color: '#6B7280', letterSpacing: '0.04em' }}>

@@ -82,7 +82,7 @@ export const ProfileView: React.FC = () => {
         </p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 420px) 1fr', gap: '1.5rem', alignItems: 'stretch' }}>
+      <div className="profile-two-col-grid" style={{ gap: '1.5rem', alignItems: 'stretch' }}>
         {/* Left Column: Profile Card */}
         <div className="app-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', paddingBottom: '1.25rem', borderBottom: '1px solid #F3F4F6', marginBottom: '1.25rem' }}>

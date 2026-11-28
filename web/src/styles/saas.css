@@ -112,6 +112,19 @@
   font-size: 1.25rem;
   letter-spacing: -0.02em;
   color: var(--saas-text-heading);
+  outline: none;
+  border: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.saas-brand:focus {
+  outline: none;
+}
+
+.saas-brand:focus-visible {
+  outline: 2px solid #F59E0B;
+  outline-offset: 4px;
+  border-radius: 6px;
 }
 
 .saas-brand-text span {
@@ -376,6 +389,26 @@
   padding: 0.75rem 1.25rem;
   background: #FFFFFF;
   border-bottom: 1px solid var(--saas-border-glass);
+  gap: 0.75rem;
+}
+
+.saas-preview-title {
+  font-size: 0.8rem;
+  color: #4B5563;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saas-preview-live {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: #047857;
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
 .saas-preview-dots {
@@ -396,6 +429,32 @@
 
 .saas-preview-body {
   padding: 1.5rem;
+}
+
+.saas-preview-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.saas-preview-subpanel {
+  display: grid;
+  grid-template-columns: 1.8fr 1.2fr;
+  gap: 1.25rem;
+  text-align: left;
+}
+
+.saas-preview-dispatch-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem;
+  background: #FFFFFF;
+  border-radius: 8px;
+  border: 1px solid #E5E7EB;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  gap: 0.75rem;
 }
 
 /* Grid Layouts */
@@ -905,6 +964,11 @@ select.saas-input {
 @media (max-width: 1024px) {
   .saas-grid-4 {
     grid-template-columns: repeat(2, 1fr);
+    gap: 1.25rem;
+  }
+  .saas-grid-3 {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.25rem;
   }
   .saas-footer-grid {
     grid-template-columns: 1fr 1fr;
@@ -913,9 +977,35 @@ select.saas-input {
   .saas-hero-title {
     font-size: 2.75rem;
   }
+  .saas-section {
+    padding: 3.5rem 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .saas-preview-subpanel {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
 }
 
 @media (max-width: 768px) {
+  .saas-container {
+    padding: 0 1.25rem;
+  }
+  .saas-container-narrow {
+    padding: 0 1.25rem;
+  }
+  .saas-nav-inner {
+    height: 60px;
+  }
+  .saas-brand img {
+    width: 32px;
+    height: 32px;
+  }
+  .saas-brand-text {
+    font-size: 1.1rem;
+  }
   .saas-nav-links,
   .saas-nav-actions {
     display: none;
@@ -926,22 +1016,155 @@ select.saas-input {
   .saas-grid-3,
   .saas-grid-2 {
     grid-template-columns: 1fr;
+    gap: 1.25rem;
   }
   .saas-grid-4 {
     grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+  .saas-hero {
+    padding: 3.5rem 0 2.5rem;
   }
   .saas-hero-title {
     font-size: 2.15rem;
   }
+  .saas-hero-subtitle {
+    font-size: 1.05rem;
+    margin-bottom: 2rem;
+  }
+  .saas-hero-cta {
+    flex-direction: column;
+    width: 100%;
+    gap: 0.75rem;
+  }
+  .saas-hero-cta .saas-btn {
+    width: 100%;
+  }
+  .saas-hero-trust {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .saas-section {
+    padding: 2.75rem 0;
+  }
   .saas-section-title {
-    font-size: 1.85rem;
+    font-size: 1.75rem;
+  }
+  .saas-card {
+    padding: 1.35rem;
+  }
+  .saas-form-card {
+    padding: 1.75rem 1.25rem;
+    border-radius: 12px;
   }
   .saas-footer-grid {
     grid-template-columns: 1fr;
+    gap: 1.75rem;
   }
   .saas-footer-bottom {
     flex-direction: column;
     gap: 1rem;
     text-align: center;
+  }
+}
+
+@media (max-width: 640px) {
+  .saas-preview-stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.65rem;
+    margin-bottom: 1rem;
+  }
+  .ops-stat-card {
+    padding: 0.75rem;
+  }
+  .ops-stat-value {
+    font-size: 1.15rem;
+  }
+  .ops-stat-sub {
+    font-size: 0.7rem;
+  }
+  .saas-preview-topbar {
+    padding: 0.55rem 0.85rem;
+  }
+  .saas-preview-title {
+    font-size: 0.72rem;
+  }
+  .saas-preview-live {
+    font-size: 0.7rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .saas-container,
+  .saas-container-narrow {
+    padding: 0 0.85rem;
+  }
+  .saas-nav-inner {
+    padding: 0.75rem 0;
+  }
+  .saas-brand-text {
+    font-size: 1.05rem;
+  }
+  .saas-hero {
+    padding: 2.5rem 0 2rem;
+  }
+  .saas-hero-title {
+    font-size: 1.75rem;
+    line-height: 1.2;
+    margin: 1rem 0;
+  }
+  .saas-hero-subtitle {
+    font-size: 0.95rem;
+    line-height: 1.5;
+    margin-bottom: 1.5rem;
+  }
+  .saas-section {
+    padding: 2rem 0;
+  }
+  .saas-section-title {
+    font-size: 1.45rem;
+    line-height: 1.25;
+  }
+  .saas-section-desc {
+    font-size: 0.9rem;
+  }
+  .saas-btn {
+    padding: 0.65rem 1rem;
+    font-size: 0.875rem;
+  }
+  .saas-badge {
+    font-size: 0.72rem;
+    padding: 0.25rem 0.6rem;
+  }
+  .saas-card {
+    padding: 1rem;
+    border-radius: 10px;
+  }
+  .saas-form-card {
+    padding: 1.25rem 1rem;
+  }
+  .saas-preview-title {
+    display: none;
+  }
+  .saas-preview-dispatch-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.45rem;
+  }
+  .saas-preview-dispatch-item .ops-status-badge {
+    align-self: flex-start;
+  }
+  .saas-preview-wrap {
+    margin-top: 1.75rem;
+    padding: 4px;
+    border-radius: 12px;
+  }
+  .saas-preview-body {
+    padding: 0.75rem;
+  }
+  .ops-table th,
+  .ops-table td {
+    padding: 0.65rem 0.75rem;
+    font-size: 0.78rem;
   }
 }

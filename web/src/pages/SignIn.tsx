@@ -295,6 +295,25 @@ export const SignIn: React.FC<SignInProps> = ({ onNavigate, onLoginSuccess }) =>
             >
               Check Status
             </button>
+            <div style={{ marginTop: '0.85rem' }}>
+              <button
+                type="button"
+                onClick={() => onNavigate('home')}
+                style={{
+                  color: '#6B7280',
+                  fontSize: '0.8rem',
+                  fontWeight: 500,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                }}
+              >
+                &larr; Back to Home
+              </button>
+            </div>
           </div>
         </div>
       </div>

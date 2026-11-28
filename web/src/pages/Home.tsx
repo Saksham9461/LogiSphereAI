@@ -225,10 +225,10 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
                   <span className="saas-preview-dot yellow" />
                   <span className="saas-preview-dot green" />
                 </div>
-                <div style={{ fontSize: '0.8rem', color: '#4B5563', fontWeight: 600 }}>
+                <div className="saas-preview-title">
                   LogiSphere Command Center &mdash; Operations Console
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: '#047857', fontWeight: 600 }}>
+                <div className="saas-preview-live">
                   <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#10B981', display: 'inline-block' }} />
                   Telemetry Live (30s sync)
                 </div>
@@ -236,7 +236,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
 
               <div className="saas-preview-body">
                 {/* Metric Summary Ribbon matching mobile StatCards */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                <div className="saas-preview-stats">
                   <div className="ops-stat-card" style={{ '--stat-accent': '#14B8A6' } as any}>
                     <div className="ops-stat-header">
                       <span className="ops-stat-title">Active Fleet</span>
@@ -275,16 +275,16 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
                 </div>
 
                 {/* Sub-Panel Layout: Live Dispatch Feed & Map Preview */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1.2fr', gap: '1.25rem', textAlign: 'left' }}>
+                <div className="saas-preview-subpanel">
                   {/* Live Dispatch Feed */}
                   <div style={{ background: '#F9FAFB', borderRadius: 10, border: '1px solid #E5E7EB', padding: '1.25rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                       <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#111827' }}>Active Dispatches & GPS Telemetry</span>
                       <span className="ops-status-badge ops-status-ontrip" style={{ fontSize: '0.7rem' }}>Live Stream</span>
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FFFFFF', borderRadius: 8, border: '1px solid #E5E7EB', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+                      <div className="saas-preview-dispatch-item">
                         <div>
                           <div style={{ fontWeight: 600, color: '#111827', fontSize: '0.85rem' }}>
                             <span className="ops-id-box" style={{ marginRight: 6 }}>trp-1001</span>
@@ -295,7 +295,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
                         <span className="ops-status-badge ops-status-ontrip" style={{ fontSize: '0.7rem' }}>En Route &bull; 81%</span>
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FFFFFF', borderRadius: 8, border: '1px solid #E5E7EB', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+                      <div className="saas-preview-dispatch-item">
                         <div>
                           <div style={{ fontWeight: 600, color: '#111827', fontSize: '0.85rem' }}>
                             <span className="ops-id-box" style={{ marginRight: 6 }}>trp-1002</span>
@@ -306,7 +306,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
                         <span className="ops-status-badge ops-status-ontrip" style={{ fontSize: '0.7rem' }}>In Transit &bull; 32%</span>
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FFFFFF', borderRadius: 8, border: '1px solid #E5E7EB', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+                      <div className="saas-preview-dispatch-item">
                         <div>
                           <div style={{ fontWeight: 600, color: '#111827', fontSize: '0.85rem' }}>
                             <span className="ops-id-box" style={{ marginRight: 6 }}>trp-1000</span>

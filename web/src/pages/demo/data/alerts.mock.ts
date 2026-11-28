@@ -1,0 +1,66 @@
+// ==============================================================================
+// LogiSphere AI Demo — Emergency Alert Mock Fixtures
+// Immutable seed data — never mutate directly; clone into screen state
+// ==============================================================================
+
+import type { EmergencyAlert } from '../../../types';
+
+export const MOCK_ALERTS: EmergencyAlert[] = [
+  {
+    id: 'alert-001',
+    driverId: 'drv-marcus',
+    driverName: 'Marcus Vance',
+    tripId: 'trip-002',
+    vehicleId: 'veh-semi-40',
+    latitude: 22.8142,
+    longitude: 70.0295,
+    locationStatus: 'PRECISE',
+    message: 'Engine overheating warning — stopped on highway shoulder. Requesting assistance.',
+    status: 'ACTIVE',
+    acknowledgedByName: null,
+    acknowledgedAt: null,
+    resolvedByName: null,
+    resolvedAt: null,
+    resolutionNote: null,
+    createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'alert-002',
+    driverId: 'drv-deepak',
+    driverName: 'Deepak Mehta',
+    tripId: 'trip-007',
+    vehicleId: 'veh-cargo-08',
+    latitude: 24.5854,
+    longitude: 73.7125,
+    locationStatus: 'PRECISE',
+    message: 'Tyre blowout on NH-48. Vehicle immobilized. Requesting roadside support.',
+    status: 'ACKNOWLEDGED',
+    acknowledgedByName: 'Demo Manager',
+    acknowledgedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    resolvedByName: null,
+    resolvedAt: null,
+    resolutionNote: null,
+    createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'alert-003',
+    driverId: 'drv-raj',
+    driverName: 'Raj Patel',
+    tripId: 'trip-001',
+    vehicleId: 'veh-truck-11',
+    latitude: 22.1696,
+    longitude: 72.8311,
+    locationStatus: 'LAST_KNOWN',
+    message: 'Medical emergency — driver feeling unwell. Stopped at Bharuch rest area.',
+    status: 'RESOLVED',
+    acknowledgedByName: 'Demo Manager',
+    acknowledgedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    resolvedByName: 'Demo Manager',
+    resolvedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    resolutionNote: 'Driver recovered. Resuming trip after rest break.',
+    createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+  },
+];
