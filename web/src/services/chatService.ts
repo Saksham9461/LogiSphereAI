@@ -13,6 +13,81 @@ export interface ChatWsCallbacks {
   onMessage?: (msg: ChatMessage) => void;
 }
 
+// Global shared WebSocket manager for Chat to prevent duplicate connections or premature StrictMode closures
+let sharedChatWs: WebSocket | null = null;
+const chatSubscribers = new Set<ChatWsCallbacks>();
+let chatReconnectTimer: any = null;
+
+function ensureChatWsConnection() {
+  if (typeof window === 'undefined') return;
+  if (chatSubscribers.size === 0) return;
+  if (sharedChatWs && (sharedChatWs.readyState === WebSocket.OPEN || sharedChatWs.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  const wsUrl = `${getWsBaseUrl()}/ws/chat?token=${encodeURIComponent(token)}`;
+
+  try {
+    const ws = new WebSocket(wsUrl);
+    sharedChatWs = ws;
+
+    ws.onopen = () => {
+      chatSubscribers.forEach((cb) => {
+        try {
+          cb.onConnected?.();
+        } catch {
+          // ignore
+        }
+      });
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === 'chat:message' && payload.data) {
+          chatSubscribers.forEach((cb) => {
+            try {
+              cb.onMessageReceived?.(payload.data);
+              cb.onMessage?.(payload.data);
+            } catch {
+              // ignore
+            }
+          });
+        }
+      } catch {
+        // silent parse error
+      }
+    };
+
+    ws.onerror = () => {
+      // Intentionally silent: prevent console noise
+    };
+
+    ws.onclose = () => {
+      if (sharedChatWs === ws) {
+        sharedChatWs = null;
+      }
+      chatSubscribers.forEach((cb) => {
+        try {
+          cb.onDisconnected?.();
+        } catch {
+          // ignore
+        }
+      });
+
+      if (chatSubscribers.size > 0 && !chatReconnectTimer) {
+        chatReconnectTimer = setTimeout(() => {
+          chatReconnectTimer = null;
+          ensureChatWsConnection();
+        }, 5000);
+      }
+    };
+  } catch {
+    // Intentionally silent
+  }
+}
+
 export const chatService = {
   async getUsers(): Promise<ChatUser[]> {
     const response = await apiClient.get('/api/chat/users');
@@ -156,61 +231,59 @@ export const chatService = {
   ): () => void {
     if (typeof window === 'undefined') return () => {};
 
-    let token = '';
     let callbacks: ChatWsCallbacks = {};
 
     if (typeof tokenOrCallbacks === 'string') {
-      token = tokenOrCallbacks;
       if (onMessage) {
         callbacks = { onMessageReceived: onMessage };
       }
     } else if (tokenOrCallbacks) {
       callbacks = tokenOrCallbacks;
-      token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
-    } else {
-      token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
     }
 
-    const wsUrl = `${getWsBaseUrl()}/ws/chat?token=${encodeURIComponent(token)}`;
-    let ws: WebSocket | null = null;
-    let isClosedIntentionally = false;
+    chatSubscribers.add(callbacks);
 
-    try {
-      ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
+    if (sharedChatWs && sharedChatWs.readyState === WebSocket.OPEN) {
+      try {
         callbacks.onConnected?.();
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          if (payload.type === 'chat:message' && payload.data) {
-            callbacks.onMessageReceived?.(payload.data);
-            callbacks.onMessage?.(payload.data);
-          }
-        } catch (e) {
-          console.warn('[Chat WS] Message parse error:', e);
-        }
-      };
-
-      ws.onclose = () => {
-        callbacks.onDisconnected?.();
-        if (!isClosedIntentionally) {
-          setTimeout(() => {
-            if (!isClosedIntentionally) {
-              chatService.connectChatWs(callbacks);
-            }
-          }, 5000);
-        }
-      };
-    } catch (e) {
-      console.warn('[Chat WS] Connection error:', e);
+      } catch {
+        // ignore
+      }
     }
+
+    ensureChatWsConnection();
 
     return () => {
-      isClosedIntentionally = true;
-      if (ws) ws.close();
+      chatSubscribers.delete(callbacks);
+
+      if (chatSubscribers.size === 0) {
+        if (chatReconnectTimer) {
+          clearTimeout(chatReconnectTimer);
+          chatReconnectTimer = null;
+        }
+        if (sharedChatWs) {
+          const wsToClose = sharedChatWs;
+          sharedChatWs = null;
+          try {
+            if (wsToClose.readyState === WebSocket.OPEN) {
+              wsToClose.close(1000, 'Normal Closure');
+            } else if (wsToClose.readyState === WebSocket.CONNECTING) {
+              // Wait for connection to open before closing, avoiding browser "closed before established" error
+              wsToClose.onopen = () => {
+                try {
+                  wsToClose.close(1000, 'Normal Closure');
+                } catch {
+                  // ignore
+                }
+              };
+              wsToClose.onerror = () => {};
+              wsToClose.onclose = () => {};
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
     };
   },
 };

@@ -19,8 +19,13 @@ import {
 } from 'lucide-react';
 import { MOCK_DRIVERS } from '../data/drivers.mock';
 import type { Driver } from '../../../types';
+import { isValidPhoneNumber } from '../../../utils/validation';
 
-export const DemoDriversScreen: React.FC = () => {
+interface DemoDriversScreenProps {
+  onNavigate?: (route: string) => void;
+}
+
+export const DemoDriversScreen: React.FC<DemoDriversScreenProps> = ({ onNavigate }) => {
   const [drivers, setDrivers] = useState<Driver[]>(() => [...MOCK_DRIVERS]);
   const [search, setSearch] = useState('');
 
@@ -83,6 +88,10 @@ export const DemoDriversScreen: React.FC = () => {
     }
     if (!email.trim() && modalMode === 'create') {
       setFormError('Email address is required for driver login');
+      return;
+    }
+    if (phoneNo.trim() && !isValidPhoneNumber(phoneNo)) {
+      setFormError('Please enter a valid 10-digit phone number (e.g. 9876543210 or +91 98765 43210)');
       return;
     }
 
@@ -173,6 +182,18 @@ export const DemoDriversScreen: React.FC = () => {
             <RefreshCw size={14} />
             <span>Reset Demo Data</span>
           </button>
+
+          {onNavigate && (
+            <button
+              type="button"
+              onClick={() => onNavigate('add-staff')}
+              className="btn-secondary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}
+            >
+              <UserPlus size={16} />
+              <span>Add Staff</span>
+            </button>
+          )}
 
           <button type="button" onClick={openCreateModal} className="btn-primary">
             <UserPlus size={16} />

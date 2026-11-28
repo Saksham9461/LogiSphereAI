@@ -125,7 +125,7 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({ onNavigate }) 
             AI Fleet Operations Assistant
           </h1>
           <p style={{ fontSize: '0.875rem', color: '#6B7280', margin: '0.25rem 0 0 0' }}>
-            Gemini-powered operations conversational intelligence with full tenancy context.
+            AI-powered operations conversational intelligence with full tenancy context.
           </p>
         </div>
 
@@ -144,7 +144,7 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({ onNavigate }) 
           }}
         >
           <Sparkles size={14} />
-          <span>Gemini Fleet Engine</span>
+          <span>AI Fleet Engine</span>
         </div>
       </div>
 
@@ -156,7 +156,7 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({ onNavigate }) 
           display: 'flex',
           flexDirection: 'column',
           height: 'calc(100vh - 220px)',
-          minHeight: 560,
+          minHeight: 500,
           overflow: 'hidden',
         }}
       >
@@ -311,7 +311,7 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({ onNavigate }) 
           {loading && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#6B7280', fontSize: '0.85rem' }}>
               <RefreshCw size={16} className="animate-spin" />
-              <span>Analyzing live fleet state with Gemini...</span>
+              <span>Analyzing live fleet state with AI...</span>
             </div>
           )}
           <div ref={messagesEndRef} />

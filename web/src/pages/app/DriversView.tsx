@@ -23,12 +23,18 @@ import { fleetService } from '../../services/fleetService';
 import type { Driver } from '../../types';
 import { hasPermission, Permission } from '../../utils/rbac';
 import { Loader, FullScreenLoader } from '../../components/Loader';
+import { isValidPhoneNumber } from '../../utils/validation';
 
-export const DriversView: React.FC = () => {
+interface DriversViewProps {
+  onNavigate?: (route: string) => void;
+}
+
+export const DriversView: React.FC<DriversViewProps> = ({ onNavigate }) => {
   const { user } = useAuth();
   const canCreate = hasPermission(user?.role, Permission.DRIVERS_CREATE);
   const canUpdate = hasPermission(user?.role, Permission.DRIVERS_UPDATE);
   const canDelete = hasPermission(user?.role, Permission.DRIVERS_DEACTIVATE);
+  const canManageUsers = hasPermission(user?.role, Permission.USERS_MANAGE);
 
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,6 +119,10 @@ export const DriversView: React.FC = () => {
     }
     if (!email.trim() && modalMode === 'create') {
       setFormError('Email address is required for driver login');
+      return;
+    }
+    if (phoneNo.trim() && !isValidPhoneNumber(phoneNo)) {
+      setFormError('Please enter a valid 10-digit phone number (e.g. 9876543210 or +91 98765 43210)');
       return;
     }
 
@@ -222,6 +232,18 @@ export const DriversView: React.FC = () => {
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             <span>Refresh</span>
           </button>
+
+          {canManageUsers && onNavigate && (
+            <button
+              type="button"
+              onClick={() => onNavigate('add-staff')}
+              className="btn-secondary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}
+            >
+              <UserPlus size={16} />
+              <span>Add Staff</span>
+            </button>
+          )}
 
           {canCreate && (
             <button type="button" onClick={openCreateModal} className="btn-primary">

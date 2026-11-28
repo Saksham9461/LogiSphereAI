@@ -152,7 +152,7 @@ export const AlertsView: React.FC = () => {
       />
 
       {/* Top Action Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="alerts-header-bar">
         <div>
           <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#111827', margin: 0 }}>
             Emergency SOS & Incident Command
@@ -162,47 +162,35 @@ export const AlertsView: React.FC = () => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div className="alerts-header-actions">
           {/* WebSocket stream status */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              background: wsConnected ? '#D1FAE5' : '#F3F4F6',
-              color: wsConnected ? '#065F46' : '#6B7280',
-              padding: '0.35rem 0.75rem',
-              borderRadius: 999,
-              fontSize: '0.78rem',
-              fontWeight: 700,
-            }}
-          >
+          <div className="alerts-stream-badge">
             <Radio size={14} className={wsConnected ? 'animate-pulse' : ''} />
             <span>{wsConnected ? 'SOS Stream Active' : 'Connecting...'}</span>
           </div>
 
-          <button
-            type="button"
-            onClick={fetchAlerts}
-            className="btn-secondary"
-            disabled={loading}
-            style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            <span>Refresh</span>
-          </button>
-
-          {canTriggerSos && (
+          <div className="alerts-action-buttons">
             <button
               type="button"
-              onClick={() => setShowSosModal(true)}
-              className="btn-danger"
-              style={{ padding: '0.5rem 1rem' }}
+              onClick={fetchAlerts}
+              className="btn-secondary alerts-btn"
+              disabled={loading}
             >
-              <AlertTriangle size={16} />
-              <span>Trigger SOS</span>
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              <span>Refresh</span>
             </button>
-          )}
+
+            {canTriggerSos && (
+              <button
+                type="button"
+                onClick={() => setShowSosModal(true)}
+                className="btn-danger alerts-btn alerts-trigger-btn"
+              >
+                <AlertTriangle size={16} />
+                <span>Trigger SOS</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

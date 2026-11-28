@@ -47,12 +47,17 @@ import { RegistrationConfirmation } from './pages/RegistrationConfirmation';
 import { AdminLogin } from './pages/admin/AdminLogin';
 import { AdminApprovalDashboard } from './pages/admin/AdminApprovalDashboard';
 import { adminService } from './services/adminService';
+import { alertService } from './services/alertService';
+import { chatService } from './services/chatService';
+import { InAppNotificationBanner } from './components/notifications/InAppNotificationBanner';
+import { notificationStore } from './stores/notificationStore';
 
 // Authenticated Application Views
 import { AppShell } from './components/app/AppShell';
 import { DashboardView } from './pages/app/DashboardView';
 import { VehiclesView } from './pages/app/VehiclesView';
 import { DriversView } from './pages/app/DriversView';
+import { AddStaffView } from './pages/app/AddStaffView';
 import { TripsView } from './pages/app/TripsView';
 import { LiveTrackingView } from './pages/app/LiveTrackingView';
 import { AttendanceView } from './pages/app/AttendanceView';
@@ -75,6 +80,7 @@ const APP_ROUTES = new Set([
   'dashboard',
   'vehicles',
   'drivers',
+  'add-staff',
   'trips',
   'tracking',
   'attendance',
@@ -115,6 +121,41 @@ export function App() {
     });
     return () => {
       isMounted = false;
+    };
+  }, []);
+
+  // Global real-time WebSocket connection for in-website notifications across ALL screens
+  useEffect(() => {
+    const cleanupAlerts = alertService.connectAlertsWs({
+      onAlertCreated: (data: any) => {
+        notificationStore.pushNotification({
+          type: 'ALERT',
+          title: 'Emergency Distress Signal Broadcast',
+          message: data?.message || 'Driver distress signal requires immediate dispatcher acknowledgment.',
+          driverName: data?.driverName ? `Driver: ${data.driverName}` : 'Driver Distress Signal',
+          vehiclePlate: data?.vehicleId || undefined,
+          routeTarget: 'alerts',
+          alertId: data?.id,
+        });
+      },
+    });
+
+    const cleanupChat = chatService.connectChatWs({
+      onMessageReceived: (data: any) => {
+        notificationStore.pushNotification({
+          type: 'CHAT',
+          title: 'Team Dispatch Message',
+          message: data?.message || 'New dispatch message received.',
+          senderName: data?.senderName || 'Colleague',
+          routeTarget: 'chat',
+          conversationId: data?.conversationId,
+        });
+      },
+    });
+
+    return () => {
+      cleanupAlerts();
+      cleanupChat();
     };
   }, []);
 
@@ -246,144 +287,154 @@ export function App() {
     window.location.hash = '#/admin';
   };
 
-  // Route: `#/admin` (Platform Governance & Approval Dashboard)
-  if (route === 'admin') {
-    if (checkingSession) {
-      return (
-        <AppSplashScreen
-          title="LogiSphere Admin"
-          subtitle="Verifying platform administrator credentials..."
-        />
-      );
-    }
-
-    if (!adminUser) {
-      return (
-        <AdminLogin
-          onSuccess={handleAdminLoginSuccess}
-          onExit={() => handleNavigate('home')}
-        />
-      );
-    }
-
-    return (
-      <AdminApprovalDashboard
-        adminUser={adminUser}
-        onLogout={handleAdminLogout}
-      />
-    );
-  }
-
-  // Route: `#/demo-dashboard` or `#/demo` (Simulated Executive Interactive Demo Replica)
-  if (route === 'demo-dashboard') {
-    return (
-      <DemoShell
-        onSignOut={handleDemoSignOut}
-        onNavigateHome={() => handleNavigate('home')}
-      />
-    );
-  }
-
-  // Authenticated Operations Application (Inside Executive AppShell)
-  if (APP_ROUTES.has(route)) {
-    if (authLoading) {
-      return (
-        <AppSplashScreen
-          title="LogiSphere AI"
-          subtitle="Verifying operational fleet session..."
-        />
-      );
-    }
-
-    if (isAuthenticated) {
-      const isAllowed = isRouteAllowed(user?.role, route);
-
-      return (
-        <AppShell currentRoute={route} onNavigate={handleNavigate} onSignOut={handleSignOut}>
-          {!isAllowed ? (
-            <div className="app-card" style={{ textAlign: 'center', padding: '3.5rem 1.5rem' }}>
-              <div style={{ background: '#FEE2E2', width: 56, height: 56, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem auto' }}>
-                <ShieldAlert size={28} color="#DC2626" />
-              </div>
-              <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#111827', marginBottom: '0.5rem' }}>
-                Access Restricted
-              </h2>
-              <p style={{ color: '#4B5563', maxWidth: 460, margin: '0 auto 1.5rem auto', fontSize: '0.9rem', lineHeight: 1.5 }}>
-                Your assigned role (<strong>{user?.role?.replace(/ROLE_/g, '').replace(/_/g, ' ')}</strong>) does not have authorization to view this module.
-              </p>
-              <button
-                type="button"
-                onClick={() => handleNavigate('dashboard')}
-                className="btn-primary"
-              >
-                <ArrowLeft size={16} />
-                <span>Return to Command Console</span>
-              </button>
-            </div>
-          ) : (
-            <>
-              {route === 'dashboard' && <DashboardView onNavigate={handleNavigate} />}
-              {route === 'vehicles' && <VehiclesView />}
-              {route === 'drivers' && <DriversView />}
-              {route === 'trips' && <TripsView />}
-              {route === 'tracking' && <LiveTrackingView />}
-              {route === 'attendance' && <AttendanceView />}
-              {route === 'maintenance' && <MaintenanceView />}
-              {route === 'fuel-expenses' && <FuelExpenseView />}
-              {route === 'alerts' && <AlertsView />}
-              {route === 'chat' && <ChatView />}
-              {route === 'ai' && <AIAssistantView onNavigate={handleNavigate} />}
-              {route === 'carbon' && <CarbonView />}
-              {route === 'profile' && <ProfileView />}
-              {route === 'analytics' && <AnalyticsView />}
-            </>
-          )}
-        </AppShell>
-      );
-    }
-  }
-
-  // Render SaaS Website Shell (Navbar + Content + Footer)
-  return (
-    <div className="saas-layout">
-      <Navbar currentRoute={route} onNavigate={handleNavigate} />
-
-      <main style={{ minHeight: 'calc(100vh - 72px - 280px)' }}>
-        {route === 'home' && <Home onNavigate={handleNavigate} />}
-        {route === 'features' && <Features onNavigate={handleNavigate} />}
-        {route === 'about' && <About onNavigate={handleNavigate} />}
-        {route === 'contact' && <Contact onNavigate={handleNavigate} />}
-        {route === 'support' && <Support onNavigate={handleNavigate} />}
-        {route === 'security' && <Security onNavigate={handleNavigate} />}
-        {route === 'privacy' && <PrivacyPolicy onNavigate={handleNavigate} />}
-        {route === 'terms' && <TermsOfService onNavigate={handleNavigate} />}
-        {route === 'signin' && (
-          <SignIn
-            onNavigate={handleNavigate}
-            onLoginSuccess={handleSignInSuccess}
+  const renderScreen = () => {
+    // Route: `#/admin` (Platform Governance & Approval Dashboard)
+    if (route === 'admin') {
+      if (checkingSession) {
+        return (
+          <AppSplashScreen
+            title="LogiSphere Admin"
+            subtitle="Verifying platform administrator credentials..."
           />
-        )}
-        {route === 'signup' && (
-          <div style={{ padding: '2.5rem 1rem 4rem' }}>
-            <OrganizationRegistration
-              onSuccess={handleRegistrationSuccess}
-              onNavigateStatus={() => handleNavigate('check-status')}
-            />
-          </div>
-        )}
-        {route === 'check-status' && <CheckStatus onNavigate={handleNavigate} />}
-        {route === 'registration-success' && registeredOrg && (
-          <div style={{ padding: '2.5rem 1rem 4rem' }}>
-            <RegistrationConfirmation
-              data={registeredOrg}
-              onRegisterAnother={handleRegisterAnother}
-            />
-          </div>
-        )}
-      </main>
+        );
+      }
 
-      <Footer onNavigate={handleNavigate} />
-    </div>
+      if (!adminUser) {
+        return (
+          <AdminLogin
+            onSuccess={handleAdminLoginSuccess}
+            onExit={() => handleNavigate('home')}
+          />
+        );
+      }
+
+      return (
+        <AdminApprovalDashboard
+          adminUser={adminUser}
+          onLogout={handleAdminLogout}
+        />
+      );
+    }
+
+    // Route: `#/demo-dashboard` or `#/demo` (Simulated Executive Interactive Demo Replica)
+    if (route === 'demo-dashboard') {
+      return (
+        <DemoShell
+          onSignOut={handleDemoSignOut}
+          onNavigateHome={() => handleNavigate('home')}
+        />
+      );
+    }
+
+    // Authenticated Operations Application (Inside Executive AppShell)
+    if (APP_ROUTES.has(route)) {
+      if (authLoading) {
+        return (
+          <AppSplashScreen
+            title="LogiSphere AI"
+            subtitle="Verifying operational fleet session..."
+          />
+        );
+      }
+
+      if (isAuthenticated) {
+        const isAllowed = isRouteAllowed(user?.role, route);
+
+        return (
+          <AppShell currentRoute={route} onNavigate={handleNavigate} onSignOut={handleSignOut}>
+            {!isAllowed ? (
+              <div className="app-card" style={{ textAlign: 'center', padding: '3.5rem 1.5rem' }}>
+                <div style={{ background: '#FEE2E2', width: 56, height: 56, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem auto' }}>
+                  <ShieldAlert size={28} color="#DC2626" />
+                </div>
+                <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#111827', marginBottom: '0.5rem' }}>
+                  Access Restricted
+                </h2>
+                <p style={{ color: '#4B5563', maxWidth: 460, margin: '0 auto 1.5rem auto', fontSize: '0.9rem', lineHeight: 1.5 }}>
+                  Your assigned role (<strong>{user?.role?.replace(/ROLE_/g, '').replace(/_/g, ' ')}</strong>) does not have authorization to view this module.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleNavigate('dashboard')}
+                  className="btn-primary"
+                >
+                  <ArrowLeft size={16} />
+                  <span>Return to Command Console</span>
+                </button>
+              </div>
+            ) : (
+              <>
+                {route === 'dashboard' && <DashboardView onNavigate={handleNavigate} />}
+                {route === 'vehicles' && <VehiclesView />}
+                {route === 'drivers' && <DriversView onNavigate={handleNavigate} />}
+                {route === 'add-staff' && <AddStaffView onNavigate={handleNavigate} />}
+                {route === 'trips' && <TripsView />}
+                {route === 'tracking' && <LiveTrackingView />}
+                {route === 'attendance' && <AttendanceView />}
+                {route === 'maintenance' && <MaintenanceView />}
+                {route === 'fuel-expenses' && <FuelExpenseView />}
+                {route === 'alerts' && <AlertsView />}
+                {route === 'chat' && <ChatView />}
+                {route === 'ai' && <AIAssistantView onNavigate={handleNavigate} />}
+                {route === 'carbon' && <CarbonView />}
+                {route === 'profile' && <ProfileView />}
+                {route === 'analytics' && <AnalyticsView />}
+              </>
+            )}
+          </AppShell>
+        );
+      }
+    }
+
+    // Render SaaS Website Shell (Navbar + Content + Footer)
+    return (
+      <div className="saas-layout">
+        <Navbar currentRoute={route} onNavigate={handleNavigate} />
+
+        <main style={{ minHeight: 'calc(100vh - 72px - 280px)' }}>
+          {route === 'home' && <Home onNavigate={handleNavigate} />}
+          {route === 'features' && <Features onNavigate={handleNavigate} />}
+          {route === 'about' && <About onNavigate={handleNavigate} />}
+          {route === 'contact' && <Contact onNavigate={handleNavigate} />}
+          {route === 'support' && <Support onNavigate={handleNavigate} />}
+          {route === 'security' && <Security onNavigate={handleNavigate} />}
+          {route === 'privacy' && <PrivacyPolicy onNavigate={handleNavigate} />}
+          {route === 'terms' && <TermsOfService onNavigate={handleNavigate} />}
+          {route === 'signin' && (
+            <SignIn
+              onNavigate={handleNavigate}
+              onLoginSuccess={handleSignInSuccess}
+            />
+          )}
+          {route === 'signup' && (
+            <div style={{ padding: '2.5rem 1rem 4rem' }}>
+              <OrganizationRegistration
+                onSuccess={handleRegistrationSuccess}
+                onNavigateStatus={() => handleNavigate('check-status')}
+              />
+            </div>
+          )}
+          {route === 'check-status' && <CheckStatus onNavigate={handleNavigate} />}
+          {route === 'registration-success' && registeredOrg && (
+            <div style={{ padding: '2.5rem 1rem 4rem' }}>
+              <RegistrationConfirmation
+                data={registeredOrg}
+                onRegisterAnother={handleRegisterAnother}
+              />
+            </div>
+          )}
+        </main>
+
+        <Footer onNavigate={handleNavigate} />
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <InAppNotificationBanner onNavigate={handleNavigate} />
+      {renderScreen()}
+    </>
   );
 }
 

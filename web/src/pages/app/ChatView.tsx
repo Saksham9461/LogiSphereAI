@@ -174,7 +174,7 @@ export const ChatView: React.FC = () => {
       />
 
       {/* Top Action Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="chat-header-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#111827', margin: 0 }}>
             Fleet Team Communications
@@ -232,6 +232,7 @@ export const ChatView: React.FC = () => {
         >
           {/* Search Directory */}
           <div
+            className="chat-roster-search"
             style={{
               padding: '0.75rem 1rem',
               borderBottom: '1px solid #E5E7EB',
@@ -350,6 +351,7 @@ export const ChatView: React.FC = () => {
           >
             {/* Conversation Header */}
             <div
+              className="chat-conv-header"
               style={{
                 height: 60,
                 boxSizing: 'border-box',
@@ -399,6 +401,7 @@ export const ChatView: React.FC = () => {
             {/* Message Thread Scroll Area */}
             <div
               ref={messagesContainerRef}
+              className="chat-conv-thread"
               style={{
                 flex: 1,
                 minHeight: 0,
@@ -457,6 +460,7 @@ export const ChatView: React.FC = () => {
             {/* Input Bar — Pinned with flexShrink: 0 and boxSizing */}
             <form
               onSubmit={handleSendMessage}
+              className="chat-conv-form"
               style={{
                 padding: '0.75rem 1.25rem',
                 borderTop: '1px solid #E5E7EB',
@@ -504,7 +508,7 @@ export const ChatView: React.FC = () => {
             </form>
           </div>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6B7280', fontSize: '0.875rem' }}>
+          <div className="chat-conversation-column" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6B7280', fontSize: '0.875rem', padding: '2rem' }}>
             Select a team member to open chat.
           </div>
         )}

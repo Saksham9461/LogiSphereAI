@@ -15,6 +15,7 @@ import {
 import { PlaceAutocompleteInput } from '../components/PlaceAutocompleteInput';
 import { registerOrganization } from '../services/organizationService';
 import type { OrgRegistrationPayload, OrgRegistrationResponseData } from '../types';
+import { isValidPhoneNumber } from '../utils/validation';
 
 interface OrganizationRegistrationProps {
   onSuccess: (data: OrgRegistrationResponseData) => void;
@@ -123,6 +124,14 @@ export const OrganizationRegistration: React.FC<OrganizationRegistrationProps> =
       errors.managerName = 'Manager full name is required';
     } else if (managerName.trim().length < 2) {
       errors.managerName = 'Manager name must be at least 2 characters';
+    }
+
+    if (contactPhone.trim() && !isValidPhoneNumber(contactPhone)) {
+      errors.contactPhone = 'Please enter a valid 10-digit contact phone number';
+    }
+
+    if (managerPhone.trim() && !isValidPhoneNumber(managerPhone)) {
+      errors.managerPhone = 'Please enter a valid 10-digit manager phone number';
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -353,10 +362,20 @@ export const OrganizationRegistration: React.FC<OrganizationRegistrationProps> =
                   className="reg-input with-left-icon"
                   placeholder="+91 98765 43210"
                   value={contactPhone}
-                  onChange={e => setContactPhone(e.target.value)}
+                  onChange={e => {
+                    setContactPhone(e.target.value);
+                    if (fieldErrors.contactPhone) {
+                      setFieldErrors(prev => ({ ...prev, contactPhone: '' }));
+                    }
+                  }}
                   disabled={isSubmitting}
                 />
               </div>
+              {fieldErrors.contactPhone && (
+                <span className="reg-field-error" style={{ color: '#EF4444', fontSize: '0.78rem', marginTop: 4, display: 'block' }}>
+                  {fieldErrors.contactPhone}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -455,11 +474,21 @@ export const OrganizationRegistration: React.FC<OrganizationRegistrationProps> =
                   className="reg-input with-left-icon"
                   placeholder="+91 98765 00000"
                   value={managerPhone}
-                  onChange={e => setManagerPhone(e.target.value)}
+                  onChange={e => {
+                    setManagerPhone(e.target.value);
+                    if (fieldErrors.managerPhone) {
+                      setFieldErrors(prev => ({ ...prev, managerPhone: '' }));
+                    }
+                  }}
                   disabled={isSubmitting}
                   autoComplete="tel"
                 />
               </div>
+              {fieldErrors.managerPhone && (
+                <span className="reg-field-error" style={{ color: '#EF4444', fontSize: '0.78rem', marginTop: 4, display: 'block' }}>
+                  {fieldErrors.managerPhone}
+                </span>
+              )}
             </div>
 
             {/* Password */}

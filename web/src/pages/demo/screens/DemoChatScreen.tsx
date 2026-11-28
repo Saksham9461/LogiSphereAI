@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { MOCK_CHAT_USERS, MOCK_CHAT_MESSAGES, DEMO_USER } from '../data/chat.mock';
 import type { ChatUser, ChatMessage } from '../../../types';
+import { notificationStore } from '../../../stores/notificationStore';
 
 export const DemoChatScreen: React.FC = () => {
   const [users] = useState<ChatUser[]>(() => [...MOCK_CHAT_USERS]);
@@ -73,6 +74,14 @@ export const DemoChatScreen: React.FC = () => {
         status: 'READ',
       };
       setMessages((prev) => [...prev, replyMsg]);
+
+      notificationStore.pushNotification({
+        type: 'CHAT',
+        title: 'Team Dispatch Message',
+        senderName: selectedUser.name,
+        message: replyMsg.message,
+        routeTarget: 'chat',
+      });
     }, 2200);
   };
 
@@ -91,6 +100,7 @@ export const DemoChatScreen: React.FC = () => {
     <div>
       {/* Top Action Header (exact match with ChatView.tsx) */}
       <div
+        className="chat-header-bar"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -157,6 +167,7 @@ export const DemoChatScreen: React.FC = () => {
         >
           {/* Search Directory */}
           <div
+            className="chat-roster-search"
             style={{
               padding: '0.75rem 1rem',
               borderBottom: '1px solid #E5E7EB',
@@ -290,6 +301,7 @@ export const DemoChatScreen: React.FC = () => {
           >
             {/* Conversation Header */}
             <div
+              className="chat-conv-header"
               style={{
                 padding: '0 1.25rem',
                 borderBottom: '1px solid #E5E7EB',
@@ -354,6 +366,7 @@ export const DemoChatScreen: React.FC = () => {
             {/* Message Thread Scroll Area */}
             <div
               ref={messagesContainerRef}
+              className="chat-conv-thread"
               style={{
                 flex: 1,
                 minHeight: 0,
@@ -411,6 +424,7 @@ export const DemoChatScreen: React.FC = () => {
             {/* Input Bar */}
             <form
               onSubmit={handleSendMessage}
+              className="chat-conv-form"
               style={{
                 padding: '0.75rem 1.25rem',
                 borderTop: '1px solid #E5E7EB',
@@ -458,7 +472,7 @@ export const DemoChatScreen: React.FC = () => {
             </form>
           </div>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6B7280', fontSize: '0.875rem' }}>
+          <div className="chat-conversation-column" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6B7280', fontSize: '0.875rem', padding: '2rem' }}>
             Select a team member to open chat.
           </div>
         )}

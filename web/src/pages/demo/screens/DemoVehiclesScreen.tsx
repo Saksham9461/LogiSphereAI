@@ -5,7 +5,6 @@
 
 import React, { useState, useMemo } from 'react';
 import {
-  Truck,
   Plus,
   Search,
   Filter,
@@ -250,14 +249,7 @@ export const DemoVehiclesScreen: React.FC = () => {
                 filteredVehicles.map((v) => (
                   <tr key={v.id || v.vehicleID}>
                     <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                        <div style={{ background: '#FEF3C7', padding: '0.4rem', borderRadius: 6 }}>
-                          <Truck size={16} color="#B45309" />
-                        </div>
-                        <div>
-                          <div style={{ fontWeight: 700, color: '#111827' }}>{v.name}</div>
-                        </div>
-                      </div>
+                      <div style={{ fontWeight: 700, color: '#111827' }}>{v.name}</div>
                     </td>
                     <td className="ops-mono" style={{ fontWeight: 700, color: '#1F2937' }}>
                       {v.registrationNumber || v.reg || 'N/A'}

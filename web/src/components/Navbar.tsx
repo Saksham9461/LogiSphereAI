@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Menu, X, ArrowRight, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Menu, X, ArrowRight } from 'lucide-react';
+import { NotificationBellDropdown } from './notifications/NotificationBellDropdown';
 
 interface NavbarProps {
   currentRoute: string;
@@ -28,6 +29,21 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, onNavigate }) => {
     }
     return currentRoute === route;
   };
+
+  // Prevent background scrolling on small devices when mobile menu is open
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      document.body.classList.add('sidebar-open');
+      document.documentElement.classList.add('sidebar-open');
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.classList.remove('sidebar-open');
+        document.documentElement.classList.remove('sidebar-open');
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [mobileMenuOpen]);
 
   return (
     <header className="saas-navbar">
@@ -76,6 +92,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, onNavigate }) => {
 
           {/* Action CTAs */}
           <div className="saas-nav-actions">
+            <NotificationBellDropdown onNavigate={handleLinkClick} />
             <a
               href="#/signin"
               className="saas-btn saas-btn-outline saas-btn-sm"
@@ -99,15 +116,18 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, onNavigate }) => {
             </a>
           </div>
 
-          {/* Mobile Hamburger Toggle */}
-          <button
-            type="button"
-            className="saas-mobile-toggle"
-            aria-label="Toggle navigation menu"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          >
-            {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-          </button>
+          {/* Mobile Right Controls: Notification Bell + Hamburger Toggle */}
+          <div style={{ display: 'none', alignItems: 'center', gap: '0.5rem' }} className="saas-mobile-actions">
+            <NotificationBellDropdown onNavigate={handleLinkClick} />
+            <button
+              type="button"
+              className="saas-mobile-toggle"
+              aria-label="Toggle navigation menu"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            >
+              {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -148,18 +168,6 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, onNavigate }) => {
             >
               Get Started (Sign Up)
               <ArrowRight size={14} />
-            </a>
-            <a
-              href="#/admin"
-              className="saas-btn saas-btn-secondary saas-btn-sm"
-              style={{ marginTop: '0.5rem', opacity: 0.7 }}
-              onClick={(e) => {
-                e.preventDefault();
-                handleLinkClick('admin');
-              }}
-            >
-              <ShieldCheck size={14} />
-              Platform Admin Portal
             </a>
           </div>
         </div>

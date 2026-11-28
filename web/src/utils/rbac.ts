@@ -375,6 +375,7 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | Permission[]> = {
   chat: Permission.CHAT_VIEW,
   ai: Permission.AI_ASSISTANT_QUERY,
   carbon: Permission.CARBON_VIEW,
+  'add-staff': Permission.USERS_MANAGE,
   profile: Permission.NOTIFICATIONS_VIEW_OWN,
 };
 
@@ -398,6 +399,7 @@ export const APP_NAVIGATION_ITEMS: NavItemConfig[] = [
   { key: 'dashboard', label: 'Command Dashboard', iconName: 'LayoutDashboard', permission: [Permission.DASHBOARD_VIEW_FLEET, Permission.DASHBOARD_VIEW_PERSONAL] },
   { key: 'vehicles', label: 'Fleet Registry', iconName: 'Truck', permission: Permission.VEHICLES_VIEW },
   { key: 'drivers', label: 'Driver Operations', iconName: 'Users', permission: Permission.DRIVERS_VIEW },
+  { key: 'add-staff', label: 'Add Staff', iconName: 'UserPlus', permission: Permission.USERS_MANAGE },
   { key: 'trips', label: 'Trip Dispatcher', iconName: 'Navigation', permission: [Permission.TRIPS_VIEW, Permission.TRIPS_VIEW_OWN] },
   { key: 'tracking', label: 'Live GIS Telematics', iconName: 'MapPin', permission: Permission.TRACKING_VIEW_FLEET },
   { key: 'attendance', label: 'Geofenced Shifts', iconName: 'Clock', permission: Permission.ATTENDANCE_VIEW },

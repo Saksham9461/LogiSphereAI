@@ -3,14 +3,8 @@
 // Connects to /api/alerts, /api/sos, and /ws/alerts WebSocket stream
 // ==============================================================================
 
-import { apiClient } from './apiClient';
+import { apiClient, getWsBaseUrl } from './apiClient';
 import type { EmergencyAlert } from '../types';
-
-function getWsBaseUrl(): string {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
-  return `${protocol}//${host}`;
-}
 
 export interface AlertWsCallbacks {
   onConnected?: () => void;
@@ -19,6 +13,106 @@ export interface AlertWsCallbacks {
   onAlertAcknowledged?: (alert: EmergencyAlert) => void;
   onAlertResolved?: (alert: EmergencyAlert) => void;
   onAlertEvent?: (alert: EmergencyAlert) => void;
+}
+
+// Global shared WebSocket manager to prevent duplicate connections or premature StrictMode unmount closures
+let sharedAlertWs: WebSocket | null = null;
+const alertSubscribers = new Set<AlertWsCallbacks>();
+let alertReconnectTimer: any = null;
+
+function ensureAlertsWsConnection() {
+  if (typeof window === 'undefined') return;
+  if (alertSubscribers.size === 0) return;
+  if (sharedAlertWs && (sharedAlertWs.readyState === WebSocket.OPEN || sharedAlertWs.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  const wsUrl = `${getWsBaseUrl()}/ws/alerts?token=${encodeURIComponent(token)}`;
+
+  try {
+    const ws = new WebSocket(wsUrl);
+    sharedAlertWs = ws;
+
+    ws.onopen = () => {
+      alertSubscribers.forEach((cb) => {
+        try {
+          cb.onConnected?.();
+        } catch {
+          // ignore callback error
+        }
+      });
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        const type = payload.type || payload.event;
+        const data = payload.data || payload.payload;
+
+        if (data) {
+          alertSubscribers.forEach((cb) => {
+            try {
+              cb.onAlertEvent?.(data);
+
+              // Handle alert creation events (backend emits 'alert:emergency_created')
+              if (
+                type === 'alert:emergency_created' ||
+                type === 'alerts:sos_broadcast' ||
+                type === 'alert:created' ||
+                type === 'alert:sos'
+              ) {
+                cb.onAlertCreated?.(data);
+              } else if (
+                type === 'alert:emergency_updated' ||
+                type === 'alert:updated' ||
+                type === 'alert:acknowledged' ||
+                type === 'alert:resolved'
+              ) {
+                if (data?.status === 'RESOLVED' || type === 'alert:resolved') {
+                  cb.onAlertResolved?.(data);
+                } else if (data?.status === 'ACKNOWLEDGED' || type === 'alert:acknowledged') {
+                  cb.onAlertAcknowledged?.(data);
+                } else {
+                  cb.onAlertEvent?.(data);
+                }
+              }
+            } catch {
+              // ignore callback error
+            }
+          });
+        }
+      } catch {
+        // silent parse error
+      }
+    };
+
+    ws.onerror = () => {
+      // Intentionally silent: prevent console noise
+    };
+
+    ws.onclose = () => {
+      if (sharedAlertWs === ws) {
+        sharedAlertWs = null;
+      }
+      alertSubscribers.forEach((cb) => {
+        try {
+          cb.onDisconnected?.();
+        } catch {
+          // ignore callback error
+        }
+      });
+
+      if (alertSubscribers.size > 0 && !alertReconnectTimer) {
+        alertReconnectTimer = setTimeout(() => {
+          alertReconnectTimer = null;
+          ensureAlertsWsConnection();
+        }, 5000);
+      }
+    };
+  } catch {
+    // Intentionally silent
+  }
 }
 
 export const alertService = {
@@ -104,57 +198,51 @@ export const alertService = {
   connectAlertsWs(callbacks?: AlertWsCallbacks): () => void {
     if (typeof window === 'undefined') return () => {};
 
-    const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
-    const wsUrl = `${getWsBaseUrl()}/ws/alerts?token=${encodeURIComponent(token)}`;
-    let ws: WebSocket | null = null;
-    let isClosedIntentionally = false;
-
-    try {
-      ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        callbacks?.onConnected?.();
-      };
-
-      ws.onmessage = (event) => {
+    if (callbacks) {
+      alertSubscribers.add(callbacks);
+      if (sharedAlertWs && sharedAlertWs.readyState === WebSocket.OPEN) {
         try {
-          const payload = JSON.parse(event.data);
-          const type = payload.type || payload.event;
-          const data = payload.data || payload.payload;
-
-          if (data) {
-            callbacks?.onAlertEvent?.(data);
-
-            if (type === 'alerts:sos_broadcast' || type === 'alert:created') {
-              callbacks?.onAlertCreated?.(data);
-            } else if (type === 'alert:acknowledged') {
-              callbacks?.onAlertAcknowledged?.(data);
-            } else if (type === 'alert:resolved') {
-              callbacks?.onAlertResolved?.(data);
-            }
-          }
-        } catch (e) {
-          console.warn('[Alerts WS] Parse error:', e);
+          callbacks.onConnected?.();
+        } catch {
+          // ignore
         }
-      };
-
-      ws.onclose = () => {
-        callbacks?.onDisconnected?.();
-        if (!isClosedIntentionally) {
-          setTimeout(() => {
-            if (!isClosedIntentionally) {
-              alertService.connectAlertsWs(callbacks);
-            }
-          }, 5000);
-        }
-      };
-    } catch (e) {
-      console.warn('[Alerts WS] Connection error:', e);
+      }
     }
 
+    ensureAlertsWsConnection();
+
     return () => {
-      isClosedIntentionally = true;
-      if (ws) ws.close();
+      if (callbacks) {
+        alertSubscribers.delete(callbacks);
+      }
+      if (alertSubscribers.size === 0) {
+        if (alertReconnectTimer) {
+          clearTimeout(alertReconnectTimer);
+          alertReconnectTimer = null;
+        }
+        if (sharedAlertWs) {
+          const wsToClose = sharedAlertWs;
+          sharedAlertWs = null;
+          try {
+            if (wsToClose.readyState === WebSocket.OPEN) {
+              wsToClose.close(1000, 'Normal Closure');
+            } else if (wsToClose.readyState === WebSocket.CONNECTING) {
+              // Wait for connection to open before closing, avoiding browser "closed before established" error
+              wsToClose.onopen = () => {
+                try {
+                  wsToClose.close(1000, 'Normal Closure');
+                } catch {
+                  // ignore
+                }
+              };
+              wsToClose.onerror = () => {};
+              wsToClose.onclose = () => {};
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
     };
   },
 };

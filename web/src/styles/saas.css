@@ -8,6 +8,13 @@
    - Accent Badges: Teal #14B8A6, Emerald #10B981, Rose #F43F5E, Blue #3B82F6
    ============================================================================== */
 
+html.sidebar-open,
+body.sidebar-open {
+  overflow: hidden !important;
+  touch-action: none;
+  -webkit-overflow-scrolling: auto;
+}
+
 :root {
   /* Core Theme Tokens from App/src/theme/colors.ts */
   --saas-bg-darkest: #F3F4F6;
@@ -1073,6 +1080,9 @@ select.saas-input {
   }
   .saas-mobile-toggle {
     display: block;
+  }
+  .saas-mobile-actions {
+    display: flex !important;
   }
   .saas-grid-3,
   .saas-grid-2 {

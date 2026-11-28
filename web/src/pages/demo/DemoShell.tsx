@@ -23,12 +23,14 @@ import {
   X,
   Building2,
   Shield,
+  UserPlus,
 } from 'lucide-react';
 
 // Demo screens
 import { DemoDashboardScreen } from './screens/DemoDashboardScreen';
 import { DemoVehiclesScreen } from './screens/DemoVehiclesScreen';
 import { DemoDriversScreen } from './screens/DemoDriversScreen';
+import { DemoAddStaffScreen } from './screens/DemoAddStaffScreen';
 import { DemoTripsScreen } from './screens/DemoTripsScreen';
 import { DemoAttendanceScreen } from './screens/DemoAttendanceScreen';
 import { DemoMaintenanceScreen } from './screens/DemoMaintenanceScreen';
@@ -40,6 +42,7 @@ import { DemoAIAssistantScreen } from './screens/DemoAIAssistantScreen';
 import { DemoChatScreen } from './screens/DemoChatScreen';
 import { DemoLiveTrackingScreen } from './screens/DemoLiveTrackingScreen';
 import { DemoProfileScreen } from './screens/DemoProfileScreen';
+import { NotificationBellDropdown } from '../../components/notifications/NotificationBellDropdown';
 
 interface DemoShellProps {
   onSignOut: () => void;
@@ -52,6 +55,7 @@ const DEMO_NAV = [
   { key: 'tracking', label: 'Live GIS Tracking', Icon: MapPin },
   { key: 'vehicles', label: 'Fleet Vehicles', Icon: Truck },
   { key: 'drivers', label: 'Driver Operations', Icon: Users },
+  { key: 'add-staff', label: 'Add Staff', Icon: UserPlus },
   { key: 'attendance', label: 'Attendance & Shifts', Icon: Clock },
   { key: 'maintenance', label: 'Maintenance Hub', Icon: Wrench },
   { key: 'fuel-expenses', label: 'Fuel & Expenses', Icon: Fuel },
@@ -81,6 +85,21 @@ export const DemoShell: React.FC<DemoShellProps> = ({ onSignOut, onNavigateHome 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Prevent background scrolling on small devices when mobile sidebar is open
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.classList.add('sidebar-open');
+      document.documentElement.classList.add('sidebar-open');
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.classList.remove('sidebar-open');
+        document.documentElement.classList.remove('sidebar-open');
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [mobileOpen]);
 
   // Live operational clock (strictly 12-hour format: hh:mm:ss AM/PM)
   useEffect(() => {
@@ -118,7 +137,8 @@ export const DemoShell: React.FC<DemoShellProps> = ({ onSignOut, onNavigateHome 
     switch (currentRoute) {
       case 'dashboard': return <DemoDashboardScreen key="dashboard" onNavigate={setCurrentRoute} />;
       case 'vehicles': return <DemoVehiclesScreen key="vehicles" />;
-      case 'drivers': return <DemoDriversScreen key="drivers" />;
+      case 'drivers': return <DemoDriversScreen key="drivers" onNavigate={setCurrentRoute} />;
+      case 'add-staff': return <DemoAddStaffScreen key="add-staff" onNavigate={setCurrentRoute} />;
       case 'trips': return <DemoTripsScreen key="trips" />;
       case 'tracking': return <DemoLiveTrackingScreen key="tracking" />;
       case 'attendance': return <DemoAttendanceScreen key="attendance" />;
@@ -449,6 +469,9 @@ export const DemoShell: React.FC<DemoShellProps> = ({ onSignOut, onNavigateHome 
               <Shield size={13} />
               <span>Fleet Manager</span>
             </div>
+
+            {/* Notification Bell Dropdown */}
+            <NotificationBellDropdown onNavigate={setCurrentRoute} />
 
             {/* User Profile Pill */}
             <button

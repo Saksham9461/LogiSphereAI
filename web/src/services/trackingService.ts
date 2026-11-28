@@ -104,6 +104,10 @@ export const trackingService = {
         }
       };
 
+      ws.onerror = () => {
+        // Intentionally silent
+      };
+
       ws.onclose = () => {
         callbacks.onDisconnected?.();
         if (!isClosedIntentionally) {
@@ -114,13 +118,31 @@ export const trackingService = {
           }, 5000);
         }
       };
-    } catch (e) {
-      console.warn('[Tracking WS] Connection error:', e);
+    } catch {
+      // Intentionally silent
     }
 
     return () => {
       isClosedIntentionally = true;
-      if (ws) ws.close();
+      if (ws) {
+        if (ws.readyState === WebSocket.CONNECTING) {
+          ws.onopen = () => {
+            try {
+              ws?.close(1000, 'Normal Closure');
+            } catch {
+              // ignore
+            }
+          };
+          ws.onerror = () => {};
+          ws.onclose = () => {};
+        } else if (ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.close(1000, 'Normal Closure');
+          } catch {
+            // ignore
+          }
+        }
+      }
     };
   },
 };

@@ -80,6 +80,20 @@ export const fleetService = {
     return { driver, credentials, temporaryPassword: credentials?.temporaryPassword };
   },
 
+  async registerStaff(payload: {
+    name: string;
+    email: string;
+    phoneNo: string;
+    password?: string;
+    role: string;
+  }): Promise<{ user: any; credentials?: { email: string; temporaryPassword: string }; temporaryPassword?: string }> {
+    const response = await apiClient.post('/api/user/create', payload);
+    const data = response.data;
+    const user = data?.serviceResult || data?.data || data?.user || data;
+    const credentials = data?.credentials || data?.serviceResult?.credentials || (data?.temporaryPassword ? { email: payload.email, temporaryPassword: data.temporaryPassword } : undefined);
+    return { user, credentials, temporaryPassword: credentials?.temporaryPassword };
+  },
+
   async updateDriver(id: string, payload: Partial<Driver>): Promise<Driver> {
     const response = await apiClient.put('/api/user/update', payload, {
       params: { id },

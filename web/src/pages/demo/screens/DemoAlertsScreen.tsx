@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { MOCK_ALERTS } from '../data/alerts.mock';
 import type { EmergencyAlert } from '../../../types';
+import { notificationStore } from '../../../stores/notificationStore';
 
 export const DemoAlertsScreen: React.FC = () => {
   const [alerts, setAlerts] = useState<EmergencyAlert[]>(() => [...MOCK_ALERTS]);
@@ -75,6 +76,14 @@ export const DemoAlertsScreen: React.FC = () => {
     setAlerts((prev) => [newAlert, ...prev]);
     setShowSosModal(false);
     setSosMessage('Vehicle breakdown or urgent distress signal.');
+
+    notificationStore.pushNotification({
+      type: 'ALERT',
+      title: 'Emergency SOS Broadcast',
+      message: newAlert.message,
+      driverName: 'Raj Patel (TRUCK-11)',
+      routeTarget: 'alerts',
+    });
   };
 
   const activeAlerts = alerts.filter((a) => a.status === 'ACTIVE');
@@ -82,7 +91,7 @@ export const DemoAlertsScreen: React.FC = () => {
   return (
     <div>
       {/* Top Action Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="alerts-header-bar">
         <div>
           <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#111827', margin: 0 }}>
             Emergency SOS & Incident Command
@@ -92,44 +101,32 @@ export const DemoAlertsScreen: React.FC = () => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div className="alerts-header-actions">
           {/* WebSocket stream status */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              background: '#D1FAE5',
-              color: '#065F46',
-              padding: '0.35rem 0.75rem',
-              borderRadius: 999,
-              fontSize: '0.78rem',
-              fontWeight: 700,
-            }}
-          >
+          <div className="alerts-stream-badge">
             <Radio size={14} className="animate-pulse" />
             <span>SOS Stream Active</span>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setAlerts([...MOCK_ALERTS])}
-            className="btn-secondary"
-            style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}
-          >
-            <RefreshCw size={14} />
-            <span>Reset Demo Data</span>
-          </button>
+          <div className="alerts-action-buttons">
+            <button
+              type="button"
+              onClick={() => setAlerts([...MOCK_ALERTS])}
+              className="btn-secondary alerts-btn"
+            >
+              <RefreshCw size={14} />
+              <span>Reset Demo Data</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setShowSosModal(true)}
-            className="btn-danger"
-            style={{ padding: '0.5rem 1rem' }}
-          >
-            <AlertTriangle size={16} />
-            <span>Trigger SOS</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setShowSosModal(true)}
+              className="btn-danger alerts-btn alerts-trigger-btn"
+            >
+              <AlertTriangle size={16} />
+              <span>Trigger SOS</span>
+            </button>
+          </div>
         </div>
       </div>
 

@@ -25,10 +25,14 @@ import {
   Building2,
   Shield,
   ChevronRight,
+  UserPlus,
 } from 'lucide-react';
 import { useAuth } from '../../stores/authStore';
 import { CanonicalRole, getNavItemsForRole, normalizeRole } from '../../utils/rbac';
 import { alertService } from '../../services/alertService';
+import { chatService } from '../../services/chatService';
+import { notificationStore } from '../../stores/notificationStore';
+import { NotificationBellDropdown } from '../notifications/NotificationBellDropdown';
 
 // Icon map for dynamic navigation
 const ICON_MAP: Record<string, React.ElementType> = {
@@ -45,6 +49,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Sparkles,
   Leaf,
   TrendingUp,
+  UserPlus,
 };
 
 interface AppShellProps {
@@ -83,6 +88,21 @@ export const AppShell: React.FC<AppShellProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Prevent background scrolling on small devices when mobile sidebar is open
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.classList.add('sidebar-open');
+      document.documentElement.classList.add('sidebar-open');
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.classList.remove('sidebar-open');
+        document.documentElement.classList.remove('sidebar-open');
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [mobileOpen]);
+
   // Derive allowed navigation items from RBAC
   const navItems = getNavItemsForRole(user?.role);
   const canonicalRole = normalizeRole(user?.role);
@@ -111,7 +131,17 @@ export const AppShell: React.FC<AppShellProps> = ({
     const fetchCounts = async () => {
       try {
         const count = await alertService.getActiveCount();
-        setActiveAlertCount(count);
+        setActiveAlertCount((prev) => {
+          if (prev >= 0 && count > prev) {
+            notificationStore.pushNotification({
+              type: 'ALERT',
+              title: 'Emergency Distress Signal Broadcast',
+              message: `${count} active emergency distress signal${count === 1 ? '' : 's'} reported on fleet monitoring stream.`,
+              routeTarget: 'alerts',
+            });
+          }
+          return count;
+        });
       } catch {
         // Fallback gracefully
       }
@@ -130,9 +160,13 @@ export const AppShell: React.FC<AppShellProps> = ({
       },
     });
 
+    // Live WebSocket connection for chat notifications
+    const cleanupChatWs = chatService.connectChatWs({});
+
     return () => {
       clearInterval(pollInterval);
       if (cleanupWs) cleanupWs();
+      if (cleanupChatWs) cleanupChatWs();
     };
   }, []);
 
@@ -516,6 +550,9 @@ export const AppShell: React.FC<AppShellProps> = ({
               <Shield size={13} />
               <span>{roleStyle.label}</span>
             </div>
+
+            {/* Notification Bell Dropdown */}
+            <NotificationBellDropdown onNavigate={onNavigate} />
 
             {/* User Profile Pill */}
             <button

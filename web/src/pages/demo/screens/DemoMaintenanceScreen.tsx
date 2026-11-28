@@ -125,7 +125,7 @@ export const DemoMaintenanceScreen: React.FC = () => {
             <Sparkles size={18} color="#F59E0B" />
             <span>Predictive Telematics AI Maintenance Forecasts</span>
           </div>
-          <span className="badge badge-warning">Gemini Predictive AI</span>
+          <span className="badge badge-warning">Predictive AI</span>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem', marginTop: '1rem' }}>

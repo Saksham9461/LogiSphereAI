@@ -132,7 +132,7 @@ export const DemoDashboardScreen: React.FC<DemoDashboardScreenProps> = ({ onNavi
       />
 
       {/* Header Bar matching DashboardView.tsx */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="dashboard-header-bar">
         <div>
           <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#111827', margin: 0 }}>
             Fleet Operations Command Console
@@ -142,21 +142,10 @@ export const DemoDashboardScreen: React.FC<DemoDashboardScreenProps> = ({ onNavi
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <div className="dashboard-header-actions">
           {/* Live Operational Duty & Clock-In / Clock-Out Widget */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.65rem',
-              background: '#FFFFFF',
-              border: '1px solid #E5E7EB',
-              borderRadius: 8,
-              padding: '0.35rem 0.75rem',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+          <div className="dashboard-shift-widget">
+            <div className="dashboard-shift-status">
               <div
                 style={{
                   width: 8,
@@ -222,8 +211,7 @@ export const DemoDashboardScreen: React.FC<DemoDashboardScreenProps> = ({ onNavi
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="btn-secondary"
-            style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}
+            className="btn-secondary dashboard-refresh-btn"
           >
             <RefreshCw size={14} />
             <span>Refresh</span>
@@ -346,7 +334,7 @@ export const DemoDashboardScreen: React.FC<DemoDashboardScreenProps> = ({ onNavi
               <TrendingUp size={18} color="#F59E0B" />
               <span>AI Operations Insights</span>
             </div>
-            <span className="badge badge-warning">Gemini AI</span>
+            <span className="badge badge-warning">AI</span>
           </div>
 
           <p style={{ fontSize: '0.85rem', color: '#78350F', lineHeight: 1.5, marginBottom: '1rem' }}>

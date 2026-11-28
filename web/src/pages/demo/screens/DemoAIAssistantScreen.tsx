@@ -232,7 +232,7 @@ export const DemoAIAssistantScreen: React.FC<DemoAIAssistantScreenProps> = ({ on
             AI Fleet Operations Assistant
           </h1>
           <p style={{ fontSize: '0.875rem', color: '#6B7280', margin: '0.25rem 0 0 0' }}>
-            Gemini-powered operations conversational intelligence with full tenancy context.
+            AI-powered operations conversational intelligence with full tenancy context.
           </p>
         </div>
 
@@ -251,7 +251,7 @@ export const DemoAIAssistantScreen: React.FC<DemoAIAssistantScreenProps> = ({ on
           }}
         >
           <Sparkles size={14} />
-          <span>Gemini Fleet Engine</span>
+          <span>AI Fleet Engine</span>
         </div>
       </div>
 
@@ -408,7 +408,7 @@ export const DemoAIAssistantScreen: React.FC<DemoAIAssistantScreenProps> = ({ on
           {loading && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#6B7280', fontSize: '0.85rem' }}>
               <RefreshCw size={16} className="animate-spin" />
-              <span>Analyzing live fleet state with Gemini...</span>
+              <span>Analyzing live fleet state with AI...</span>
             </div>
           )}
           <div ref={messagesEndRef} />
