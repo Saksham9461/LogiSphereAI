@@ -35,6 +35,10 @@ import { Home } from './pages/Home';
 import { Features } from './pages/Features';
 import { About } from './pages/About';
 import { Contact } from './pages/Contact';
+import { Support } from './pages/Support';
+import { Security } from './pages/Security';
+import { PrivacyPolicy } from './pages/PrivacyPolicy';
+import { TermsOfService } from './pages/TermsOfService';
 import { SignIn } from './pages/SignIn';
 import { DemoShell } from './pages/demo/DemoShell';
 import { CheckStatus } from './pages/CheckStatus';
@@ -119,14 +123,22 @@ export function App() {
     const rawHash = window.location.hash.replace(/^#\/?/, '').trim();
     const currentPath = rawHash.split('?')[0].toLowerCase();
 
-    if (!currentPath || currentPath === 'home') {
+    if (!currentPath || currentPath === 'home' || currentPath === 'explore' || currentPath === 'platform') {
       setRoute('home');
     } else if (currentPath === 'features') {
       setRoute('features');
     } else if (currentPath === 'about') {
       setRoute('about');
-    } else if (currentPath === 'contact') {
+    } else if (currentPath === 'contact' || currentPath === 'contact-sales' || currentPath === 'sales') {
       setRoute('contact');
+    } else if (currentPath === 'support' || currentPath === 'contact-support' || currentPath === 'help') {
+      setRoute('support');
+    } else if (currentPath === 'security' || currentPath === 'compliance' || currentPath === 'security-compliance') {
+      setRoute('security');
+    } else if (currentPath === 'privacy' || currentPath === 'privacy-policy') {
+      setRoute('privacy');
+    } else if (currentPath === 'terms' || currentPath === 'terms-of-service') {
+      setRoute('terms');
     } else if (currentPath === 'signin' || currentPath === 'login') {
       if (isAuthenticated) {
         setRoute('dashboard');
@@ -341,6 +353,10 @@ export function App() {
         {route === 'features' && <Features onNavigate={handleNavigate} />}
         {route === 'about' && <About onNavigate={handleNavigate} />}
         {route === 'contact' && <Contact onNavigate={handleNavigate} />}
+        {route === 'support' && <Support onNavigate={handleNavigate} />}
+        {route === 'security' && <Security onNavigate={handleNavigate} />}
+        {route === 'privacy' && <PrivacyPolicy onNavigate={handleNavigate} />}
+        {route === 'terms' && <TermsOfService onNavigate={handleNavigate} />}
         {route === 'signin' && (
           <SignIn
             onNavigate={handleNavigate}

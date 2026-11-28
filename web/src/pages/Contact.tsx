@@ -68,9 +68,9 @@ export const Contact: React.FC<ContactProps> = ({ onNavigate }) => {
       </section>
 
       <section className="saas-container" style={{ marginBottom: '5rem' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '3rem', maxWidth: 1060, margin: '0 auto' }}>
+        <div className="saas-contact-grid">
           {/* Form Card */}
-          <div className="saas-form-card">
+          <div className="saas-form-card saas-contact-form-card">
             {submitted ? (
               <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
                 <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#D1FAE5', color: '#047857', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', border: '1px solid #A7F3D0' }}>
@@ -217,45 +217,53 @@ export const Contact: React.FC<ContactProps> = ({ onNavigate }) => {
           </div>
 
           {/* Quick Context & FAQ Side */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem', justifyContent: 'center' }}>
-            <div className="saas-card">
-              <div className="saas-card-icon teal">
-                <Building2 size={22} />
+          <div className="saas-contact-sidebar">
+            <div className="saas-card saas-contact-side-card">
+              <div className="saas-contact-card-content">
+                <div className="saas-card-icon teal">
+                  <Building2 size={22} />
+                </div>
+                <h4 style={{ color: '#111827', fontSize: '1.15rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                  Looking to Onboard Right Away?
+                </h4>
+                <p style={{ color: '#4B5563', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: '0.5rem' }}>
+                  You can directly register your organization, configure your operational geofence, and designate your initial manager without waiting for a sales consultation.
+                </p>
               </div>
-              <h4 style={{ color: '#111827', fontSize: '1.15rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-                Looking to Onboard Right Away?
-              </h4>
-              <p style={{ color: '#4B5563', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: '1.25rem' }}>
-                You can directly register your organization, configure your operational geofence, and designate your initial manager without waiting for a sales consultation.
-              </p>
-              <button
-                type="button"
-                className="saas-btn saas-btn-outline saas-btn-sm"
-                onClick={() => onNavigate('signup')}
-              >
-                Go to Company Registration
-                <ArrowRight size={14} />
-              </button>
+              <div className="saas-contact-card-action">
+                <button
+                  type="button"
+                  className="saas-btn saas-btn-outline saas-btn-sm"
+                  onClick={() => onNavigate('signup')}
+                >
+                  Go to Company Registration
+                  <ArrowRight size={14} />
+                </button>
+              </div>
             </div>
 
-            <div className="saas-card">
-              <div className="saas-card-icon emerald">
-                <ShieldCheck size={22} />
+            <div className="saas-card saas-contact-side-card">
+              <div className="saas-contact-card-content">
+                <div className="saas-card-icon emerald">
+                  <ShieldCheck size={22} />
+                </div>
+                <h4 style={{ color: '#111827', fontSize: '1.15rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                  Already Applied?
+                </h4>
+                <p style={{ color: '#4B5563', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: '0.5rem' }}>
+                  Check your company’s application and platform review status instantly using your registered manager email address.
+                </p>
               </div>
-              <h4 style={{ color: '#111827', fontSize: '1.15rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-                Already Applied?
-              </h4>
-              <p style={{ color: '#4B5563', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: '1.25rem' }}>
-                Check your company’s application and platform review status instantly using your registered manager email address.
-              </p>
-              <button
-                type="button"
-                className="saas-btn saas-btn-outline saas-btn-sm"
-                onClick={() => onNavigate('check-status')}
-              >
-                Check Application Status
-                <ArrowRight size={14} />
-              </button>
+              <div className="saas-contact-card-action">
+                <button
+                  type="button"
+                  className="saas-btn saas-btn-outline saas-btn-sm"
+                  onClick={() => onNavigate('check-status')}
+                >
+                  Check Application Status
+                  <ArrowRight size={14} />
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -139,10 +139,14 @@ describe('LogiSphere AI — SaaS Website & Status Check Suite', () => {
   describe('2. SaaS Website Navigation & Routing Contracts', () => {
     const resolveSaaSRoute = (rawHash: string): string => {
       const currentPath = rawHash.replace(/^#\/?/, '').trim().split('?')[0].toLowerCase();
-      if (!currentPath || currentPath === 'home') return 'home';
+      if (!currentPath || currentPath === 'home' || currentPath === 'explore') return 'home';
       if (currentPath === 'features') return 'features';
       if (currentPath === 'about') return 'about';
       if (currentPath === 'contact') return 'contact';
+      if (currentPath === 'support' || currentPath === 'contact-support') return 'support';
+      if (currentPath === 'security' || currentPath === 'compliance') return 'security';
+      if (currentPath === 'privacy' || currentPath === 'privacy-policy') return 'privacy';
+      if (currentPath === 'terms' || currentPath === 'terms-of-service') return 'terms';
       if (currentPath === 'signin' || currentPath === 'login') return 'signin';
       if (currentPath === 'signup' || currentPath === 'register') return 'signup';
       if (currentPath === 'check-status' || currentPath === 'status') return 'check-status';
@@ -162,6 +166,10 @@ describe('LogiSphere AI — SaaS Website & Status Check Suite', () => {
       expect(resolveSaaSRoute('#/signin')).toBe('signin');
       expect(resolveSaaSRoute('#/signup')).toBe('signup');
       expect(resolveSaaSRoute('#/check-status')).toBe('check-status');
+      expect(resolveSaaSRoute('#/support')).toBe('support');
+      expect(resolveSaaSRoute('#/security')).toBe('security');
+      expect(resolveSaaSRoute('#/privacy')).toBe('privacy');
+      expect(resolveSaaSRoute('#/terms')).toBe('terms');
     });
 
     it('2.2 Preserves backward-compatible route aliases', () => {

@@ -706,6 +706,54 @@
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.06), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
 }
 
+/* Contact Screen Balanced Alignment */
+.saas-contact-grid {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 2.5rem;
+  max-width: 1080px;
+  margin: 0 auto;
+  align-items: stretch;
+}
+
+.saas-contact-form-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.saas-contact-form-card form {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.saas-contact-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  height: 100%;
+}
+
+.saas-contact-side-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-radius: 16px;
+  padding: 2.25rem 2rem;
+  background: #FFFFFF;
+}
+
+.saas-contact-card-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.saas-contact-card-action {
+  margin-top: 1.5rem;
+}
+
 .saas-input-group {
   margin-bottom: 1.35rem;
 }
@@ -987,6 +1035,19 @@ select.saas-input {
     grid-template-columns: 1fr;
     gap: 1rem;
   }
+  .saas-contact-grid {
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+  .saas-contact-sidebar {
+    height: auto;
+    gap: 1.25rem;
+  }
+  .saas-contact-side-card {
+    flex: none;
+    height: auto;
+    padding: 1.75rem 1.5rem;
+  }
 }
 
 @media (max-width: 768px) {
@@ -1161,6 +1222,12 @@ select.saas-input {
   }
   .saas-preview-body {
     padding: 0.75rem;
+  }
+  .saas-contact-side-card {
+    padding: 1.35rem 1rem;
+  }
+  .saas-contact-card-action .saas-btn {
+    width: 100%;
   }
   .ops-table th,
   .ops-table td {
