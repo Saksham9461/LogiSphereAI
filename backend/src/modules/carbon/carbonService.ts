@@ -175,6 +175,7 @@ export class CarbonService {
 
     const totalCo2Tonnes = kgToTonnes(totalCo2Kg);
     const emissionsPerKm = totalDistanceKm > 0 ? Number((totalCo2Kg / totalDistanceKm).toFixed(3)) : 0;
+    const avgFuelEconomyKmpl = totalFuelBurnedLiters > 0 ? Number((totalDistanceKm / totalFuelBurnedLiters).toFixed(1)) : 0;
     const actualDataPercentage = calculatedTrips.length > 0 ? Math.round((actualFuelTripsCount / calculatedTrips.length) * 100) : 0;
     const periodDelta = calculatePeriodDelta(totalCo2Kg, previousTotalCo2Kg);
 
@@ -398,6 +399,7 @@ export class CarbonService {
         estimatedCo2Kg,
         actualDataPercentage,
         emissionsPerKm,
+        avgFuelEconomyKmpl,
         totalDistanceKm,
         totalFuelLiters: totalFuelBurnedLiters,
         totalFuelCostINR,

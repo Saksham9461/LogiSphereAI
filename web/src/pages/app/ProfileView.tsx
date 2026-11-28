@@ -9,7 +9,6 @@ import {
   Shield,
   Building2,
   Lock,
-  Key,
   CheckCircle2,
   Phone,
 } from 'lucide-react';
@@ -83,9 +82,9 @@ export const ProfileView: React.FC = () => {
         </p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 420px) 1fr', gap: '1.5rem', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 420px) 1fr', gap: '1.5rem', alignItems: 'stretch' }}>
         {/* Left Column: Profile Card */}
-        <div className="app-card">
+        <div className="app-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', paddingBottom: '1.25rem', borderBottom: '1px solid #F3F4F6', marginBottom: '1.25rem' }}>
             <div
               style={{
@@ -132,20 +131,12 @@ export const ProfileView: React.FC = () => {
           </div>
 
           {/* Details List */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', fontSize: '0.85rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.85rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <Building2 size={16} color="#6B7280" />
               <div>
                 <div style={{ fontSize: '0.72rem', color: '#6B7280', textTransform: 'uppercase', fontWeight: 700 }}>Organization</div>
                 <div style={{ fontWeight: 600, color: '#111827' }}>{user?.organizationName || 'LogiSphere Fleet Operations'}</div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <Key size={16} color="#6B7280" />
-              <div>
-                <div style={{ fontSize: '0.72rem', color: '#6B7280', textTransform: 'uppercase', fontWeight: 700 }}>User ID</div>
-                <div className="ops-mono" style={{ fontWeight: 600, color: '#111827' }}>{user?.id || user?.userId || 'N/A'}</div>
               </div>
             </div>
 
@@ -162,7 +153,7 @@ export const ProfileView: React.FC = () => {
         </div>
 
         {/* Right Column: Password Management Form */}
-        <div className="app-card">
+        <div className="app-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
           <div className="app-card-header">
             <div className="app-card-title">
               <Lock size={18} color="#F59E0B" />

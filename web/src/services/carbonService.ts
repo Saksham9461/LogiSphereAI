@@ -73,7 +73,18 @@ export const carbonService = {
     const res = await apiClient.get<{ success: boolean; data: CarbonOverviewData }>('/api/carbon/overview', {
       params,
     });
-    return res.data.data;
+    const raw = res.data.data;
+    const totalDist = Number(raw?.kpis?.totalDistanceKm || 0);
+    const totalFuel = Number(raw?.kpis?.totalFuelLiters || 0);
+    const fallbackKmpl = totalFuel > 0 ? Number((totalDist / totalFuel).toFixed(1)) : 0;
+
+    return {
+      ...raw,
+      kpis: {
+        ...raw?.kpis,
+        avgFuelEconomyKmpl: raw?.kpis?.avgFuelEconomyKmpl ?? fallbackKmpl,
+      },
+    };
   },
 
   /**

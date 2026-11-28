@@ -142,9 +142,17 @@ export const CarbonView: React.FC = () => {
         <div className="kpi-card">
           <span className="kpi-label">Avg Fleet Fuel Economy</span>
           <div className="kpi-value" style={{ color: '#3B82F6' }}>
-            {kpis ? `${kpis.avgFuelEconomyKmpl} km/L` : '0.0 km/L'}
+            {(() => {
+              if (!kpis) return '0.0 km/L';
+              const val = kpis.avgFuelEconomyKmpl ?? (
+                kpis.totalFuelLiters > 0 && kpis.totalDistanceKm
+                  ? Number((kpis.totalDistanceKm / kpis.totalFuelLiters).toFixed(1))
+                  : 0
+              );
+              return `${val || 0} km/L`;
+            })()}
           </div>
-          <span className="kpi-meta">{kpis?.totalFuelLiters.toLocaleString() || 0} L consumed</span>
+          <span className="kpi-meta">{kpis?.totalFuelLiters ? kpis.totalFuelLiters.toLocaleString() : 0} L consumed</span>
         </div>
 
         <div className="kpi-card">

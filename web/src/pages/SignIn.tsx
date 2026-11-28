@@ -279,7 +279,7 @@ export const SignIn: React.FC<SignInProps> = ({ onNavigate, onLoginSuccess }) =>
 
           {/* Links */}
           <div style={{ marginTop: '1.75rem', paddingTop: '1.25rem', borderTop: '1px solid #E5E7EB', textAlign: 'center', fontSize: '0.85rem', color: '#6B7280' }}>
-            New fleet company?{' '}
+            New fleet company?{' '} <br/>
             <button
               type="button"
               onClick={() => onNavigate('signup')}
